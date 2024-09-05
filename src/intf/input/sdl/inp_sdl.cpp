@@ -154,34 +154,13 @@ int SDLinpStart()
 // Read one of the joysticks
 static int ReadJoystick()
 {
-	if (bJoystickRead) {
-		return 0;
-	}
-
-	SDL_JoystickUpdate();
-
-	// All joysticks have been Read this frame
-	bJoystickRead = 1;
-
 	return 0;
 }
 
 // Read one joystick axis
 int SDLinpJoyAxis(int i, int nAxis)
 {
-	if (i < 0 || i >= nJoystickCount) {				// This joystick number isn't connected
-		return 0;
-	}
-
-	if (ReadJoystick() != 0) {						// There was an error polling the joystick
-		return 0;
-	}
-
-	if (nAxis >= SDL_JoystickNumAxes(JoyList[i])) {
-		return 0;
-	}
-
-	return SDL_JoystickGetAxis(JoyList[i], nAxis) << 1;
+	return 0;
 }
 
 // Read the keyboard
@@ -206,111 +185,24 @@ static int ReadKeyboard()
 
 static int ReadMouse()
 {
-	if (bMouseRead) {
-		return 0;
-	}
-
-	SDLinpMouseState.buttons = SDL_GetRelativeMouseState(&(SDLinpMouseState.xdelta), &(SDLinpMouseState.ydelta));
-
-	bMouseRead = 1;
-
 	return 0;
 }
 
 // Read one mouse axis
 int SDLinpMouseAxis(int i, int nAxis)
 {
-	if (i < 0 || i >= 1) {									// Only the system mouse is supported by SDL
-		return 0;
-	}
-
-	switch (nAxis) {
-	case 0:
-		return SDLinpMouseState.xdelta;
-	case 1:
-		return SDLinpMouseState.ydelta;
-	}
-
 	return 0;
 }
 
 // Check a subcode (the 40xx bit in 4001, 4102 etc) for a joystick input code
 static int JoystickState(int i, int nSubCode)
 {
-	if (i < 0 || i >= nJoystickCount) {							// This joystick isn't connected
-		return 0;
-	}
-
-	if (ReadJoystick() != 0) {									// Error polling the joystick
-		return 0;
-	}
-
-	if (nSubCode < 0x10) {										// Joystick directions
-		const int DEADZONE = 0x4000;
-
-		if (SDL_JoystickNumAxes(JoyList[i]) <= nSubCode) {
-			return 0;
-		}
-
-		switch (nSubCode) {
-		case 0x00: return SDL_JoystickGetAxis(JoyList[i], 0) < -DEADZONE;		// Left
-		case 0x01: return SDL_JoystickGetAxis(JoyList[i], 0) > DEADZONE;		// Right
-		case 0x02: return SDL_JoystickGetAxis(JoyList[i], 1) < -DEADZONE;		// Up
-		case 0x03: return SDL_JoystickGetAxis(JoyList[i], 1) > DEADZONE;		// Down
-		case 0x04: return SDL_JoystickGetAxis(JoyList[i], 2) < -DEADZONE;
-		case 0x05: return SDL_JoystickGetAxis(JoyList[i], 2) > DEADZONE;
-		case 0x06: return SDL_JoystickGetAxis(JoyList[i], 3) < -DEADZONE;
-		case 0x07: return SDL_JoystickGetAxis(JoyList[i], 3) > DEADZONE;
-		case 0x08: return SDL_JoystickGetAxis(JoyList[i], 4) < -DEADZONE;
-		case 0x09: return SDL_JoystickGetAxis(JoyList[i], 4) > DEADZONE;
-		case 0x0A: return SDL_JoystickGetAxis(JoyList[i], 5) < -DEADZONE;
-		case 0x0B: return SDL_JoystickGetAxis(JoyList[i], 5) > DEADZONE;
-		case 0x0C: return SDL_JoystickGetAxis(JoyList[i], 6) < -DEADZONE;
-		case 0x0D: return SDL_JoystickGetAxis(JoyList[i], 6) > DEADZONE;
-		case 0x0E: return SDL_JoystickGetAxis(JoyList[i], 7) < -DEADZONE;
-		case 0x0F: return SDL_JoystickGetAxis(JoyList[i], 7) > DEADZONE;
-		}
-	}
-	if (nSubCode < 0x20) {										// POV hat controls
-		if (SDL_JoystickNumHats(JoyList[i]) <= ((nSubCode & 0x0F) >> 2)) {
-			return 0;
-		}
-
-		switch (nSubCode & 3) {
-		case 0:												// Left
-			return SDL_JoystickGetHat(JoyList[i], (nSubCode & 0x0F) >> 2)& SDL_HAT_LEFT;
-		case 1:												// Right
-			return SDL_JoystickGetHat(JoyList[i], (nSubCode & 0x0F) >> 2)& SDL_HAT_RIGHT;
-		case 2:												// Up
-			return SDL_JoystickGetHat(JoyList[i], (nSubCode & 0x0F) >> 2)& SDL_HAT_UP;
-		case 3:												// Down
-			return SDL_JoystickGetHat(JoyList[i], (nSubCode & 0x0F) >> 2)& SDL_HAT_DOWN;
-		}
-
-		return 0;
-	}
-	if (nSubCode < 0x80) {										// Undefined
-		return 0;
-	}
-	if (nSubCode < 0x80 + SDL_JoystickNumButtons(JoyList[i])) {	// Joystick buttons
-		return SDL_JoystickGetButton(JoyList[i], nSubCode & 0x7F);
-	}
-
 	return 0;
 }
 
 // Check a subcode (the 80xx bit in 8001, 8102 etc) for a mouse input code
 static int CheckMouseState(unsigned int nSubCode)
 {
-	switch (nSubCode & 0x7F) {
-	case 0:
-		return (SDLinpMouseState.buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
-	case 1:
-		return (SDLinpMouseState.buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0;
-	case 2:
-		return (SDLinpMouseState.buttons & SDL_BUTTON(SDL_BUTTON_MIDDLE)) != 0;
-	}
-
 	return 0;
 }
 
@@ -332,25 +224,6 @@ int SDLinpState(int nCode)
 		return 0;
 	}
 
-	if (nCode < 0x8000) {
-		// Codes 4000-8000 = Joysticks
-		int nJoyNumber = (nCode - 0x4000) >> 8;
-
-		// Find the joystick state in our array
-		return JoystickState(nJoyNumber, nCode & 0xFF);
-	}
-
-	if (nCode < 0xC000) {
-		// Codes 8000-C000 = Mouse
-		if ((nCode - 0x8000) >> 8) {						// Only the system mouse is supported by SDL
-			return 0;
-		}
-		if (ReadMouse() != 0) {								// Error polling the mouse
-			return 0;
-		}
-		return CheckMouseState(nCode & 0xFF);
-	}
-
 	return 0;
 }
 
@@ -365,63 +238,6 @@ int SDLinpFind(bool CreateBaseline)
 			if (SDL_KEY_DOWN(i) > 0) {
 				nRetVal = i;
 				goto End;
-			}
-		}
-	}
-
-	// Now check all the connected joysticks
-	for (int i = 0; i < nJoystickCount; i++) {
-		int j;
-		if (ReadJoystick() != 0) {							// There was an error polling the joystick
-			continue;
-		}
-
-		for (j = 0; j < 0x10; j++) {						// Axes
-			int nDelta = JoyPrevAxes[(i << 3) + (j >> 1)] - SDLinpJoyAxis(i, (j >> 1));
-			if (nDelta < -0x4000 || nDelta > 0x4000) {
-				if (JoystickState(i, j)) {
-					nRetVal = 0x4000 | (i << 8) | j;
-					goto End;
-				}
-			}
-		}
-
-		for (j = 0x10; j < 0x20; j++) {						// POV hats
-			if (JoystickState(i, j)) {
-				nRetVal = 0x4000 | (i << 8) | j;
-				goto End;
-			}
-		}
-
-		for (j = 0x80; j < 0x80 + SDL_JoystickNumButtons(JoyList[i]); j++) {
-			if (JoystickState(i, j)) {
-				nRetVal = 0x4000 | (i << 8) | j;
-				goto End;
-			}
-		}
-	}
-
-	// Now the mouse
-	if (ReadMouse() == 0) {
-		int nDeltaX, nDeltaY;
-
-		for (unsigned int j = 0x80; j < 0x80 + 0x80; j++) {
-			if (CheckMouseState(j)) {
-				nRetVal = 0x8000 | j;
-				goto End;
-			}
-		}
-
-		nDeltaX = SDLinpMouseAxis(0, 0);
-		nDeltaY = SDLinpMouseAxis(0, 1);
-		if (abs(nDeltaX) < abs(nDeltaY)) {
-			if (nDeltaY != 0) {
-				return 0x8000 | 1;
-			}
-		}
-		else {
-			if (nDeltaX != 0) {
-				return 0x8000 | 0;
 			}
 		}
 	}
@@ -441,40 +257,6 @@ End:
 
 int SDLinpGetControlName(int nCode, TCHAR* pszDeviceName, TCHAR* pszControlName)
 {
-    if (pszDeviceName) {
-        pszDeviceName[0] = _T('\0');
-    }
-    if (pszControlName) {
-        pszControlName[0] = _T('\0');
-    }
-
-    switch (nCode & 0xC000) {
-    case 0x0000: {
-        _tcscpy(pszDeviceName, _T("System keyboard"));
-        break;
-    }
-    case 0x4000: {
-        int i = (nCode >> 8) & 0x3F;
-
-        if (i >= nJoystickCount) {				// This joystick isn't connected
-            return 0;
-        }
-        _stprintf(pszDeviceName, _T("%s"), SDL_JoystickName(i));  // Cambia "%hs" por "%s"
-
-        break;
-    }
-    case 0x8000: {
-        int i = (nCode >> 8) & 0x3F;
-
-        if (i >= 1) {
-            return 0;
-        }
-        _tcscpy(pszDeviceName, _T("System mouse"));
-
-        break;
-    }
-    }
-
     return 0;
 }
 
