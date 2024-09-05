@@ -68,91 +68,6 @@ int MacOSinpInitControls(struct GameInp *pgi, const char *szi);
 
 // ---------------------------------------------------------------------------
 
-// Check if the left alt (menu) key is mapped
-#ifndef __LIBRETRO__
-void GameInpCheckLeftAlt()
-{
-	struct GameInp* pgi;
-	UINT32 i;
-
-	bLeftAltkeyMapped = false;
-
-	for (i = 0, pgi = GameInp; i < (nGameInpCount + nMacroCount); i++, pgi++) {
-
-		if (bLeftAltkeyMapped) {
-			break;
-		}
-
-		switch (pgi->nInput) {
-			case GIT_SWITCH:
-				if (pgi->Input.Switch.nCode == FBK_LALT) {
-					bLeftAltkeyMapped = true;
-				}
-				break;
-			case GIT_MACRO_AUTO:
-			case GIT_MACRO_CUSTOM:
-				if (pgi->Macro.nMode) {
-					if (pgi->Macro.Switch.nCode == FBK_LALT) {
-						bLeftAltkeyMapped = true;
-					}
-				}
-				break;
-
-			default:
-				continue;
-		}
-	}
-}
-
-// Check if the sytem mouse is mapped and set the cooperative level apropriately
-void GameInpCheckMouse()
-{
-	bool bMouseMapped = false;
-	struct GameInp* pgi;
-	UINT32 i;
-
-	for (i = 0, pgi = GameInp; i < (nGameInpCount + nMacroCount); i++, pgi++) {
-
-		if (bMouseMapped) {
-			break;
-		}
-
-		switch (pgi->nInput) {
-			case GIT_SWITCH:
-				if ((pgi->Input.Switch.nCode & 0xFF00) == 0x8000) {
-					bMouseMapped = true;
-				}
-				break;
-			case GIT_MOUSEAXIS:
-				if (pgi->Input.MouseAxis.nMouse == 0) {
-					bMouseMapped = true;
-				}
-				break;
-			case GIT_MACRO_AUTO:
-			case GIT_MACRO_CUSTOM:
-				if (pgi->Macro.nMode) {
-					if ((pgi->Macro.Switch.nCode & 0xFF00) == 0x8000) {
-						bMouseMapped = true;
-					}
-				}
-				break;
-
-			default:
-				continue;
-		}
-	}
-
-	if (bDrvOkay) {
-		if (!bRunPause) {
-			InputSetCooperativeLevel(bMouseMapped, bAlwaysProcessKeyboardInput);
-		} else {
-			InputSetCooperativeLevel(false, bAlwaysProcessKeyboardInput);
-		}
-	} else {
-		InputSetCooperativeLevel(false, false);
-	}
-}
-#endif
 
 // ---------------------------------------------------------------------------
 
@@ -1621,41 +1536,6 @@ TCHAR* InpToDesc(struct GameInp* pgi)
 	if (pgi->nInput == GIT_SWITCH) {
 		return InputCodeDesc(pgi->Input.Switch.nCode);
 	}
-	if (pgi->nInput == GIT_MOUSEAXIS) {
-		TCHAR nAxis = _T('?');
-		switch (pgi->Input.MouseAxis.nAxis) {
-			case 0:
-				nAxis = _T('X');
-				break;
-			case 1:
-				nAxis = _T('Y');
-				break;
-			case 2:
-				nAxis = _T('Z');
-				break;
-		}
-		_stprintf(szInputName, _T("Mouse %i %c axis"), pgi->Input.MouseAxis.nMouse, nAxis);
-		return szInputName;
-	}
-	if (pgi->nInput & GIT_GROUP_JOYSTICK) {
-		TCHAR szAxis[8][3] = { _T("X"), _T("Y"), _T("Z"), _T("rX"), _T("rY"), _T("rZ"), _T("s0"), _T("s1") };
-		TCHAR szRange[4][16] = { _T("unknown"), _T("full"), _T("negative"), _T("positive") };
-		INT32 nRange = 0;
-		switch (pgi->nInput) {
-			case GIT_JOYAXIS_FULL:
-				nRange = 1;
-				break;
-			case GIT_JOYAXIS_NEG:
-				nRange = 2;
-				break;
-			case GIT_JOYAXIS_POS:
-				nRange = 3;
-				break;
-		}
-
-		_stprintf(szInputName, _T("Joy %d %s axis (%s range)"), pgi->Input.JoyAxis.nJoy, szAxis[pgi->Input.JoyAxis.nAxis], szRange[nRange]);
-		return szInputName;
-	}
 
 	return InpToString(pgi);							// Just do the rest as they are in the config file
 }
@@ -1732,81 +1612,16 @@ static UINT32 MacroNameToNum(TCHAR* szName)
 }
 
 // ---------------------------------------------------------------------------
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
-extern int usejoy;
-extern INT32 MapJoystick(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nDevice);
-#endif
 
 static INT32 GameInpAutoOne(struct GameInp* pgi, char* szi)
 {
 	for (INT32 i = 0; i < nMaxPlayers; i++) {
 		INT32 nSlide = nPlayerDefaultControls[i] >> 4;
 		switch (nPlayerDefaultControls[i] & 0x0F) {
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
-			case 0:
-				// Trying to avoing calling another function to map an already mapped input
-				if (usejoy) {
-					if (GamcAnalogJoy(pgi, szi, i, 0, nSlide) && MapJoystick(pgi, szi, i, 1) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 0);
-				} else if (GamcAnalogKey(pgi, szi, i, nSlide) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, -1);
-				break;
-			case 1:
-				if (GamcAnalogJoy(pgi, szi, i, usejoy, nSlide)) {
-					if (usejoy) {
-						if (MapJoystick(pgi, szi, i, 2) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 1);
-					} else if (GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 0);
-				}
-				break;
-			case 2:
-				if (GamcAnalogJoy(pgi, szi, i, usejoy + 1, nSlide)) {
-					if (usejoy) {
-						if (MapJoystick(pgi, szi, i, 3) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 2);
-					} else if (GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 1);
-				}
-				break;
-			case 3:
-				if (GamcAnalogJoy(pgi, szi, i, usejoy + 2, nSlide)) {
-					if (usejoy) {
-						if (MapJoystick(pgi, szi, i, 4) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 3);
-					} else if (GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 2);
-				}
-				break;
-#else
 			case 0:										// Keyboard
 				GamcAnalogKey(pgi, szi, i, nSlide);
 				GamcPlayer(pgi, szi, i, -1);
 				GamcMisc(pgi, szi, i);
-				break;
-			case 1:										// Joystick 1
-				GamcAnalogJoy(pgi, szi, i, 0, nSlide);
-				GamcPlayer(pgi, szi, i, 0);
-				GamcMisc(pgi, szi, i);
-				break;
-			case 2:										// Joystick 2
-				GamcAnalogJoy(pgi, szi, i, 1, nSlide);
-				GamcPlayer(pgi, szi, i, 1);
-				GamcMisc(pgi, szi, i);
-				break;
-			case 3:										// Joystick 3
-				GamcAnalogJoy(pgi, szi, i, 2, nSlide);
-				GamcPlayer(pgi, szi, i, 2);
-				GamcMisc(pgi, szi, i);
-				break;
-#endif
-			case 4:										// X-Arcade left side
-				GamcMisc(pgi, szi, i);
-				GamcPlayerHotRod(pgi, szi, i, 0x10, nSlide);
-				break;
-			case 5:										// X-Arcade right side
-				GamcMisc(pgi, szi, i);
-				GamcPlayerHotRod(pgi, szi, i, 0x11, nSlide);
-				break;
-			case 6:										// Hot Rod left side
-				GamcMisc(pgi, szi, i);
-				GamcPlayerHotRod(pgi, szi, i, 0x00, nSlide);
-				break;
-			case 7:										// Hot Rod right side
-				GamcMisc(pgi, szi, i);
-				GamcPlayerHotRod(pgi, szi, i, 0x01, nSlide);
 				break;
 			default:
 				GamcMisc(pgi, szi, i);
@@ -2074,13 +1889,7 @@ void GetHistoryDatHardwareToken(char *to_string)
 
 INT32 ConfigGameLoadHardwareDefaults()
 {
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
-	TCHAR *szFolderName = NULL;
-	TCHAR szFileName[MAX_PATH] = _T("");
-	szFolderName = SDL_GetPrefPath(NULL, "fbneo");		// Get fbneo folder path
-#else
 	TCHAR *szFileName = _T("");
-#endif
 	INT32 nApplyHardwareDefaults = 0;
 
 	INT32 nHardwareFlag = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK);
@@ -2090,11 +1899,7 @@ INT32 ConfigGameLoadHardwareDefaults()
 		for (INT32 hw = 0; gamehw_cfg[i].hw[hw] != 0; hw++) {
 			if (gamehw_cfg[i].hw[hw] == nHardwareFlag)
 			{
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
-				_stprintf(szFileName, _T("%s%s"), szFolderName, gamehw_cfg[i].ini);
-#else
 				szFileName = gamehw_cfg[i].ini;
-#endif
 				nApplyHardwareDefaults = 1;
 				break;
 			}
@@ -2107,9 +1912,6 @@ INT32 ConfigGameLoadHardwareDefaults()
 		}
 	}
 
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
-	SDL_free(szFolderName);
-#endif
 	return 0;
 }
 
@@ -2120,18 +1922,6 @@ INT32 GameInpDefault()
 	struct BurnInputInfo bii;
 	UINT32 i;
 
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
-	TCHAR *szSDLconfigPath = NULL;
-	szSDLconfigPath = SDL_GetPrefPath("fbneo", "config");
-	for (INT32 nPlayer = 0; nPlayer < 4; nPlayer++) {
-		_stprintf(szPlayerDefaultIni[nPlayer], _T("%sp%ddefaults.ini"), szSDLconfigPath, nPlayer + 1);
-	}
-	SDL_free(szSDLconfigPath);
-
-	for (INT32 nPlayer = 0; nPlayer < nMaxPlayers; nPlayer++) {
-		GameInputAutoIni(nPlayer, szPlayerDefaultIni[nPlayer], false);
-	}
-#else
 	for (INT32 nPlayer = 0; nPlayer < nMaxPlayers; nPlayer++) {
 
 		if ((nPlayerDefaultControls[nPlayer] & 0x0F) != 0x0F) {
@@ -2140,7 +1930,6 @@ INT32 GameInpDefault()
 
 		GameInputAutoIni(nPlayer, szPlayerDefaultIni[nPlayer], false);
 	}
-#endif
 
 	// Fill all inputs still undefined
 	for (i = 0, pgi = GameInp; i < nGameInpCount; i++, pgi++) {
@@ -2164,11 +1953,6 @@ INT32 GameInpDefault()
 			pgi->nInput = GIT_CONSTANT;
 			continue;
 		}
-#ifdef BUILD_MACOS
-        if (MacOSinpInitControls(pgi, bii.szInfo) == 0) {
-            continue; // NOTE: prevents 'GameInpAutoOne' from being called
-        }
-#endif
 
 		GameInpAutoOne(pgi, bii.szInfo);
 	}

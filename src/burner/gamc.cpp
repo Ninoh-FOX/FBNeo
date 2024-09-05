@@ -1,7 +1,7 @@
 // Burner Game Control
 #include "burner.h"
 
-static char szPlay[4][4]={"p1 ", "p2 ", "p3 ", "p4 "};
+static char szPlay[1][4]={"p1 "};
 
 #define KEY(x) { pgi->nInput = GIT_SWITCH; pgi->Input.Switch.nCode = (UINT16)(x); }
 #define MACRO(x) { pgi->Macro.nMode = 1; pgi->Macro.Switch.nCode = (UINT16)(x); }
@@ -39,15 +39,7 @@ INT32 GamcMisc(struct GameInp* pgi, char* szi, INT32 nPlayer)
 			break;
 	}
 
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
-	return 1;
-#else
 	return 0;
-#endif
-}
-
-static void SetSliderKey(struct GameInp* pgi, INT32 k0, INT32 k1, INT32 nSlide)
-{
 }
 
 INT32 GamcAnalogKey(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nSlide)
@@ -64,7 +56,7 @@ INT32 GamcAnalogJoy(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nJoy, I
 // -2 = nothing  -1 == keyboard, 0 == joystick 1, 1 == joystick 2 etc...
 INT32 GamcPlayer(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nDevice)
 {
-	char* szSearch = szPlay[nPlayer & 3];
+	char* szSearch = szPlay[0];
 
 	if (_strnicmp(szSearch, szi, 3) != 0) {	// Not our player
 		return 1;
@@ -102,18 +94,65 @@ INT32 GamcPlayer(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nDevice)
 	// Now check the rest of it
 	if (nDevice == -1) {
 		// Keyboard
-		if (strcmp(szi, "up") == 0 || strcmp(szi, "y-axis-neg") == 0) {
+		if (strcmp(szi, "up") == 0) {
 			KEY(FBK_UPARROW);
 		}
-		if (strcmp(szi, "down") == 0 || strcmp(szi, "y-axis-pos") == 0) {
+		if (strcmp(szi, "down") == 0) {
 			KEY(FBK_DOWNARROW);
 		}
-		if (strcmp(szi, "left") == 0 || strcmp(szi, "x-axis-neg") == 0) {
+		if (strcmp(szi, "left") == 0) {
 			KEY(FBK_LEFTARROW);
 		}
-		if (strcmp(szi, "right") == 0 || strcmp(szi, "x-axis-pos") == 0) {
+		if (strcmp(szi, "right") == 0) {
 			KEY(FBK_RIGHTARROW);
 		}
+		if (nFireButtons == 2) {
+		if (strcmp(szi, "fire 1") == 0) {
+			KEY(FBK_SPACE);
+		}
+		if (strcmp(szi, "fire 2") == 0) {
+			KEY(FBK_LCONTROL);
+		}
+		} else if (nFireButtons == 3) {
+		if (strcmp(szi, "fire 1") == 0) {
+			KEY(FBK_LALT);
+		}
+		if (strcmp(szi, "fire 2") == 0) {
+			KEY(FBK_LCONTROL);
+		}
+		if (strcmp(szi, "fire 3") == 0) {
+			KEY(FBK_SPACE);
+		}
+		} else if (nFireButtons == 4) {
+		if (strcmp(szi, "fire 1") == 0) {
+			KEY(FBK_LALT);
+		}
+		if (strcmp(szi, "fire 2") == 0) {
+			KEY(FBK_LCONTROL);
+		}
+		if (strcmp(szi, "fire 3") == 0) {
+			KEY(FBK_SPACE);
+		}
+		if (strcmp(szi, "fire 4") == 0) {
+			KEY(FBK_LSHIFT);
+		}
+		} else if (nFireButtons == 5) {
+		if (strcmp(szi, "fire 1") == 0) {
+			KEY(FBK_LALT);
+		}
+		if (strcmp(szi, "fire 2") == 0) {
+			KEY(FBK_LCONTROL);
+		}
+		if (strcmp(szi, "fire 3") == 0) {
+			KEY(FBK_E);
+		}
+		if (strcmp(szi, "fire 4") == 0) {
+			KEY(FBK_LSHIFT);
+		}
+		if (strcmp(szi, "fire 5") == 0) {
+			KEY(FBK_SPACE);
+		}
+		} else {
 		if (strcmp(szi, "fire 1") == 0) {
 			KEY(FBK_LALT);
 		}
@@ -132,14 +171,10 @@ INT32 GamcPlayer(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nDevice)
 		if (strcmp(szi, "fire 6") == 0) {
 			KEY(FBK_T);
 		}
+		}
 
 		return 0;
 	}
-}
-
-INT32 GamcPlayerHotRod(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nFlags, INT32 nSlide)
-{
-	return 1;												// Couldn't map input
 }
 
 #undef MACRO
