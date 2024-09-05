@@ -536,7 +536,7 @@ int RunMessageLoop()
 				case SDLK_F6:
 					bscreenshot = 0;
 					break;
-				case SDLK_F12:
+				case SDLK_ESCAPE:
 					quit = 1;
 					break;
 

@@ -12,514 +12,30 @@ INT32 GamcMisc(struct GameInp* pgi, char* szi, INT32 nPlayer)
 	switch (nPlayer) {
 		case 0:
 			// Set general controls according to Player 1 settings
-			if (strcmp(szi, "diag") == 0) {
-				KEY(FBK_F2);
-				return 0;
-			}
 			if (strcmp(szi, "reset") == 0) {
-				KEY(FBK_F3);
-				return 0;
-			}
-			if (strcmp(szi, "service" ) == 0) {
-				KEY(FBK_9);
-				return 0;
-			}
-			if (strcmp(szi, "service2" ) == 0) {
-				KEY(FBK_0);
-				return 0;
-			}
-			if (strcmp(szi, "service3" ) == 0) {
-				KEY(FBK_MINUS);
-				return 0;
-			}
-			if (strcmp(szi, "service4" ) == 0) {
-				KEY(FBK_EQUALS);
-				return 0;
-			}
-			if (strcmp(szi, "tilt") == 0) {
-				KEY(FBK_T);
-				return 0;
-			}
-			if (strcmp(szi, "swap") == 0) {
-				KEY(FBK_S);
-				return 0;
-			}
-
-			if (strcmp(szi, "op menu" ) == 0) {
-				KEY(FBK_F);
-				return 0;
-			}
-
-			if (strcmp(szi, "clear credit" ) == 0) {
-				KEY(FBK_G);
-				return 0;
-			}
-
-			if (strcmp(szi, "hopper" ) == 0) {
-				KEY(FBK_H);
-				return 0;
-			}
-
-			// Mahjong controls
-			if (strcmp(szi, "mah a") == 0) {
-				KEY(FBK_A);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah b") == 0) {
-				KEY(FBK_B);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah c") == 0) {
-				KEY(FBK_C);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah d") == 0) {
-				KEY(FBK_D);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah e") == 0) {
-				KEY(FBK_E);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah f") == 0) {
-				KEY(FBK_F);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah g") == 0) {
-				KEY(FBK_G);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah h") == 0) {
-				KEY(FBK_H);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah i") == 0) {
-				KEY(FBK_I);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah j") == 0) {
-				KEY(FBK_J);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah k") == 0) {
-				KEY(FBK_K);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah l") == 0) {
-				KEY(FBK_L);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah m") == 0) {
-				KEY(FBK_M);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah n") == 0) {
-				KEY(FBK_N);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah big") == 0) {
-				KEY(FBK_RETURN);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah wup") == 0) {
-				KEY(FBK_RSHIFT);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah small") == 0) {
 				KEY(FBK_BACK);
 				return 0;
 			}
-
-			if (strcmp(szi, "mah kan") == 0) {
-				KEY(FBK_LCONTROL);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah pon") == 0) {
-				KEY(FBK_LALT);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah chi") == 0) {
-				KEY(FBK_SPACE);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah reach") == 0) {
-				KEY(FBK_LSHIFT);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah ron") == 0) {
-				KEY(FBK_Z);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah ff") == 0) {
-				KEY(FBK_Y);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah lc") == 0) {
-				KEY(FBK_RALT);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah bet") == 0) {
-				KEY(FBK_2);
-				return 0;
-			}
-
-			if (strcmp(szi, "mah score") == 0) {
-				KEY(FBK_RCONTROL);
+			if (strcmp(szi, "diag") == 0) {
+				KEY(FBK_TAB);
 				return 0;
 			}
 
 			// Player 1 controls
 			if (strcmp(szi, "p1 start") == 0) {
-				KEY(FBK_1);
-				return 0;
-			}
-			if (strcmp(szi, "p1 select" ) == 0) {
-				KEY(FBK_3);
-				return 0;
-			}
-			if (strcmp(szi, "p1 coin" ) == 0) {
-				KEY(FBK_5);
-				return 0;
-			}
-
-			// keyboard keys
-			if (strcmp(szi, "keyb_enter" ) == 0) {
 				KEY(FBK_RETURN);
 				return 0;
 			}
-
-			if (strcmp(szi, "keyb_left_shift" ) == 0) {
-				KEY(FBK_LSHIFT);
+			if (strcmp(szi, "p1 select" ) == 0) {
+				KEY(FBK_RCONTROL);
+				return 0;
+			}
+			if (strcmp(szi, "p1 coin" ) == 0) {
+				KEY(FBK_RCONTROL);
 				return 0;
 			}
 
-			if (strcmp(szi, "keyb_right_shift" ) == 0) {
-				KEY(FBK_RSHIFT);
-				return 0;
-			}
 
-			if (strcmp(szi, "keyb_space" ) == 0) {
-				KEY(FBK_SPACE);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_0" ) == 0) {
-				KEY(FBK_0);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_1" ) == 0) {
-				KEY(FBK_1);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_2" ) == 0) {
-				KEY(FBK_2);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_3" ) == 0) {
-				KEY(FBK_3);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_4" ) == 0) {
-				KEY(FBK_4);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_5" ) == 0) {
-				KEY(FBK_5);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_6" ) == 0) {
-				KEY(FBK_6);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_7" ) == 0) {
-				KEY(FBK_7);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_8" ) == 0) {
-				KEY(FBK_8);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_9" ) == 0) {
-				KEY(FBK_9);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_A" ) == 0) {
-				KEY(FBK_A);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_B" ) == 0) {
-				KEY(FBK_B);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_C" ) == 0) {
-				KEY(FBK_C);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_D" ) == 0) {
-				KEY(FBK_D);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_E" ) == 0) {
-				KEY(FBK_E);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_F" ) == 0) {
-				KEY(FBK_F);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_G" ) == 0) {
-				KEY(FBK_G);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_H" ) == 0) {
-				KEY(FBK_H);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_I" ) == 0) {
-				KEY(FBK_I);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_J" ) == 0) {
-				KEY(FBK_J);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_K" ) == 0) {
-				KEY(FBK_K);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_L" ) == 0) {
-				KEY(FBK_L);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_M" ) == 0) {
-				KEY(FBK_M);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_N" ) == 0) {
-				KEY(FBK_N);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_O" ) == 0) {
-				KEY(FBK_O);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_P" ) == 0) {
-				KEY(FBK_P);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_Q" ) == 0) {
-				KEY(FBK_Q);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_R" ) == 0) {
-				KEY(FBK_R);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_S" ) == 0) {
-				KEY(FBK_S);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_T" ) == 0) {
-				KEY(FBK_T);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_U" ) == 0) {
-				KEY(FBK_U);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_V" ) == 0) {
-				KEY(FBK_V);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_W" ) == 0) {
-				KEY(FBK_W);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_X" ) == 0) {
-				KEY(FBK_X);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_Y" ) == 0) {
-				KEY(FBK_Y);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_Z" ) == 0) {
-				KEY(FBK_Z);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_insert" ) == 0) {
-				KEY(FBK_INSERT);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_caps_lock" ) == 0) {
-				KEY(FBK_CAPITAL);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_home" ) == 0) {
-				KEY(FBK_HOME);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_end" ) == 0) {
-				KEY(FBK_END);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_left" ) == 0) {
-				KEY(FBK_LEFTARROW);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_right" ) == 0) {
-				KEY(FBK_RIGHTARROW);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_up" ) == 0) {
-				KEY(FBK_UPARROW);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_down" ) == 0) {
-				KEY(FBK_DOWNARROW);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_backspace" ) == 0) {
-				KEY(FBK_BACK);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_left_alt" ) == 0) {
-				KEY(FBK_LALT);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_pause" ) == 0) {
-				KEY(FBK_PAUSE);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_left_ctrl" ) == 0) {
-				KEY(FBK_LCONTROL);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_apost" ) == 0) {
-				KEY(FBK_APOSTROPHE);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_colon" ) == 0) {
-				KEY(FBK_COLON);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_stop" ) == 0) {
-				KEY(FBK_PERIOD);
-				return 0;
-			}
-
-			if (strcmp(szi, "keyb_comma" ) == 0) {
-				KEY(FBK_COMMA);
-				return 0;
-			}
-
-			break;
-		case 1:
-			if (strcmp(szi, "p2 start") == 0) {
-				KEY(FBK_2);
-				return 0;
-			}
-			if (strcmp(szi, "p2 select" ) == 0) {
-				KEY(FBK_4);
-				return 0;
-			}
-			if (strcmp(szi, "p2 coin" ) == 0) {
-				KEY(FBK_6);
-				return 0;
-			}
-			break;
-		case 2:
-			if (strcmp(szi, "p3 coin" ) == 0) {
-				KEY(FBK_7);
-				return 0;
-			}
-			if (strcmp(szi, "p3 start") == 0) {
-				KEY(FBK_3);
-				return 0;
-			}
-			break;
-		case 3:
-			if (strcmp(szi, "p4 start") == 0) {
-				KEY(FBK_4);
-				return 0;
-			}
-			if (strcmp(szi, "p4 coin" ) == 0) {
-				KEY(FBK_8);
-				return 0;
-			}
 			break;
 	}
 
@@ -597,8 +113,6 @@ INT32 GamcAnalogKey(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nSlide)
 		k1 = FBK_DOWNARROW;
 	}
 	if (szi[0] == 'z') {
-		k0 = FBK_V;
-		k1 = FBK_F;
 	}
 	if (k0 == 0 || k1 == 0) {
 		return 1;
@@ -738,16 +252,16 @@ INT32 GamcPlayer(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nDevice)
 		}
 		if (nFireButtons == 4) {
 			if (strcmp(szi, "fire 1") == 0) {
-				KEY(FBK_Z);
+				KEY(FBK_LALT);
 			}
 			if (strcmp(szi, "fire 2") == 0) {
-				KEY(FBK_X);
+				KEY(FBK_LCONTROL);
 			}
 			if (strcmp(szi, "fire 3") == 0) {
-				KEY(FBK_C);
+				KEY(FBK_SPACE);
 			}
 			if (strcmp(szi, "fire 4") == 0) {
-				KEY(FBK_V);
+				KEY(FBK_LSHIFT);
 			}
 
 //			if (_stricmp(szi, "Button ABC") == 0) {
@@ -763,56 +277,41 @@ INT32 GamcPlayer(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nDevice)
 		} else {
 			if (bStreetFighterLayout) {
 				if (strcmp(szi, "fire 1") == 0) {
-					KEY(FBK_A);
+					KEY(FBK_LALT);
 				}
 				if (strcmp(szi, "fire 2") == 0) {
-					KEY(FBK_S);
+					KEY(FBK_LCONTROL);
 				}
 				if (strcmp(szi, "fire 3") == 0) {
-					KEY(FBK_D);
+					KEY(FBK_E);
 				}
 				if (strcmp(szi, "fire 4") == 0) {
-					KEY(FBK_Z);
+					KEY(FBK_LSHIFT);
 				}
 				if (strcmp(szi, "fire 5") == 0) {
-					KEY(FBK_X);
+					KEY(FBK_SPACE);
 				}
 				if (strcmp(szi, "fire 6") == 0) {
-					KEY(FBK_C);
-				}
-				if (_stricmp(szi, "3× Punch") == 0) {
-					MACRO(FBK_F);
-				}
-				if (_stricmp(szi, "3× Kick") == 0) {
-					MACRO(FBK_V);
+					KEY(FBK_T);
 				}
 			} else {
 				if (strcmp(szi, "fire 1") == 0) {
-					KEY(FBK_Z);
+					KEY(FBK_LALT);
 				}
 				if (strcmp(szi, "fire 2") == 0) {
-					KEY(FBK_X);
+					KEY(FBK_LCONTROL);
 				}
 				if (strcmp(szi, "fire 3") == 0) {
-					KEY(FBK_C);
+					KEY(FBK_E);
 				}
 				if (strcmp(szi, "fire 4") == 0) {
-					KEY(FBK_A);
+					KEY(FBK_LSHIFT);
 				}
 				if (strcmp(szi, "fire 5") == 0) {
-					KEY(FBK_S);
+					KEY(FBK_SPACE);
 				}
 				if (strcmp(szi, "fire 6") == 0) {
-					KEY(FBK_D);
-				}
-				if (strcmp(szi, "fire 7") == 0) {
-					KEY(FBK_Q);
-				}
-				if (strcmp(szi, "fire 8") == 0) {
-					KEY(FBK_W);
-				}
-				if (strcmp(szi, "fire 9") == 0) {
-					KEY(FBK_E);
+					KEY(FBK_T);
 				}
 			}
 		}
@@ -863,99 +362,90 @@ INT32 GamcPlayerHotRod(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nFla
 
 		// X-Arcade / Hanaho HotRod joystick left side
 		if (strcmp(szi, "x-axis") == 0) {
-			k0 = FBK_NUMPAD4;
-			k1 = FBK_NUMPAD6;
+			k0 = FBK_LEFTARROW;
+			k1 = FBK_RIGHTARROW;
 		}
 		if (strcmp(szi, "y-axis") == 0) {
-			k0 = FBK_NUMPAD8;
-			k1 = FBK_NUMPAD2;
+			k0 = FBK_UPARROW;
+			k1 = FBK_DOWNARROW;
 		}
 
 		if (strcmp(szi, "up") == 0 || strcmp(szi, "y-axis-neg") == 0) {
-			KEY(FBK_NUMPAD8);
+			KEY(FBK_UPARROW);
 		}
 		if (strcmp(szi, "down") == 0 || strcmp(szi, "y-axis-pos") == 0) {
-			KEY(FBK_NUMPAD2);
+			KEY(FBK_DOWNARROW);
 		}
 		if (strcmp(szi, "left") == 0 || strcmp(szi, "x-axis-neg") == 0) {
-			KEY(FBK_NUMPAD4);
+			KEY(FBK_LEFTARROW);
 		}
 		if (strcmp(szi, "right") == 0 || strcmp(szi, "x-axis-pos") == 0) {
-			KEY(FBK_NUMPAD6);
+			KEY(FBK_RIGHTARROW);
 		}
 
 		if (nFireButtons == 4) {
 			if (strcmp(szi, "fire 1") == 0) {
-				KEY(FBK_C);
+				KEY(FBK_LALT);
 			}
 			if (strcmp(szi, "fire 2") == 0) {
-				KEY(FBK_LSHIFT);
+				KEY(FBK_LCONTROL);
 			}
 			if (strcmp(szi, "fire 3") == 0) {
-				KEY(FBK_Z);
+				KEY(FBK_SPACE);
 			}
 			if (strcmp(szi, "fire 4") == 0) {
-				KEY(FBK_X);
+				KEY(FBK_LSHIFT);
 			}
 		} else {
 			if (bStreetFighterLayout) {
 				// Street Fighter and other Capcom 6-button games
 				if (strcmp(szi, "fire 1") == 0) {
-					KEY(FBK_LCONTROL);
-				}
-				if (strcmp(szi, "fire 2") == 0) {
 					KEY(FBK_LALT);
 				}
+				if (strcmp(szi, "fire 2") == 0) {
+					KEY(FBK_LCONTROL);
+				}
 				if (strcmp(szi, "fire 3") == 0) {
-					KEY(FBK_SPACE);
+					KEY(FBK_E);
 				}
 				if (strcmp(szi, "fire 4") == 0) {
 					KEY(FBK_LSHIFT);
 				}
 				if (strcmp(szi, "fire 5") == 0) {
-					KEY(FBK_Z);
+					KEY(FBK_SPACE);
 				}
 				if (strcmp(szi, "fire 6") == 0) {
-					KEY(FBK_X);
+					KEY(FBK_T);
 				}
 
-				// Map the 3x macros on X-Arcade
-				if ((nFlags & 0x10)) {
-					if (_stricmp(szi, "3× Punch") == 0) {
-						MACRO(FBK_C);
-					}
-					if (_stricmp(szi, "3× Kick") == 0) {
-						MACRO(FBK_5);
-					}
-				}
 			} else {
 				if (strcmp(szi, "fire 1") == 0) {
-					KEY(FBK_LSHIFT);
-				}
-				if (strcmp(szi, "fire 2") == 0) {
-					KEY(FBK_Z);
-				}
-				if (strcmp(szi, "fire 3") == 0) {
-					KEY(FBK_X);
-				}
-				if (strcmp(szi, "fire 4") == 0) {
-					KEY(FBK_LCONTROL);
-				}
-				if (strcmp(szi, "fire 5") == 0) {
 					KEY(FBK_LALT);
 				}
-				if (strcmp(szi, "fire 6") == 0) {
+				if (strcmp(szi, "fire 2") == 0) {
+					KEY(FBK_LCONTROL);
+				}
+				if (strcmp(szi, "fire 3") == 0) {
+					KEY(FBK_E);
+				}
+				if (strcmp(szi, "fire 4") == 0) {
+					KEY(FBK_LSHIFT);
+				}
+				if (strcmp(szi, "fire 5") == 0) {
 					KEY(FBK_SPACE);
+				}
+				if (strcmp(szi, "fire 6") == 0) {
+					KEY(FBK_T);
 				}
 			}
 		}
 
 		// Map remaining buttons as usual
 		if (strcmp(szi, "start") == 0) {
-			KEY(FBK_1);
+			KEY(FBK_RETURN);
 		}
 		if (strcmp(szi, "coin") == 0 || strcmp(szi, "select") == 0) {
-			KEY(FBK_3);
+			KEY(FBK_RCONTROL);
 		}
 
 		if (k0 && k1) {
@@ -969,99 +459,90 @@ INT32 GamcPlayerHotRod(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nFla
 			// X-Arcade / Hanaho HotRod joystick right side
 
 			if (strcmp(szi, "x-axis") == 0) {
-				k0 = FBK_D;
-				k1 = FBK_G;
+				k0 = FBK_LEFTARROW;
+				k1 = FBK_RIGHTARROW;
 			}
 			if (strcmp(szi, "y-axis") == 0) {
-				k0 = FBK_R;
-				k1 = FBK_F;
+				k0 = FBK_UPARROW;
+				k1 = FBK_DOWNARROW;
 			}
 
 			if (strcmp(szi, "up") == 0 || strcmp(szi, "y-axis-neg") == 0)	{
-				KEY(FBK_R);
+				KEY(FBK_UPARROW);
 			}
 			if (strcmp(szi, "down") == 0 || strcmp(szi, "y-axis-pos") == 0) {
-				KEY(FBK_F);
+				KEY(FBK_DOWNARROW);
 			}
 			if (strcmp(szi, "left") == 0 || strcmp(szi, "x-axis-neg") == 0) {
-				KEY(FBK_D);
+				KEY(FBK_LEFTARROW);
 			}
 			if (strcmp(szi, "right") == 0 || strcmp(szi, "x-axis-pos") == 0) {
-				KEY(FBK_G);
+				KEY(FBK_RIGHTARROW);
 			}
 
 			if (nFireButtons == 4) {
 				if (strcmp(szi, "fire 1") == 0) {
-					KEY(FBK_RBRACKET);
+					KEY(FBK_LALT);
 				}
 				if (strcmp(szi, "fire 2") == 0) {
-					KEY(FBK_W);
+					KEY(FBK_LCONTROL);
 				}
 				if (strcmp(szi, "fire 3") == 0) {
-					KEY(FBK_E);
+					KEY(FBK_SPACE);
 				}
 				if (strcmp(szi, "fire 4") == 0) {
-					KEY(FBK_LBRACKET);
+					KEY(FBK_LSHIFT);
 				}
 			} else {
 				if (bStreetFighterLayout) {
 					// Street Fighter and other Capcom 6-button games
 					if (strcmp(szi, "fire 1") == 0) {
-						KEY(FBK_A);
+						KEY(FBK_LALT);
 					}
 					if (strcmp(szi, "fire 2") == 0) {
-						KEY(FBK_S);
+						KEY(FBK_LCONTROL);
 					}
 					if (strcmp(szi, "fire 3") == 0) {
-						KEY(FBK_Q);
-					}
-					if (strcmp(szi, "fire 4") == 0) {
-						KEY(FBK_W);
-					}
-					if (strcmp(szi, "fire 5") == 0) {
 						KEY(FBK_E);
 					}
+					if (strcmp(szi, "fire 4") == 0) {
+						KEY(FBK_LSHIFT);
+					}
+					if (strcmp(szi, "fire 5") == 0) {
+						KEY(FBK_SPACE);
+					}
 					if (strcmp(szi, "fire 6") == 0) {
-						KEY(FBK_LBRACKET);
+						KEY(FBK_T);
 					}
 
-					// Map the 3x macros on X-Arcade
-					if ((nFlags & 0x10)) {
-						if (_stricmp(szi, "3× Punch") == 0) {
-							MACRO(FBK_RBRACKET);
-						}
-						if (_stricmp(szi, "3× Kick") == 0) {
-							MACRO(FBK_6);
-						}
-					}
 				} else {
 					if (strcmp(szi, "fire 1") == 0) {
-						KEY(FBK_W);
+						KEY(FBK_LALT);
 					}
 					if (strcmp(szi, "fire 2") == 0) {
-						KEY(FBK_E);
+						KEY(FBK_LCONTROL);
 					}
 					if (strcmp(szi, "fire 3") == 0) {
-						KEY(FBK_LBRACKET);
+						KEY(FBK_E);
 					}
 					if (strcmp(szi, "fire 4") == 0) {
-						KEY(FBK_A);
+						KEY(FBK_LSHIFT);
 					}
 					if (strcmp(szi, "fire 5") == 0) {
-						KEY(FBK_S);
+						KEY(FBK_SPACE);
 					}
 					if (strcmp(szi, "fire 6") == 0) {
-						KEY(FBK_Q);
+						KEY(FBK_T);
 					}
 				}
 			}
 
 			// Map remaining buttons as usual
 			if (strcmp(szi, "start") == 0) {
-				KEY(FBK_2);
+				KEY(FBK_RETURN);
 			}
 			if (strcmp(szi, "coin") == 0 || strcmp(szi, "select") == 0) {
-				KEY(FBK_4);
+				KEY(FBK_RCONTROL);
 			}
 
 			if (k0 && k1) {

@@ -4,6 +4,29 @@
 #include "burner.h"
 #include "inp_sdl_keys.h"
 
+int SDLtoFBK[512] = { 0 };  // Definición del array en el archivo fuente
+
+void setup_keymaps() {
+    SDLtoFBK[273] = FBK_UPARROW;       // SDLK_UP
+    SDLtoFBK[274] = FBK_DOWNARROW;     // SDLK_DOWN
+    SDLtoFBK[276] = FBK_LEFTARROW;     // SDLK_LEFT
+    SDLtoFBK[275] = FBK_RIGHTARROW;    // SDLK_RIGHT
+    SDLtoFBK[27]  = FBK_ESCAPE;        // SDLK_ESCAPE
+    SDLtoFBK[32]  = FBK_SPACE;         // SDLK_SPACE
+    SDLtoFBK[306] = FBK_LCONTROL;      // SDLK_LCTRL
+    SDLtoFBK[304] = FBK_LSHIFT;        // SDLK_LSHIFT
+    SDLtoFBK[308] = FBK_LALT;          // SDLK_LALT
+    SDLtoFBK[101] = FBK_E;             // SDLK_e
+    SDLtoFBK[116] = FBK_T;             // SDLK_t
+    SDLtoFBK[9]   = FBK_TAB;           // SDLK_TAB
+    SDLtoFBK[8]   = FBK_BACK;          // SDLK_BACKSPACE
+    SDLtoFBK[305] = FBK_RCONTROL;      // SDLK_RCTRL
+    SDLtoFBK[13]  = FBK_RETURN;        // SDLK_RETURN
+    SDLtoFBK[312] = FBK_RWIN;          // SDLK_RSUPER
+    SDLtoFBK[311] = FBK_LWIN;          // SDLK_LSUPER
+    SDLtoFBK[320] = FBK_POWER;         // SDLK_POWER
+}
+
 #define MAX_JOYSTICKS (8)
 
 static int FBKtoSDL[512];
@@ -20,21 +43,18 @@ static int SDLinpJoystickInit(int i)
 	return 0;
 }
 
+
 // Set up the keyboard
 static int SDLinpKeyboardInit()
 {
-	for (int i = 0; i < 512; i++) {
-		if (SDLtoFBK[i] > 0)
-			FBKtoSDL[SDLtoFBK[i]] = i;
-	}
+    setup_keymaps();  // Inicializar el mapeo de teclas
 
-	return 0;
-}
+    for (int i = 0; i < 512; i++) {
+        if (SDLtoFBK[i] > 0)
+            FBKtoSDL[SDLtoFBK[i]] = i;
+    }
 
-// Get an interface to the mouse
-static int SDLinpMouseInit()
-{
-	return 0;
+    return 0;
 }
 
 int SDLinpSetCooperativeLevel(bool bExclusive, bool /*bForeGround*/)
@@ -99,9 +119,6 @@ int SDLinpInit()
 
 	// Set up the keyboard
 	SDLinpKeyboardInit();
-
-	// Set up the mouse
-	SDLinpMouseInit();
 
 	return 0;
 }
@@ -424,42 +441,41 @@ End:
 
 int SDLinpGetControlName(int nCode, TCHAR* pszDeviceName, TCHAR* pszControlName)
 {
-	if (pszDeviceName) {
-		pszDeviceName[0] = _T('\0');
-	}
-	if (pszControlName) {
-		pszControlName[0] = _T('\0');
-	}
+    if (pszDeviceName) {
+        pszDeviceName[0] = _T('\0');
+    }
+    if (pszControlName) {
+        pszControlName[0] = _T('\0');
+    }
 
-	switch (nCode & 0xC000) {
-	case 0x0000: {
-		_tcscpy(pszDeviceName, _T("System keyboard"));
+    switch (nCode & 0xC000) {
+    case 0x0000: {
+        _tcscpy(pszDeviceName, _T("System keyboard"));
+        break;
+    }
+    case 0x4000: {
+        int i = (nCode >> 8) & 0x3F;
 
-		break;
-	}
-	case 0x4000: {
-		int i = (nCode >> 8) & 0x3F;
+        if (i >= nJoystickCount) {				// This joystick isn't connected
+            return 0;
+        }
+        _stprintf(pszDeviceName, _T("%s"), SDL_JoystickName(i));  // Cambia "%hs" por "%s"
 
-		if (i >= nJoystickCount) {				// This joystick isn't connected
-			return 0;
-		}
-		_tsprintf(pszDeviceName, "%hs", SDL_JoystickName(i));
+        break;
+    }
+    case 0x8000: {
+        int i = (nCode >> 8) & 0x3F;
 
-		break;
-	}
-	case 0x8000: {
-		int i = (nCode >> 8) & 0x3F;
+        if (i >= 1) {
+            return 0;
+        }
+        _tcscpy(pszDeviceName, _T("System mouse"));
 
-		if (i >= 1) {
-			return 0;
-		}
-		_tcscpy(pszDeviceName, _T("System mouse"));
+        break;
+    }
+    }
 
-		break;
-	}
-	}
-
-	return 0;
+    return 0;
 }
 
 struct InputInOut InputInOutSDL = { SDLinpInit, SDLinpExit, SDLinpSetCooperativeLevel, SDLinpStart, SDLinpState, SDLinpJoyAxis, SDLinpMouseAxis, SDLinpFind, SDLinpGetControlName, NULL, _T("SDL input") };
