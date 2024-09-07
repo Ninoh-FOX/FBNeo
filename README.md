@@ -1,3 +1,11 @@
+# How build to Miyoo Mini console:
+
+type in terminal:
+
+```
+make sdl -j4
+```
+
 # FinalBurn Neo
 Official Forum: https://neo-source.com
 
