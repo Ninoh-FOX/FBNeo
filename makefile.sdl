@@ -93,7 +93,7 @@ incdir	= $(foreach dir,$(alldir),-I$(srcdir)$(dir)) -I$(objdir)dep/generated \
 ifdef WINDOWS
 lib	= -lstdc++ -lSDL `sdl-config --libs` -lopengl32  -lm
 else
-lib	= -lstdc++ -lSDL `/opt/miyoomini-toolchain/arm-buildroot-linux-gnueabihf/sysroot/usr/bin/sdl-config --libs` -lSDL_mixer -lmi_sys -lmi_gfx -lmi_disp -lm -lpthread
+lib	= -lstdc++ -lSDL `/opt/miyoomini-toolchain/arm-buildroot-linux-gnueabihf/sysroot/usr/bin/sdl-config --libs` -lSDL_mixer -lmi_sys -lmi_gfx -lm -lpthread
 lib += -L/opt/miyoomini-toolchain/arm-buildroot-linux-gnueabihf/sysroot/usr/lib
 endif
 
@@ -171,7 +171,7 @@ CFLAGS = -O2 -fomit-frame-pointer -Wno-write-strings \
 	   -Wall -Wno-long-long -Wno-sign-compare -Wno-uninitialized -Wno-unused \
 	   -Wno-conversion -Wno-attributes \
 	   -Wno-unused-parameter -Wno-unused-value -std=c99 \
-	   -marm -march=armv7ve -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard \
+	   -marm -march=armv7ve -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -ftree-vectorize \
 	   $(PLATFLAGS) $(DEF) $(incdir)
 
 CXXFLAGS = -O2 -fomit-frame-pointer -Wno-write-strings \
@@ -180,7 +180,7 @@ CXXFLAGS = -O2 -fomit-frame-pointer -Wno-write-strings \
 	   -Wuninitialized -Wpointer-arith -Winline -Wno-multichar \
 	   -Wno-conversion -Wno-attributes \
 	   -Wno-unused-parameter -Wno-unused-value -Wno-narrowing \
-	   -marm -march=armv7ve -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard \
+	   -marm -march=armv7ve -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -ftree-vectorize \
 	   $(PLATFLAGS) $(DEF) $(incdir)
 
 ASFLAGS	=  -O1 -f coff -w-orphan-labels
