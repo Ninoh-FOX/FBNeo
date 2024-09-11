@@ -81,20 +81,20 @@ INT32 nVidVerWidth	= 640, nVidVerHeight	= 480;	// Default Vertical oriented reso
 
 INT32 nVidFullscreen = 0;
 INT32 bVidFullStretch = 0;						// 1 = stretch to fill the entire window/screen
-INT32 bVidCorrectAspect = 1;						// 1 = stretch to fill the window/screen while maintaining the correct aspect ratio
+INT32 bVidCorrectAspect = 0;						// 1 = stretch to fill the window/screen while maintaining the correct aspect ratio
 INT32 bVidVSync = 0;								// 1 = sync blits/pageflips/presents to the screen
 INT32 bVidTripleBuffer = 0;						// 1 = use triple buffering
-INT32 bVidBilinear = 1;							// 1 = enable bi-linear filtering (D3D blitter)
+INT32 bVidBilinear = 0;							// 1 = enable bi-linear filtering (D3D blitter)
 INT32 bVidScanlines = 0;							// 1 = draw scanlines
 INT32 bVidDX9WinFullscreen = 0;					// 1 = borderless windowed for fullscreen
-INT32 bVidScanRotate = 1;							// 1 = rotate scanlines and RGB effects for rotated games
-INT32 bVidScanBilinear = 1;						// 1 = use bi-linear filtering for scanlines (D3D blitter, debug variable)
+INT32 bVidScanRotate = 0;							// 1 = rotate scanlines and RGB effects for rotated games
+INT32 bVidScanBilinear = 0;						// 1 = use bi-linear filtering for scanlines (D3D blitter, debug variable)
 INT32 nVidScanIntensity = 0x00BFBFBF;				// The maximum colour-value for the scanlines (D3D blitter)
-INT32 bVidScanHalf = 1;							// Draw scanlines at half intensity instead of black (DDraw blitter)
+INT32 bVidScanHalf = 0;							// Draw scanlines at half intensity instead of black (DDraw blitter)
 INT32 bVidScanDelay = 0;							// Blend the previous image with the current one
 INT32 nVidFeedbackIntensity = 0x40;				// Blend factor for previous frame (D3D blitter)
 INT32 nVidFeedbackOverSaturation = 0x00;			// Add this to the current frame blend factor
-INT32 bVidUseHardwareGamma = 1;					// Use the video hardware when correcting gamma
+INT32 bVidUseHardwareGamma = 0;					// Use the video hardware when correcting gamma
 INT32 bVidAutoSwitchFull = 0;						// 1 = auto switch to fullscreen on loading driver
 INT32 bVidArcaderes = 0;							// Use game resolution for fullscreen modes
 
@@ -104,17 +104,17 @@ INT32 bVidArcaderesVer = 0;
 INT32 nVidRotationAdjust = 0;						// & 1: do not rotate the graphics for vertical games,  & 2: Reverse flipping for vertical games
 INT32 bVidForce16bit = 0;							// Emulate the game in 16-bit even when the screen is 32-bit (D3D blitter)
 INT32 bVidForce16bitDx9Alt = 0;						// Emulate the game in 16-bit even when the screen is 32-bit (DX9 Alt blitter)
-INT32 bVidForceFlip = 1;							// Force flipping (DDraw blitter, hardware detection seems to fail on all? graphics hardware)
-INT32 nVidTransferMethod = -1;					// How to transfer the game image to video memory and/or a texture --
+INT32 bVidForceFlip = 0;							// Force flipping (DDraw blitter, hardware detection seems to fail on all? graphics hardware)
+INT32 nVidTransferMethod = -0;					// How to transfer the game image to video memory and/or a texture --
 												//  0 = blit from system memory / use driver/DirectX texture management
 												//  1 = copy to a video memory surface, then use bltfast()
 												// -1 = autodetect for ddraw, equals 1 for d3d
-float fVidScreenAngle = 0.174533f;				// The angle at which to tilt the screen backwards (in radians, D3D blitter)
-float fVidScreenCurvature = 0.698132f;			// The angle of the maximum screen curvature (in radians, D3D blitter)
+float fVidScreenAngle = 0.0f;				// The angle at which to tilt the screen backwards (in radians, D3D blitter)
+float fVidScreenCurvature = 0.0f;			// The angle of the maximum screen curvature (in radians, D3D blitter)
 double dVidCubicB = 0.0;						// Paremeters for the cubic filter (default is the CAtmull-Rom spline, DX9 blitter)
-double dVidCubicC = 0.5;						//
+double dVidCubicC = 0.0;						//
 
-INT32 bVidDX9Bilinear = 1;							// 1 = enable bi-linear filtering (D3D9 Alt blitter)
+INT32 bVidDX9Bilinear = 0;							// 1 = enable bi-linear filtering (D3D9 Alt blitter)
 INT32 bVidHardwareVertex = 0;			// 1 = use hardware vertex processing
 INT32 bVidMotionBlur = 0;				// 1 = motion blur
 INT32 nVidDX9HardFX = 0; 						// index of HardFX effect (0 = None)
