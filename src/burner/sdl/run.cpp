@@ -55,7 +55,23 @@ static int RunFrame(int bDraw, int bPause)
                 AudBlankSound();
             }
         } else {
-            // Ejecutar con RunAhead (omitido aquí para simplificación)
+            pBurnDraw = (BurnDrvGetFlags() & BDF_RUNAHEAD_DRAWSYNC) ? pVidImage : NULL;
+				BurnDrvFrame();
+				StateRunAheadSave();
+				INT16 *pBurnSoundOut_temp = pBurnSoundOut;
+				pBurnSoundOut = NULL;
+				nCurrentFrame++;
+				bBurnRunAheadFrame = 1;
+
+				if (VidFrame()) {
+					pBurnDraw = NULL;			// Make sure no image is drawn, since video failed this time 'round.
+					BurnDrvFrame();
+				}
+
+				bBurnRunAheadFrame = 0;
+				nCurrentFrame--;
+				StateRunAheadLoad();
+				pBurnSoundOut = pBurnSoundOut_temp; // restore pointer, for wav & avi writer
         }
 
         VidPaint(0); // Pintar la pantalla
