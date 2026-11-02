@@ -14,6 +14,9 @@
  * ------------------*/
 
 #include "burner.h"
+#ifdef MIYOO_MINI
+#include <sys/stat.h>
+#endif
 
 INT32 display_set_controls();
 
@@ -384,7 +387,13 @@ int main(int argc, char* argv[])
 
 	//SDL_ShowCursor(SDL_DISABLE);
 
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#ifdef MIYOO_MINI
+	// Paths are relative to the emulator folder (see config.cpp)
+	mkdir("config", 0755);
+	mkdir("config/games", 0755);
+#endif
+
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
     // Load mapping from file if it exists
 	char gamecontrollerdbfile[MAX_PATH] = _T("");
 	TCHAR *szSDLconfigPath = NULL;
@@ -398,7 +407,7 @@ int main(int argc, char* argv[])
 	fail = ConfigAppLoad();
 	if (fail && bSaveconfig)
 	{
-		#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+		#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 		InitSupportPaths();
 		#endif
 		ConfigAppSave();		// for SDL2 this will also create folders in ~/.local/share/fbneo/

@@ -7,7 +7,7 @@
 #define SSHOT_LIBPNG_ERROR 2
 #define SSHOT_OTHER_ERROR 3
 
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 	TCHAR *SSHOT_DIRECTORY = NULL;
 #else
 	#define SSHOT_DIRECTORY "screenshots/"
@@ -156,7 +156,7 @@ INT32 MakeScreenShot(INT32 bType)
     tmTime = localtime(&currentTime);
 	//png_convert_from_time_t(&png_time_now, currentTime);
 
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 	SSHOT_DIRECTORY = SDL_GetPrefPath("fbneo", "screenshots");
 #endif
 
@@ -182,7 +182,7 @@ INT32 MakeScreenShot(INT32 bType)
 	}
 	//sprintf(szTime,"%.2d-%.2d-%.2d %.2d:%.2d:%.2d", tmTime->tm_mon + 1, tmTime->tm_mday, tmTime->tm_year, tmTime->tm_hour, tmTime->tm_min, tmTime->tm_sec);
 	sprintf(szTime, "%s", asctime(tmTime));
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 	SDL_free(SSHOT_DIRECTORY);
 #endif
 

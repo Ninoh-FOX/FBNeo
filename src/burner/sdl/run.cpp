@@ -482,7 +482,8 @@ int RunMessageLoop()
 					}
 #endif
 					break;
-#ifdef BUILD_SDL2
+#if defined(BUILD_SDL2) && !defined(MIYOO_MINI)
+				// On the Miyoo Mini TAB is L2 and ALT+RETURN is Y+START: keep them for the game
 				case SDLK_TAB:
 					if(!nVidSelect) {
 						ingame_gui_start(sdlRenderer);
@@ -537,6 +538,9 @@ int RunMessageLoop()
 					bscreenshot = 0;
 					break;
 				case SDLK_F12:
+#ifdef MIYOO_MINI
+				case SDLK_ESCAPE:	// MENU button
+#endif
 					quit = 1;
 					break;
 

@@ -83,6 +83,11 @@ depobj	+=	un7z.o \
 			Delta.o LzFindOpt.o LzmaDec.o Lzma2Dec.o MtDec.o Ppmd7.o Ppmd7Dec.o Ppmd7aDec.o Sha256.o Sha1Opt.o Sha256Opt.o Threads.o Xxh64.o Xz.o XzCrc64.o XzCrc64Opt.o XzDec.o ZstdDec.o
 endif
 
+# Miyoo Mini (SigmaStar SSD202D): no desktop OpenGL, use the SDL2 renderer only
+ifdef MIYOO
+depobj	:= $(filter-out vid_sdl2opengl.o,$(depobj))
+endif
+
 autobj += $(depobj)
 
 ifdef	BUILD_X86_ASM
@@ -91,11 +96,21 @@ endif
 
 # End, platform stuff
 
+ifdef MIYOO
+MIYOO_TOOLCHAIN	?= /opt/miyoomini-toolchain
+MIYOO_SYSROOT	?= $(MIYOO_TOOLCHAIN)/arm-buildroot-linux-gnueabihf/sysroot
+SDL2_CONFIG	?= $(MIYOO_SYSROOT)/usr/bin/sdl2-config
+else
+SDL2_CONFIG	?= sdl2-config
+endif
+
 incdir	= $(foreach dir,$(alldir),-I$(srcdir)$(dir)) -I$(objdir)dep/generated \
 		  -I/local/include -I$(srcdir)dep/sdl/include \
-		  -I$(srcdir)intf/input/sdl `sdl2-config --cflags`
+		  -I$(srcdir)intf/input/sdl `$(SDL2_CONFIG) --cflags`
 
-ifdef WINDOWS
+ifdef MIYOO
+lib	= -lstdc++ -L$(MIYOO_SYSROOT)/usr/lib `$(SDL2_CONFIG) --libs` -lSDL2_image -lm -lpthread
+else ifdef WINDOWS
 lib	= -lstdc++ `sdl2-config --libs` -lopengl32 -lSDL2_image -lm
 else ifdef DARWIN
 lib	= -lstdc++ `sdl2-config --libs` -lSDL2_image -lm -lpthread
@@ -171,6 +186,10 @@ autdrv := $(drvsrc:.cpp=.o)
 
 ifdef DARWIN
 	CC	= gcc
+else ifdef MIYOO
+	CC	= $(MIYOO_TOOLCHAIN)/bin/arm-linux-gnueabihf-gcc
+	HOST_CC	= gcc
+	HOST_CXX = g++
 else
 	CC	= gcc
 endif
@@ -215,6 +234,12 @@ ASFLAGS	=  -O1 -f coff -w-orphan-labels
 
 ifdef FORCE_PULSE_AUDIO
 	DEF	:= $(DEF) -DFORCE_PULSE_AUDIO
+endif
+
+ifdef MIYOO
+	DEF	:= $(DEF) -DMIYOO_MINI
+	CFLAGS	 += -marm -march=armv7ve -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -ftree-vectorize
+	CXXFLAGS += -marm -march=armv7ve -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -ftree-vectorize
 endif
 
 ifdef WINDOWS

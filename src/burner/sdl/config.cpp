@@ -55,7 +55,9 @@ void InitSupportPaths()
 
 static void CreateConfigName(char* szConfig)
 {
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+// Miyoo Mini: keep fbneo.ini next to the executable, like the SDL1.2 build,
+// so the launcher can set the rom path in it
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 	TCHAR *szSDLconfigPath = NULL;
 	szSDLconfigPath = SDL_GetPrefPath("fbneo", "config");
 	_stprintf(szConfig, _T("%sfbneo.ini"), szSDLconfigPath);

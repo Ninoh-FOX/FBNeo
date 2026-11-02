@@ -1865,7 +1865,7 @@ static UINT32 MacroNameToNum(TCHAR* szName)
 }
 
 // ---------------------------------------------------------------------------
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 extern int usejoy;
 extern INT32 MapJoystick(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nDevice);
 #endif
@@ -1875,7 +1875,7 @@ static INT32 GameInpAutoOne(struct GameInp* pgi, char* szi)
 	for (INT32 i = 0; i < nMaxPlayers; i++) {
 		INT32 nSlide = nPlayerDefaultControls[i] >> 4;
 		switch (nPlayerDefaultControls[i] & 0x0F) {
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 			case 0:
 				// Trying to avoing calling another function to map an already mapped input
 				if (usejoy) {
@@ -2225,7 +2225,7 @@ UINT32 GameInputGetHWFlag()
 
 INT32 ConfigGameLoadHardwareDefaults()
 {
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 	TCHAR *szFolderName = NULL;
 	szFolderName = SDL_GetPrefPath(NULL, "fbneo");		// Get fbneo folder path
 #endif
@@ -2239,7 +2239,7 @@ INT32 ConfigGameLoadHardwareDefaults()
 		for (INT32 hw = 0; gamehw_cfg[i].hw[hw] != 0; hw++) {
 			if (gamehw_cfg[i].hw[hw] == nHardwareFlag)
 			{
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 				_stprintf(szFileName, _T("%s%s"), szFolderName, gamehw_cfg[i].ini);
 #else
 				_tcscpy(szFileName, gamehw_cfg[i].ini);
@@ -2256,7 +2256,7 @@ INT32 ConfigGameLoadHardwareDefaults()
 		}
 	}
 
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 	SDL_free(szFolderName);
 #endif
 	return 0;
@@ -2269,7 +2269,7 @@ INT32 GameInpDefault()
 	struct BurnInputInfo bii;
 	UINT32 i;
 
-#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS) && !defined(MIYOO_MINI)
 	TCHAR *szSDLconfigPath = NULL;
 	szSDLconfigPath = SDL_GetPrefPath("fbneo", "config");
 	for (INT32 nPlayer = 0; nPlayer < 4; nPlayer++) {
