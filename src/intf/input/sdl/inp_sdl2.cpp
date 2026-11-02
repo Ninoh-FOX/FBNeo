@@ -452,9 +452,20 @@ static struct { unsigned char buttons; int xdelta; int ydelta; } SDLinpMouseStat
 
 bool do_reset_game = false;		// To reset game without reloading
 
+#ifdef MIYOO_MINI
+// MENU is the hotkey button (see run.cpp): while it is held the game gets no
+// buttons, and the L2/R2 used in a hotkey stays blocked until it is released
+bool bMiyooBlockL2 = false, bMiyooBlockR2 = false;
+#endif
+
 // Simulate F3 key pressed if reset game is requested
 int SDL_KEY_IS_DOWN(int key)
 {
+#ifdef MIYOO_MINI
+	if (SDLinpKeyboardState[SDL_SCANCODE_ESCAPE]) return 0;
+	if (key == FBK_TAB && bMiyooBlockL2) return 0;
+	if (key == FBK_BACK && bMiyooBlockR2) return 0;
+#endif
 	if (FBKtoSDL[key] > 0) {
 		switch (key) {
 			case FBK_F3:

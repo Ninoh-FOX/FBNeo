@@ -1,6 +1,10 @@
 // Burner Config file module
 #include "burner.h"
 
+#ifdef MIYOO_MINI
+extern INT32 bVidScale2x;			// vid_sdl2.cpp
+#endif
+
 int nIniVersion = 0;
 
 #if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
@@ -119,6 +123,11 @@ int ConfigAppLoad()
 		VAR(gameSelectedFromFilter);
 #endif
 		VAR(bVidScanlines);
+#ifdef MIYOO_MINI
+		VAR(nVidScanIntensity);
+		VAR(bVidScale2x);
+		VAR(bVidCorrectAspect);
+#endif
 		VAR(bDoGamma);
 		FLT(nGamma);
 		VAR(nAudSampleRate[0]);
@@ -226,6 +235,14 @@ int ConfigAppSave()
 #endif
 	fprintf(f, "\n// If non-zero, enable scanlines\n");
 	VAR(bVidScanlines);
+#ifdef MIYOO_MINI
+	fprintf(f, "\n// Brightness of the dark scanlines: 0x00 black .. 0xFF same as the image\n");
+	fprintf(f, "nVidScanIntensity 0x%02X\n", nVidScanIntensity & 0xFF);
+	fprintf(f, "\n// If non-zero, smooth the image with Scale2x\n");
+	VAR(bVidScale2x);
+	fprintf(f, "\n// 0 = keep the game's pixel proportions, 1 = use the aspect ratio of the driver (usually 4:3)\n");
+	VAR(bVidCorrectAspect);
+#endif
 	fprintf(f, "\n// If non-zero, enable software gamma correction\n");
 	VAR(bDoGamma);
 	_ftprintf(f, _T("\n// Gamma to correct with\n"));

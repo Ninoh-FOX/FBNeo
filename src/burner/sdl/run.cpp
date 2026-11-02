@@ -429,6 +429,14 @@ void pause_game()
 
 #ifndef BUILD_MACOS
 // The main message loop
+#ifdef MIYOO_MINI
+// MENU alone quits; MENU + L2 changes the image mode, MENU + R2 the filter
+extern void MiyooNextImageMode();
+extern void MiyooNextFilter();
+extern bool bMiyooBlockL2, bMiyooBlockR2;
+static bool bMenuHeld = false, bMenuUsedAsHotkey = false;
+#endif
+
 int RunMessageLoop()
 {
 	int quit = 0;
@@ -463,6 +471,28 @@ int RunMessageLoop()
 			case SDL_KEYDOWN:                                                // need to find a nicer way of doing this...
 				switch (event.key.keysym.sym)
 				{
+#ifdef MIYOO_MINI
+				case SDLK_ESCAPE:	// MENU
+					if (!event.key.repeat) {
+						bMenuHeld = true;
+						bMenuUsedAsHotkey = false;
+					}
+					break;
+				case SDLK_TAB:		// L2
+					if (bMenuHeld && !event.key.repeat) {
+						bMenuUsedAsHotkey = true;
+						bMiyooBlockL2 = true;
+						MiyooNextImageMode();
+					}
+					break;
+				case SDLK_BACKSPACE:	// R2
+					if (bMenuHeld && !event.key.repeat) {
+						bMenuUsedAsHotkey = true;
+						bMiyooBlockR2 = true;
+						MiyooNextFilter();
+					}
+					break;
+#endif
 				case SDLK_F1:
 					bAppDoFast = 1;
 					break;
@@ -537,10 +567,21 @@ int RunMessageLoop()
 				case SDLK_F6:
 					bscreenshot = 0;
 					break;
-				case SDLK_F12:
 #ifdef MIYOO_MINI
-				case SDLK_ESCAPE:	// MENU button
+				case SDLK_ESCAPE:	// MENU: quit unless it was used for a hotkey
+					if (bMenuHeld && !bMenuUsedAsHotkey) {
+						quit = 1;
+					}
+					bMenuHeld = false;
+					break;
+				case SDLK_BACKSPACE:
+					bMiyooBlockR2 = false;
+					break;
+				case SDLK_TAB:
+					bMiyooBlockL2 = false;
+					break;
 #endif
+				case SDLK_F12:
 					quit = 1;
 					break;
 

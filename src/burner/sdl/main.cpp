@@ -302,6 +302,9 @@ static int __cdecl AppDebugPrintf(int nStatus, TCHAR* pszFormat, ...)
 
 int main(int argc, char* argv[])
 {
+#ifdef MIYOO_MINI
+	setvbuf(stdout, NULL, _IOLBF, 0);	// keep the log in order when it goes to a file
+#endif
 	UINT32      i = 0;
 	int fail = 0;
 	atexit(bye);

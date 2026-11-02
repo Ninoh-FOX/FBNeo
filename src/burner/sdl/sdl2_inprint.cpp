@@ -87,6 +87,15 @@ static unsigned char inline_font_bits[] = {
    0xff, 0xff, 0xff, 0xe0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 };
 
+#ifdef MIYOO_MINI
+// Raw 8x8 font for the Miyoo on-screen messages (vid_sdl2.cpp):
+// 128x64 bitmap, 16 x 8 characters, a 0 bit is a lit pixel
+const unsigned char* inprint_font_bits()
+{
+	return inline_font_bits;
+}
+#endif
+
 #define CHARACTERS_PER_ROW       16 /* I like 16 x 8 fontsets. */
 #define CHARACTERS_PER_COLUMN    8  /* 128 x 1 is another popular format. */
 

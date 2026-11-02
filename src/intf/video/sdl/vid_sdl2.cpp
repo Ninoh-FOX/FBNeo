@@ -36,11 +36,28 @@ extern bool didReinitialise;
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <linux/fb.h>
 
 static int nScreenW = 640, nScreenH = 480;	// framebuffer size (640x480 or 752x560)
 static int nOutW = 0, nOutH = 0;			// game image size after rotation
 static unsigned char* RotMem = NULL;		// rotated/flipped copy of pVidImage
+
+// Software filters (RGB565 only), applied before the hardware scaler:
+//  bVidScale2x   - AdvMAME2x / Scale2x
+//  bVidScanlines - every other screen line darkened by nVidScanIntensity
+INT32 bVidScale2x = 0;
+static bool bFilterScale2x = false, bFilterScanlines = false;
+static bool bFinalPass = false;			// resize (and scanlines) before the hardware scaler
+static int nTexW = 0, nTexH = 0;			// texture size after the filters
+static UINT16* Scale2xMem = NULL;
+static UINT16* ScanMem = NULL;
+static UINT16* ScanLUT = NULL;			// darkened colour for every RGB565 value
+
+// On-screen message after a hotkey (the SDL text functions do not work here)
+extern const unsigned char* inprint_font_bits();
+static char szMiyooMsg[64] = "";
+static Uint32 nMiyooMsgEnd = 0;
 
 static void MiyooGetScreenSize()
 {
@@ -71,9 +88,12 @@ static void MiyooAdjustImageSize()
 		dstrect.w = nOutW * nScale;
 		dstrect.h = nOutH * nScale;
 	} else {
-		// Fit the game's aspect ratio (e.g. 4:3 or 3:4) inside the screen
-		int nAspectX = 4, nAspectY = 3;
-		BurnDrvGetAspect(&nAspectX, &nAspectY);
+		// Keep the image proportions: square pixels by default, or the
+		// aspect ratio the driver asks for (usually 4:3) with bVidCorrectAspect
+		int nAspectX = nOutW, nAspectY = nOutH;
+		if (bVidCorrectAspect) {
+			BurnDrvGetAspect(&nAspectX, &nAspectY);
+		}
 		dstrect.w = nScreenW;
 		dstrect.h = nScreenW * nAspectY / nAspectX;
 		if (dstrect.h > nScreenH) {
@@ -107,6 +127,226 @@ static int MiyooRotateMode()
 {
 	if (nRotateGame) return bFlipped ? 1 : 3;	// same angles the desktop build passes to SDL_RenderCopyEx (90 / 270)
 	return bFlipped ? 2 : 0;
+}
+
+// RenderClear does nothing with this renderer and the parts of the screen
+// outside the image are never drawn, so clear both framebuffer pages by hand
+// whenever the image size changes
+static void MiyooClearFramebuffer()
+{
+	struct fb_var_screeninfo vinfo;
+	struct fb_fix_screeninfo finfo;
+	int fd = open("/dev/fb0", O_RDWR);
+
+	if (fd < 0) {
+		return;
+	}
+	if (ioctl(fd, FBIOGET_VSCREENINFO, &vinfo) == 0 && ioctl(fd, FBIOGET_FSCREENINFO, &finfo) == 0) {
+		size_t nLen = (size_t)finfo.line_length * vinfo.yres_virtual;
+		void* pFb = mmap(NULL, nLen, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		if (pFb != MAP_FAILED) {
+			memset(pFb, 0, nLen);
+			munmap(pFb, nLen);
+		}
+	}
+	close(fd);
+}
+
+static int MiyooCreateTexture()
+{
+	if (sdlTexture) {
+		SDL_DestroyTexture(sdlTexture);
+	}
+	sdlTexture = SDL_CreateTexture(sdlRenderer,
+		nVidImageDepth == 32 ? SDL_PIXELFORMAT_RGB888 : SDL_PIXELFORMAT_RGB565,
+		SDL_TEXTUREACCESS_STREAMING, nTexW, nTexH);
+	MiyooClearFramebuffer();
+	return sdlTexture ? 0 : 1;
+}
+
+static void MiyooShowMessage(const char* szMsg)
+{
+	strncpy(szMiyooMsg, szMsg, sizeof(szMiyooMsg) - 1);
+	szMiyooMsg[sizeof(szMiyooMsg) - 1] = 0;
+	nMiyooMsgEnd = SDL_GetTicks() + 2000;
+}
+
+// Draw szMiyooMsg in the top left corner of the RGB565 image that goes to the texture
+static void MiyooDrawMessage(UINT16* pDst, int w, int h)
+{
+	if (szMiyooMsg[0] == 0 || pDst == NULL) {
+		return;
+	}
+	if ((Sint32)(SDL_GetTicks() - nMiyooMsgEnd) >= 0) {
+		szMiyooMsg[0] = 0;
+		return;
+	}
+
+	const unsigned char* pFont = inprint_font_bits();
+	// about 16x16 screen pixels per character, whatever the texture size:
+	// the texture can be scaled differently across and down (e.g. scanlines)
+	int nSizeX = (2 * w + dstrect.w / 2) / (dstrect.w > 0 ? dstrect.w : 1);
+	int nSizeY = (2 * h + dstrect.h / 2) / (dstrect.h > 0 ? dstrect.h : 1);
+	if (nSizeX < 1) nSizeX = 1;
+	if (nSizeY < 1) nSizeY = 1;
+
+	int nX0 = 4 * nSizeX, nY0 = 4 * nSizeY;
+	for (int pass = 0; pass < 2; pass++) {			// shadow first, then the text
+		UINT16 nColour = pass ? 0xFFE0 : 0x0000;	// yellow on black
+		int nShiftX = pass ? 0 : nSizeX, nShiftY = pass ? 0 : nSizeY;
+		for (int c = 0; szMiyooMsg[c]; c++) {
+			int id = (unsigned char)szMiyooMsg[c] & 0x7F;
+			int nFontX = (id % 16) * 8, nFontY = (id / 16) * 8;
+			for (int fy = 0; fy < 8; fy++) {
+				for (int fx = 0; fx < 8; fx++) {
+					int nBit = (nFontY + fy) * 128 + nFontX + fx;
+					if (pFont[nBit >> 3] & (1 << (nBit & 7))) {
+						continue;		// unlit
+					}
+					for (int sy = 0; sy < nSizeY; sy++) {
+						int y = nY0 + nShiftY + fy * nSizeY + sy;
+						if (y < 0 || y >= h) continue;
+						for (int sx = 0; sx < nSizeX; sx++) {
+							int x = nX0 + nShiftX + (c * 8 + fx) * nSizeX + sx;
+							if (x >= 0 && x < w) pDst[y * w + x] = nColour;
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+static void MiyooFiltersExit()
+{
+	free(Scale2xMem);
+	free(ScanMem);
+	free(ScanLUT);
+	Scale2xMem = ScanMem = ScanLUT = NULL;
+	bFilterScale2x = bFilterScanlines = bFinalPass = false;
+}
+
+// Work out the texture size for the active filters. Must run after MiyooAdjustImageSize().
+static void MiyooFiltersInit()
+{
+	MiyooFiltersExit();
+
+	nTexW = nOutW;
+	nTexH = nOutH;
+	if (nVidImageBPP != 2) {
+		return;			// filters are written for RGB565
+	}
+
+	if (bVidScale2x) {
+		Scale2xMem = (UINT16*)malloc(nOutW * 2 * nOutH * 2 * sizeof(UINT16));
+		if (Scale2xMem) {
+			bFilterScale2x = true;
+			nTexW = nOutW * 2;
+			nTexH = nOutH * 2;
+		}
+	}
+
+	// The renderer refuses textures bigger than this (640x480 on the Mini)
+	int nMaxW = nScreenW, nMaxH = nScreenH;
+	SDL_RendererInfo info;
+	if (SDL_GetRendererInfo(sdlRenderer, &info) == 0 && info.max_texture_width > 0 && info.max_texture_height > 0) {
+		nMaxW = info.max_texture_width;
+		nMaxH = info.max_texture_height;
+	}
+
+	int nFinalW = nTexW, nFinalH = nTexH;
+	if (bVidScanlines) {
+		// As many lines as the image has on screen, so the dark lines stay
+		// one screen line high whatever the scale
+		nFinalH = dstrect.h;
+	}
+	if (nFinalW > nMaxW) nFinalW = dstrect.w < nMaxW ? dstrect.w : nMaxW;
+	if (nFinalH > nMaxH) nFinalH = dstrect.h < nMaxH ? dstrect.h : nMaxH;
+
+	if (nFinalW != nTexW || nFinalH != nTexH || bVidScanlines) {
+		ScanMem = (UINT16*)malloc(nFinalW * nFinalH * sizeof(UINT16));
+		if (bVidScanlines) {
+			ScanLUT = (UINT16*)malloc(65536 * sizeof(UINT16));
+		}
+		if (ScanMem && (ScanLUT || !bVidScanlines)) {
+			if (ScanLUT) {
+				int nLevel = nVidScanIntensity & 0xFF;		// 0x00 black .. 0xFF no effect
+				for (int i = 0; i < 65536; i++) {
+					int r = (i >> 11) & 0x1F, g = (i >> 5) & 0x3F, b = i & 0x1F;
+					ScanLUT[i] = (UINT16)((((r * nLevel) / 255) << 11) | (((g * nLevel) / 255) << 5) | ((b * nLevel) / 255));
+				}
+				bFilterScanlines = true;
+			}
+			bFinalPass = true;
+			nTexW = nFinalW;
+			nTexH = nFinalH;
+		} else {
+			free(ScanMem);
+			free(ScanLUT);
+			ScanMem = ScanLUT = NULL;
+			if (bFilterScale2x) {		// can not shrink it: drop Scale2x rather than show nothing
+				free(Scale2xMem);
+				Scale2xMem = NULL;
+				bFilterScale2x = false;
+				nTexW = nOutW;
+				nTexH = nOutH;
+			}
+		}
+	}
+}
+
+// AdvMAME2x: each pixel becomes 2x2, rounding off diagonal edges
+static void MiyooScale2x(const UINT16* src, UINT16* dst, int w, int h)
+{
+	for (int y = 0; y < h; y++) {
+		const UINT16* up   = src + (y > 0 ? y - 1 : y) * w;
+		const UINT16* mid  = src + y * w;
+		const UINT16* down = src + (y < h - 1 ? y + 1 : y) * w;
+		UINT16* d0 = dst + (y * 2) * (w * 2);
+		UINT16* d1 = d0 + w * 2;
+		for (int x = 0; x < w; x++) {
+			UINT16 B = up[x], H = down[x], E = mid[x];
+			UINT16 D = mid[x > 0 ? x - 1 : x];
+			UINT16 F = mid[x < w - 1 ? x + 1 : x];
+			if (B != H && D != F) {
+				d0[x * 2]     = (D == B) ? D : E;
+				d0[x * 2 + 1] = (B == F) ? F : E;
+				d1[x * 2]     = (D == H) ? D : E;
+				d1[x * 2 + 1] = (H == F) ? F : E;
+			} else {
+				d0[x * 2] = d0[x * 2 + 1] = d1[x * 2] = d1[x * 2 + 1] = E;
+			}
+		}
+	}
+}
+
+// Resize w x h to ow x oh (nearest) and, with scanlines, darken every other line
+static void MiyooFinalPass(const UINT16* src, UINT16* dst, int w, int h, int ow, int oh)
+{
+	static int nMapW = 0, nMapOw = 0;
+	static int nMapX[2048];
+
+	if (ow != w && (nMapW != w || nMapOw != ow) && ow <= 2048) {
+		for (int x = 0; x < ow; x++) nMapX[x] = x * w / ow;
+		nMapW = w;
+		nMapOw = ow;
+	}
+	for (int y = 0; y < oh; y++) {
+		const UINT16* s = src + (y * h / oh) * w;
+		UINT16* d = dst + y * ow;
+		bool bDark = bFilterScanlines && (y & 1);
+		if (ow == w) {
+			if (bDark) {
+				for (int x = 0; x < ow; x++) d[x] = ScanLUT[s[x]];
+			} else {
+				memcpy(d, s, w * sizeof(UINT16));
+			}
+		} else if (bDark) {
+			for (int x = 0; x < ow; x++) d[x] = ScanLUT[s[nMapX[x]]];
+		} else {
+			for (int x = 0; x < ow; x++) d[x] = s[nMapX[x]];
+		}
+	}
 }
 #endif
 
@@ -160,9 +400,42 @@ static int Exit()
 #ifdef MIYOO_MINI
 	free(RotMem);
 	RotMem = NULL;
+	MiyooFiltersExit();
 #endif
 	return 0;
 }
+
+#ifdef MIYOO_MINI
+static void MiyooApplyVideoSettings()
+{
+	if (sdlRenderer == NULL || nOutW <= 0) {
+		return;
+	}
+	MiyooAdjustImageSize();
+	MiyooFiltersInit();
+	MiyooCreateTexture();
+}
+
+// MENU + L2: keep the game's proportions (as big as the screen allows) <-> full screen
+void MiyooNextImageMode()
+{
+	bVidFullStretch = bVidFullStretch ? 0 : 1;
+	MiyooApplyVideoSettings();
+	MiyooShowMessage(bVidFullStretch ? "Image: full screen" : "Image: keep proportions");
+}
+
+// MENU + R2: none -> scanlines -> Scale2x -> Scale2x + scanlines
+void MiyooNextFilter()
+{
+	// bit 0 = scanlines, bit 1 = Scale2x
+	int nFilter = ((bVidScanlines ? 1 : 0) | (bVidScale2x ? 2 : 0)) + 1;
+	bVidScanlines = (nFilter & 1) ? 1 : 0;
+	bVidScale2x = (nFilter & 2) ? 1 : 0;
+	MiyooApplyVideoSettings();
+	static const char* szFilters[4] = { "Filter: none", "Filter: scanlines", "Filter: Scale2x", "Filter: Scale2x + scanlines" };
+	MiyooShowMessage(szFilters[(bVidScanlines ? 1 : 0) | (bVidScale2x ? 2 : 0)]);
+}
+#endif
 
 void AdjustImageSize()
 {
@@ -390,15 +663,22 @@ static int Init()
 	prepare_inline_font();   // TODO: BAD
 	incolor(0xFFF000, 0);
 
-	int nTexW = nVidImageWidth, nTexH = nVidImageHeight;
+#ifndef MIYOO_MINI
+	int nTexW, nTexH;
+#endif
+	nTexW = nVidImageWidth;
+	nTexH = nVidImageHeight;
 #ifdef MIYOO_MINI
-	// The texture holds the image already turned the right way up
+	// The texture holds the image already turned the right way up (and filtered)
 	nOutW = nRotateGame ? nVidImageHeight : nVidImageWidth;
 	nOutH = nRotateGame ? nVidImageWidth : nVidImageHeight;
-	nTexW = nOutW;
-	nTexH = nOutH;
+	nVidImageBPP = (nVidImageDepth + 7) >> 3;
 	MiyooAdjustImageSize();
+	MiyooFiltersInit();
 #endif
+#ifdef MIYOO_MINI
+	MiyooCreateTexture();
+#else
 	if (nVidImageDepth == 32)
 	{
 		sdlTexture = SDL_CreateTexture(sdlRenderer,
@@ -413,6 +693,7 @@ static int Init()
 			SDL_TEXTUREACCESS_STREAMING,
 			nTexW, nTexH);
 	}
+#endif
 	if (!sdlTexture)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't create sdlTexture from surface: %s", SDL_GetError());
@@ -485,16 +766,37 @@ static int Paint(int bValidate)
 {
 #ifdef MIYOO_MINI
 	int nMode = MiyooRotateMode();
+	const unsigned char* pImage = pVidImage;
+	int nPitch = nVidImagePitch;
 	if (nMode && RotMem) {
 		if (nVidImageBPP == 2) {
 			MiyooRotate((const UINT16*)pVidImage, (UINT16*)RotMem, nVidImageWidth, nVidImageHeight, nMode);
 		} else {
 			MiyooRotate((const UINT32*)pVidImage, (UINT32*)RotMem, nVidImageWidth, nVidImageHeight, nMode);
 		}
-		SDL_UpdateTexture(sdlTexture, NULL, RotMem, nOutW * nVidImageBPP);
-	} else {
-		SDL_UpdateTexture(sdlTexture, NULL, pVidImage, nVidImagePitch);
+		pImage = RotMem;
+		nPitch = nOutW * nVidImageBPP;
 	}
+
+	int nW = nOutW, nH = nOutH;
+	if (bFilterScale2x) {
+		MiyooScale2x((const UINT16*)pImage, Scale2xMem, nW, nH);
+		pImage = (const unsigned char*)Scale2xMem;
+		nW *= 2;
+		nH *= 2;
+		nPitch = nW * 2;
+	}
+	if (bFinalPass) {
+		MiyooFinalPass((const UINT16*)pImage, ScanMem, nW, nH, nTexW, nTexH);
+		pImage = (const unsigned char*)ScanMem;
+		nPitch = nTexW * 2;
+	}
+	if (szMiyooMsg[0]) {
+		// pImage is pVidImage or one of our buffers, all writable; the emulator
+		// draws pVidImage again for the next frame
+		MiyooDrawMessage((UINT16*)pImage, nPitch / 2, nTexH);
+	}
+	SDL_UpdateTexture(sdlTexture, NULL, pImage, nPitch);
 	SDL_RenderCopy(sdlRenderer, sdlTexture, NULL, &dstrect);
 	SDL_RenderPresent(sdlRenderer);
 	return 0;
