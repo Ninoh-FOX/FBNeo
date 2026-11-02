@@ -14,13 +14,13 @@ static INT32 which_cpu, which_dac;
 static UINT16 *sg_ram = NULL;
 
 // muting & pop-supression logic (tested: rampage, powerdrv, stargrds)
-struct anti_pop {
+struct midsg_anti_pop {
 	UINT16 last_tval;
 	INT32 booting;
 	UINT16 mask;
 };
 
-static anti_pop ml;
+static midsg_anti_pop ml;
 
 void soundsgood_set_antipop_mask(UINT16 nMask)
 {
@@ -34,7 +34,7 @@ static void soundsgood_porta_w(UINT16, UINT8 data)
 	// After boot-up & it plays a sample, one of these locations will go from
 	// 0x00 to above 0x10.  We'll use that logic to un-mute to avoid the nasty
 	// pops and clicks this soundboard makes while booting.
-	INT32 tval = (sg_ram[0x80/2] | sg_ram[0x82/2] | sg_ram[0x90/2] | sg_ram[0xa0/2] | sg_ram[0xb0/2] | sg_ram[0xc2/2]) & ml.mask;
+	INT32 tval = (BURN_ENDIAN_SWAP_INT16(sg_ram[0x80/2]) | BURN_ENDIAN_SWAP_INT16(sg_ram[0x82/2]) | BURN_ENDIAN_SWAP_INT16(sg_ram[0x90/2]) | BURN_ENDIAN_SWAP_INT16(sg_ram[0xa0/2]) | BURN_ENDIAN_SWAP_INT16(sg_ram[0xb0/2]) | BURN_ENDIAN_SWAP_INT16(sg_ram[0xc2/2])) & ml.mask;
 
 	if (ml.booting && tval > 0x10 && ml.last_tval == 0) {
 		bprintf(0, _T("*** soundsgood: un-muting\n"));

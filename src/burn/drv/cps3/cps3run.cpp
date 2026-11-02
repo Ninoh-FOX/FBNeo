@@ -129,19 +129,19 @@ typedef struct
 	INT32 status;
 	INT32 flash_mode;
 	INT32 flash_master_lock;
-} flash_chip;
+} cps3_flash_chip;
 
-static flash_chip main_flash;
+static cps3_flash_chip main_flash;
 
-void cps3_flash_init(flash_chip * chip/*, void *data*/)
+void cps3_flash_init(cps3_flash_chip * chip/*, void *data*/)
 {
-	memset(chip, 0, sizeof(flash_chip));
+	memset(chip, 0, sizeof(cps3_flash_chip));
 	chip->status = 0x80;
 	chip->flash_mode = FM_NORMAL;
 	chip->flash_master_lock = 0;
 }
 
-UINT32 cps3_flash_read(flash_chip * chip, UINT32 addr)
+UINT32 cps3_flash_read(cps3_flash_chip * chip, UINT32 addr)
 {
 	switch( chip->flash_mode ) {
 	case FM_READAMDID3:
@@ -167,7 +167,7 @@ UINT32 cps3_flash_read(flash_chip * chip, UINT32 addr)
 	}
 }
 
-void cps3_flash_write(flash_chip * chip, UINT32 addr, UINT32 data)
+void cps3_flash_write(cps3_flash_chip * chip, UINT32 addr, UINT32 data)
 {
 	bprintf(1, _T("FLASH to write long value %8x to location %8x\n"), data, addr);
 	
@@ -1799,22 +1799,23 @@ static void cps3_draw_tilemapsprite_line(INT32 drawline, UINT32 * regs )
 	}
 }
 
-static INT32 WideScreenFrameDelay = 0;
-
 INT32 DrvCps3Draw()
 {
 	UINT32 fullscreenzoom = RamVReg[ 6 * 4 + 3 ] & 0xff;
 	UINT32 fullscreenzoomwidecheck = RamVReg[6 * 4 + 1];
-	
-	if (((fullscreenzoomwidecheck & 0xffff0000) >> 16) == 0x0265 || strcmp(BurnDrvGetTextA(DRV_NAME), "sfiii3ws") == 0) {
+
+	BurnDrvGetVisibleSize(&cps3_gfx_width, &cps3_gfx_height);
+
+	if (((fullscreenzoomwidecheck & 0xffff0000) >> 16) == 0x0265 || strcmp(BurnDrvGetTextA(DRV_NAME), "sfiii3ws") == 0)
+	{
 		INT32 Width, Height;
 		BurnDrvGetVisibleSize(&Width, &Height);
 		
 		if (Width != 496) {
 			BurnDrvSetVisibleSize(496, 224);
 			BurnDrvSetAspect(16, 9);
-			Reinitialise();
-			WideScreenFrameDelay = GetCurrentFrame() + 1;
+			ReinitialiseVideo();
+			return 1;
 		}
 	} else {
 		INT32 Width, Height;
@@ -1823,8 +1824,8 @@ INT32 DrvCps3Draw()
 		if (Width != 384) {
 			BurnDrvSetVisibleSize(384, 224);
 			BurnDrvSetAspect(4, 3);
-			Reinitialise();
-			WideScreenFrameDelay = GetCurrentFrame() + 1;
+			ReinitialiseVideo();
+			return 1;
 		}
 	}
 	
@@ -2094,12 +2095,7 @@ INT32 cps3Frame()
 		}
 		cps3_palette_change = 0;
 	}
-	
-	if (WideScreenFrameDelay == GetCurrentFrame()) {
-		BurnDrvGetVisibleSize(&cps3_gfx_width, &cps3_gfx_height);
-		WideScreenFrameDelay = 0;
-	}
-	
+
 //	EEPROM[0x11] = 0x100 + (EEPROM[0x11] & 0xff);
 //	EEPROM[0x29] = 0x100 + (EEPROM[0x29] & 0xff);
 
@@ -2127,8 +2123,8 @@ INT32 cps3Frame()
 	}
 
 	// Clear Opposites
-	clear_opposite.check(0, Cps3Input[0], 0x0003, 0x000c);
-	clear_opposite.check(1, Cps3Input[0], 0x0300, 0x0c00);
+	clear_opposite.check(0, Cps3Input[0], 0x0001, 0x0002, 0x0004, 0x0008, nSocd[0]);
+	clear_opposite.check(1, Cps3Input[0], 0x0100, 0x0200, 0x0400, 0x0800, nSocd[1]);
 
 	Sh2NewFrame();
 
@@ -2289,9 +2285,6 @@ INT32 cps3Scan(INT32 nAction, INT32 *pnMin)
 		SCAN_VAR(lastb2);
 		
 		SCAN_VAR(cps_int10_cnt);
-
-		SCAN_VAR(cps3_gfx_width);  // must be scanned (for rewind!)
-		SCAN_VAR(cps3_gfx_height); // ""
 
 		SCAN_VAR(nExtraCycles);
 

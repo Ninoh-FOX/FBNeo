@@ -41,6 +41,9 @@ struct CheatInfo {
 	INT32 bWriteWithMask;                       // Use nExtended field as mask
 
 	TCHAR szCheatName[CHEAT_MAX_NAME];
+#ifdef __LIBRETRO__
+	TCHAR szCheatFilename[128];
+#endif
 	struct CheatOption* pOption[CHEAT_MAX_OPTIONS];
 };
 
@@ -78,3 +81,10 @@ bool WriteValueAtHardwareAddress(HWAddressType address, unsigned int value, unsi
 bool WriteValueAtHardwareAddress_audio(HWAddressType address, unsigned int value, unsigned int size, int isLittleEndian);
 
 bool IsHardwareAddressValid(HWAddressType address);
+
+#ifdef BUILD_HEADLESS
+// OpenEmu-Silicon headless helpers (see cheat.cpp).
+unsigned int GetMainMemorySize();
+unsigned int ReadMemoryRange(HWAddressType address, unsigned char *buffer, unsigned int length);
+int GetMainMemoryBigEndian(); // multibyte order for host cheats; always 0 (little-endian), see cheat.cpp
+#endif

@@ -122,6 +122,7 @@ static struct FBAVI {
 	UINT8 *pBitmapBuf2; // buffer #2 (flippy, pBitmapBufX points to one of these depending on last effect used)
 } FBAvi;
 
+
 // Opens an avi file for writing.
 // Returns: 0 (successful), 1 (failed)
 static INT32 AviCreateFile()
@@ -139,7 +140,9 @@ static INT32 AviCreateFile()
 	// construct our filename -> "romname-mm-dd-hms.avi"
 
 	if (nAviSplit == 0) { // Create the filename @ the first file in our set
-		sprintf(szAviFileName, "%s%s-%.2d-%.2d-%.2d%.2d%.2d", TAVI_DIRECTORY, BurnDrvGetTextA(DRV_NAME), tmTime->tm_mon + 1, tmTime->tm_mday, tmTime->tm_hour, tmTime->tm_min, tmTime->tm_sec);
+		char sztFn[MAX_PATH] = { 0, };
+		strcpy(sztFn, _TtoA(IsCDGame() ? CDInfo_GamePrefix() : BurnDrvGetText(DRV_NAME)));
+		sprintf(szAviFileName, "%s%s-%.2d-%.2d-%.2d%.2d%.2d", TAVI_DIRECTORY, sztFn, tmTime->tm_mon + 1, tmTime->tm_mday, tmTime->tm_hour, tmTime->tm_min, tmTime->tm_sec);
 	}
 
 	// add the set# and extension to our file.
@@ -619,6 +622,22 @@ static INT32 AviCreateAudStream()
 INT32 AviStart_INT();
 void AviStop_INT();
 
+static INT32 AviCheckSizeChanged()
+{
+	INT32 nW, nH;
+	BurnDrvGetVisibleSize(&nW, &nH);
+
+	if (nW != FBAvi.nWidth || nH != FBAvi.nHeight) {
+		nAviSplit++;
+		bprintf(0, _T("    AVI Writer Resolution Changed (0x%X), creating new file.\n"), nAviSplit);
+		AviStop_INT();
+		AviStart_INT();
+		return 1;
+	}
+
+	return 0;
+}
+
 // Records 1 frame worth of data to the output stream
 // Returns: 0 (successful), 1 (failed)
 INT32 AviRecordFrame(INT32 bDraw)
@@ -632,6 +651,11 @@ INT32 AviRecordFrame(INT32 bDraw)
 	is in vid/aud interleaved mode, audio must be recorded
 	every frame regardless of frameskip.
 	*/
+
+	if (AviCheckSizeChanged()) {
+		return 0; // window size changed, skip this one.
+	}
+
 	if(bDraw) {
 		if(MakeSSBitmap()) {
 #ifdef AVI_DEBUG

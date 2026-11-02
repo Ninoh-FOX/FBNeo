@@ -38,6 +38,7 @@ static UINT8 DrvReset;
 
 static INT16 DrvAnalogPort0 = 0;
 static INT16 DrvAnalogPort1 = 0;
+static INT32 scanline;
 
 #define A(a, b, c, d) {a, b, (UINT8*)(c), d}
 static struct BurnInputInfo OmegraceInputList[] = {
@@ -126,9 +127,11 @@ static struct BurnDIPInfo OmegraceDIPList[]=
 	{0x02, 0x01, 0x80, 0x80, "Off"						},
 	{0x02, 0x01, 0x80, 0x00, "On"						},
 
+#ifndef __LIBRETRO__
 	{0   , 0xfe, 0   ,    2, "Hires Mode"				},
 	{0x03, 0x01, 0x01, 0x00, "No"						},
 	{0x03, 0x01, 0x01, 0x01, "Yes"						},
+#endif
 };
 
 STDDIPINFO(Omegrace)
@@ -174,7 +177,7 @@ static inline UINT8 spinner_read(INT32 player)
 		0x0c, 0x0d, 0x09, 0x08, 0x0a, 0x0b, 0x03, 0x02   // p2 table decoded by dink aug.2020
 	} };
 
-	return spinnerTable[player][BurnTrackballRead(0, player) & 0x3f];
+	return spinnerTable[player][BurnTrackballReadInterpolated(0, player, scanline) & 0x3f];
 }
 
 static UINT8 __fastcall omegrace_main_read_port(UINT16 port)
@@ -240,6 +243,9 @@ static UINT8 __fastcall omegrace_sound_read_port(UINT16 port)
 
 static INT32 res_check()
 {
+#ifdef __LIBRETRO__
+	return 0;
+#endif
 	if (DrvDips[3] & 1) {
 		INT32 Width, Height;
 		BurnDrvGetVisibleSize(&Width, &Height);
@@ -457,8 +463,8 @@ static INT32 DrvFrame()
 		}
 
 		BurnTrackballConfig(0, AXIS_NORMAL, AXIS_NORMAL);
-		BurnTrackballFrame(0, DrvAnalogPort0, DrvAnalogPort1, 0x01, 0x07);
-		BurnTrackballUDLR(0, DrvJoy3[2], DrvJoy3[3], DrvJoy3[0], DrvJoy3[1]);
+		BurnTrackballFrame(0, DrvAnalogPort0/2, DrvAnalogPort1/2, 0x01, 0x07, 60);
+		BurnTrackballUDLR(0, DrvJoy3[2], DrvJoy3[3], DrvJoy3[0], DrvJoy3[1], 2);
 		BurnTrackballUpdate(0);
 	}
 
@@ -468,6 +474,7 @@ static INT32 DrvFrame()
 
 	for (INT32 i = 0; i < nInterleave; i++)
 	{
+		scanline = i;
 		ZetOpen(0);
 		CPU_RUN(0, Zet);
 		if ((i % 10) == 9) ZetSetIRQLine(0, CPU_IRQSTATUS_HOLD); // 6x (really 6.25 per frame

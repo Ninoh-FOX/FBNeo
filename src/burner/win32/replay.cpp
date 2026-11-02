@@ -313,11 +313,10 @@ INT32 ReplayInput()
 		PrintInputs();
 	}
 
-#if 0
 	if ( (GetCurrentFrame()-nStartFrame) == (nTotalFrames-1) ) {
-		bRunPause = 1; // pause at the last recorded frame? causes weird issues when pauses.  investigate later.. -dink
+		bprintf(0, _T("*** Replay: pausing before end of video!  Input-eof?: %x\n"), inputbuf_eof());
+		SetPauseMode(1);
 	}
-#endif
 
 	if (inputbuf_eof()) {
 		StopReplay();
@@ -824,6 +823,11 @@ static inline UINT16 Read16(const UINT8*& ptr)
 	return v;
 }
 
+INT32 FreezeInputSize()
+{
+	return 4 + 2*nGameInpCount;
+}
+
 INT32 FreezeInput(UINT8** buf, INT32* size)
 {
 	*size = 4 + 2*nGameInpCount;
@@ -1160,7 +1164,8 @@ void DisplayReplayProperties(HWND hDlg, bool bClear)
 		SetDlgItemTextA(hDlg, IDC_REPLAYTIME, szRecordedTime);
 
 		if (!_tcsncmp(wszStartupGame, _T("neocdz"), 6) || !_tcsncmp(wszStartupGame, _T("ngcd_"), 5) ||
-		    _tcsstr(szChoice, _T("ngcd_")) ) {
+			!_tcsncmp(wszStartupGame, _T("pcecd_"), 6) ||
+		    _tcsstr(szChoice, _T("ngcd_")) || _tcsstr(szChoice, _T("pcecd_")) ) {
 			// Neo Geo CD game, show nice warning :)
 			ShowWindow(GetDlgItem(hDlg, IDC_NGCD_WARN), SW_SHOW);
 		}
@@ -1171,11 +1176,7 @@ static TCHAR *GetDrvName() // for both arcade & neocd
 {
 	static TCHAR szName[MAX_PATH] = _T("");
 
-	if (NeoCDInfo_ID()) {
-		_stprintf(szName, _T("ngcd_%s"), NeoCDInfo_Text(DRV_NAME));
-	} else {
-		_stprintf(szName, _T("%s"), BurnDrvGetText(DRV_NAME));
-	}
+	_stprintf(szName, _T("%s"), IsCDGame() ? CDInfo_GamePrefix() : BurnDrvGetText(DRV_NAME));
 
 	return szName;
 }

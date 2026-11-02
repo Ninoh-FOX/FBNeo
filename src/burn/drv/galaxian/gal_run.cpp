@@ -1,5 +1,79 @@
 #include "gal.h"
 
+// Harem (Galaxian bootleg) protection: an opcode/data ROM bankswitch driven by
+// a 4-bit shift register clocked through 0x5801-0x5803 (dispatched in the write
+// handler below). Kept here in the shared machine code that references it so a
+// single galaxian driver builds standalone without the whole game driver; the
+// game driver sets up GalZ80Rom1Op then drives it via harem_bankswitch() /
+// harem_decrypt_scan() (declared in gal.h).
+static INT32 harem_decrypt_mode = 0;
+static INT32 harem_decrypt_count = 0;
+static INT32 harem_decrypt_clk = 0;
+static INT32 harem_decrypt_bit = 0;
+static INT32 harem_bank = 0;
+
+void harem_bankswitch(INT32 bank)
+{
+	UINT8 *data = GalZ80Rom1Op + 0x0000 + (0x2000 * bank);
+	UINT8 *opcodes = GalZ80Rom1Op + 0x6000 + (0x2000 * bank);
+
+	harem_bank = bank;
+
+	ZetMapMemory(data	, 0x8000, 0x9fff, MAP_READ | MAP_FETCHARG);
+	ZetMapMemory(opcodes, 0x8000, 0x9fff, MAP_FETCHOP);
+}
+
+void harem_decrypt_bit_write(UINT8 data)
+{
+	harem_decrypt_bit = data;
+}
+
+void harem_decrypt_rst_write(UINT8 data)
+{
+	harem_decrypt_mode = 0;
+	harem_decrypt_count = 0;
+}
+
+void harem_decrypt_clk_write(UINT8 data)
+{
+	if (data & 1 && ~harem_decrypt_clk & 1) {
+		harem_decrypt_mode = ((harem_decrypt_mode >> 1) | ((harem_decrypt_bit & 1) << 3)) & 0x0f;
+		harem_decrypt_count++;
+	}
+
+	harem_decrypt_clk = data;
+
+	if (harem_decrypt_count == 4) {
+		INT32 bank = 0;
+		switch (harem_decrypt_mode) {
+			case 0x03: bank = 0; break;
+			case 0x09: bank = 1; break;
+			case 0x0a: bank = 2; break;
+		}
+
+		harem_bankswitch(bank);
+
+		harem_decrypt_rst_write(0);
+	}
+}
+
+void harem_decrypt_scan(INT32 nAction)
+{
+	if (nAction & ACB_DRIVER_DATA) {
+		SCAN_VAR(harem_decrypt_mode);
+		SCAN_VAR(harem_decrypt_count);
+		SCAN_VAR(harem_decrypt_clk);
+		SCAN_VAR(harem_decrypt_bit);
+		SCAN_VAR(harem_bank);
+	}
+
+	if (nAction & ACB_WRITE) {
+		ZetOpen(0);
+		harem_bankswitch(harem_bank);
+		ZetClose();
+	}
+}
+
 UINT8 GalInputPort0[8]       = {0, 0, 0, 0, 0, 0, 0, 0};
 UINT8 GalInputPort1[8]       = {0, 0, 0, 0, 0, 0, 0, 0};
 UINT8 GalInputPort2[8]       = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -523,20 +597,20 @@ UINT8 __fastcall GalaxianZ80Read(UINT16 a)
 
 void __fastcall GalaxianZ80Write(UINT16 a, UINT8 d)
 {
-	if (a >= 0x5800 && a <= 0x58ff) {
-		int Offset = a - 0x5800;
-		
+	if (a >= 0x5800 && a <= 0x5fff) {
+		int Offset = a & 0xff;
+
 		GalSpriteRam[Offset] = d;
-		
+
 		if (Offset < 0x40) {
 			if ((Offset & 0x01) == 0) {
 				GalScrollVals[Offset >> 1] = d;
 			}
 		}
-		
+
 		return;
 	}
-	
+
 	switch (a) {
 		case 0x6000:
 		case 0x6001: {
@@ -680,11 +754,11 @@ INT32 GalInit()
 			ZetMapArea(0x4400, 0x47ff, 0, GalZ80Ram1);
 			ZetMapArea(0x4400, 0x47ff, 1, GalZ80Ram1);
 			ZetMapArea(0x4400, 0x47ff, 2, GalZ80Ram1);
-			ZetMapArea(0x5000, 0x53ff, 0, GalVideoRam);
-			ZetMapArea(0x5000, 0x53ff, 1, GalVideoRam);
-			ZetMapArea(0x5000, 0x53ff, 2, GalVideoRam);
-			ZetMapArea(0x5800, 0x58ff, 0, GalSpriteRam);
-			ZetMapArea(0x5800, 0x58ff, 2, GalSpriteRam);
+			ZetMapMemory(GalVideoRam, 0x5000, 0x53ff, MAP_RAM);
+			ZetMapMemory(GalVideoRam, 0x5400, 0x57ff, MAP_RAM);
+			for (int i = 0; i < 8; i++) {
+				ZetMapMemory(GalSpriteRam, 0x5800 + (i * 0x100), 0x58ff + (i * 0x100), MAP_READ); // write in handler
+			}
 			ZetClose();
 		}
 	}
@@ -1389,7 +1463,8 @@ UINT8 __fastcall TheendZ80Read(UINT16 a)
 	}
 	
 	switch (a) {
-		case 0x7000: {
+		case 0x7000:   // theend
+		case 0x7800: { // atlantis
 			// watchdog read
 			return 0xff;
 		}
@@ -1446,7 +1521,12 @@ void __fastcall TheendZ80Write(UINT16 a, UINT8 d)
 			if (!GalStarsEnable) GalStarsScrollPos = -1;
 			return;
 		}
-		
+
+		case 0x6805: {
+			// atlantis - ??
+			return;
+		}
+
 		case 0x6806: {
 			GalFlipScreenX = d & 1;
 			return;

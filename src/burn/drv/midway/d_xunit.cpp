@@ -8,6 +8,15 @@
 #include "burn_pal.h"
 #include "burn_gun.h"
 
+#define XUNIT_SCREEN_WIDTH  400
+// standalone builds have an issue where filters don't work properly
+// if height is not divisible by 4
+#ifndef __LIBRETRO__
+#define XUNIT_SCREEN_HEIGHT 256
+#else
+#define XUNIT_SCREEN_HEIGHT 254
+#endif
+
 static UINT8 *AllMem;
 static UINT8 *AllRam;
 static UINT8 *RamEnd;
@@ -67,8 +76,8 @@ static struct BurnInputInfo RevxInputList[] = {
 	{"Service",			BIT_DIGITAL,	DrvJoy3 + 6,	"service"	},
 	{"Service Mode",	BIT_DIGITAL,	DrvJoy3 + 4,	"diag"		},
 	{"Tilt",			BIT_DIGITAL,	DrvJoy3 + 3,	"tilt"		},
-	{"Volume Down",		BIT_DIGITAL,	DrvJoy3 + 11,	"p1 fire 7"	},
-	{"Volume Up",		BIT_DIGITAL,	DrvJoy3 + 12,	"p1 fire 8"	},
+	{"Volume Down",		BIT_DIGITAL,	DrvJoy3 + 11,	"volumedown"},
+	{"Volume Up",		BIT_DIGITAL,	DrvJoy3 + 12,	"volumeup"	},
 	{"Dip A",			BIT_DIPSWITCH,	DrvDips + 0,	"dip"		},
 	{"Dip B",			BIT_DIPSWITCH,	DrvDips + 1,	"dip"		},
 	{"Dip C",			BIT_DIPSWITCH,	DrvDips + 2,	"dip"		},
@@ -143,6 +152,17 @@ static struct BurnDIPInfo RevxDIPList[]=
 STDDIPINFO(Revx)
 
 #include "midtunit_dma.h"
+
+// data from the DCS raises EX2, except in UART loopback mode (as MAME)
+static void dcs_output_full(INT32 state)
+{
+	if (uart[1] == 0x66) return;
+
+	if (state)
+		TMS34010GenerateIRQ(TMS34010_INT_EX2);
+	else
+		TMS34010ClearIRQ(TMS34010_INT_EX2);
+}
 
 static void sound_sync()
 {
@@ -251,16 +271,16 @@ static void midxunit_write(UINT32 address, UINT16 data)
 	if ((address & 0xffc00000) == 0x00000000) {
 		UINT32 offset = TOBYTE(address & 0x3fffff);
 		UINT16 *vram = (UINT16*)DrvVidRAM;
-		vram[offset+0] = (nDMA[DMA_PALETTE] << 8) | (data & 0x00ff);
-		vram[offset+1] = (nDMA[DMA_PALETTE] & 0xff00) | ((data >> 8) & 0xff);
+		vram[offset+0] = BURN_ENDIAN_SWAP_INT16((nDMA[DMA_PALETTE] << 8) | (data & 0x00ff));
+		vram[offset+1] = BURN_ENDIAN_SWAP_INT16((nDMA[DMA_PALETTE] & 0xff00) | ((data >> 8) & 0xff));
 		return;
 	}
 
 	if ((address & 0xffc00000) == 0x00800000) {
 		UINT32 offset = TOBYTE(address & 0x3fffff);
 		UINT16 *vram = (UINT16*)DrvVidRAM;
-		vram[offset+0] = (vram[offset+0] & 0x00ff) | ((data & 0xff) << 8);
-		vram[offset+1] = (vram[offset+1] & 0x00ff) | (data & 0xff00);
+		vram[offset+0] = BURN_ENDIAN_SWAP_INT16((BURN_ENDIAN_SWAP_INT16(vram[offset+0]) & 0x00ff) | ((data & 0xff) << 8));
+		vram[offset+1] = BURN_ENDIAN_SWAP_INT16((BURN_ENDIAN_SWAP_INT16(vram[offset+1]) & 0x00ff) | (data & 0xff00));
 		return;
 	}
 
@@ -307,6 +327,11 @@ static void midxunit_write(UINT32 address, UINT16 data)
 
 	if ((address & 0xff8fff00) == 0xc0800000) {
 		TUnitDmaWrite(address, data);
+
+		// the DMA latches the whole 32-bit bus: a 16-bit write to an even register also sets the odd one
+		// (revx 2.0 relies on it for the DMA_CONFIG register bank in its U76 test)
+		INT32 high = TMS34020GetWordWriteHigh();
+		if (high >= 0 && (~address & 0x10)) TUnitDmaWrite(address | 0x10, high);
 		return;
 	}
 }
@@ -316,13 +341,13 @@ static UINT16 midxunit_read(UINT32 address)
 	if ((address & 0xffc00000) == 0x00000000) {
 		UINT32 offset = TOBYTE(address & 0x3fffff);
 		UINT16 *vram = (UINT16*)DrvVidRAM;
-		return (vram[offset+0] & 0xff) | (vram[offset+1] << 8);
+		return (BURN_ENDIAN_SWAP_INT16(vram[offset+0]) & 0xff) | (BURN_ENDIAN_SWAP_INT16(vram[offset+1]) << 8);
 	}
 
 	if ((address & 0xffc00000) == 0x00800000) {
 		UINT32 offset = TOBYTE(address & 0x3fffff);
 		UINT16 *vram = (UINT16*)DrvVidRAM;
-		return (vram[offset+0] >> 8) | (vram[offset+1] & 0xff00);
+		return (BURN_ENDIAN_SWAP_INT16(vram[offset+0]) >> 8) | (BURN_ENDIAN_SWAP_INT16(vram[offset+1]) & 0xff00);
 	}
 
 	if ((address & 0xffffffe0) == 0x60400000) {
@@ -411,7 +436,7 @@ static INT32 scanline_callback(INT32 scanline, TMS34010Display *params)
 	for (INT32 x = params->heblnk; x < params->hsblnk; x++) {
 		INT32 ex = x - params->heblnk;
 		if (ex >= 0 && ex < nScreenWidth) {
-			dest[ex] = src[fulladdr++ & 0x1ff];
+			dest[ex] = BURN_ENDIAN_SWAP_INT16(src[fulladdr++ & 0x1ff]);
 		}
 	}
 
@@ -428,34 +453,6 @@ static void from_shiftreg(UINT32 address, UINT16 *shiftreg)
 {
 	UINT16 *vram = (UINT16*)DrvVidRAM;
 	memcpy(&vram[address >> 3], shiftreg, 2 * 512 * sizeof(UINT16));
-}
-
-static UINT16 midxunit_romredirect(UINT32 address)
-{
-	if ((address & 0xfffff000) == 0x20d31000) {
-		UINT32 offset = TOWORD(address & 0xffffff);
-		UINT16 *ram = (UINT16*)DrvTMSRAM;
-		if (address == 0x20d31550 && TMS34010GetPC() == 0x20d31560 && ram[offset] == 0x58e) {
-			return 0x078e;
-		}
-		return ram[offset];
-	}
-
-	return 0;
-}
-
-static UINT16 midxunit_romredirectp5(UINT32 address)
-{
-	if ((address & 0xfffff000) == 0x20d22000) {
-		UINT32 offset = TOWORD(address & 0xffffff);
-		UINT16 *ram = (UINT16*)DrvTMSRAM;
-		if (address == 0x20d22870 && TMS34010GetPC() == 0x20d22880 && ram[offset] == 0x58e) {
-			return 0x078e;
-		}
-		return ram[offset];
-	}
-
-	return 0;
 }
 
 static UINT8 revx_nvram_chunk[] = {
@@ -677,10 +674,9 @@ static INT32 DrvInit()
 		if (BurnLoadRom(DrvGfxROM + 0xc00002, k++, 4)) return 1;
 		if (BurnLoadRom(DrvGfxROM + 0xc00003, k++, 4)) return 1;
 
-		if (BurnLoadRom(DrvGfxROM + 0xe00000, k++, 4)) return 1;
-		if (BurnLoadRom(DrvGfxROM + 0xe00001, k++, 4)) return 1;
-		if (BurnLoadRom(DrvGfxROM + 0xe00002, k++, 4)) return 1;
-		if (BurnLoadRom(DrvGfxROM + 0xe00003, k++, 4)) return 1;
+		// MAME is reloading the program roms here, but there are no duplicate ROMs on the real PCB,
+		// so let's simplify this with a memcpy. Is this even useful ? Games are seemingly working fine without it.
+		memcpy(DrvGfxROM + 0xe00000, DrvTMSROM, 0x200000);
 	}
 
 	TMS34020Init(0);
@@ -689,17 +685,6 @@ static INT32 DrvInit()
 	TMS34010MapMemory(DrvNVRAM,			0xa0440000, 0xa047ffff, MAP_RAM);
 	TMS34010MapMemory(DrvTMSROM,		0xff000000, 0xffffffff, MAP_ROM);
 	TMS34010SetHandlers(0,				midxunit_read, midxunit_write);
-
-	// hot-fix for u76 failure @ boot -dink
-	if (strstr(BurnDrvGetTextA(DRV_NAME), "revxp5")) {
-		TMS34010UnmapMemory(0x20d22000, 0x20d22fff, MAP_ROM); // unmap page w/bad opcode
-		TMS34010SetReadHandler(1, midxunit_romredirectp5);      // replace with a handler to dish out proper opcode when needed
-		TMS34010MapHandler(1, 0x20d22000, 0x20d22fff, MAP_ROM);
-	} else {
-		TMS34010UnmapMemory(0x20d31000, 0x20d31fff, MAP_ROM); // unmap page w/bad opcode
-		TMS34010SetReadHandler(1, midxunit_romredirect);      // replace with a handler to dish out proper opcode when needed
-		TMS34010MapHandler(1, 0x20d31000, 0x20d31fff, MAP_ROM);
-	}
 
 	TMS34010SetToShift(to_shiftreg);
 	TMS34010SetFromShift(from_shiftreg);
@@ -714,6 +699,7 @@ static INT32 DrvInit()
     MidwaySerialPicReset();
 
 	Dcs2kInit(DCS_2KU, MHz(10));
+	Dcs2kSetOutputFullCallback(dcs_output_full);
 	Dcs2kMapSoundROM(DrvSndROM, 0x1000000);
 	Dcs2kSetVolume(5.50);
 
@@ -771,15 +757,20 @@ static INT32 DrvDraw()
 	return 0;
 }
 
-static void HandleDCSIRQ(INT32 line)
-{
-	if (line == 0 || line == 96 || line == 192) DcsCheckIRQ();
-}
-
 static INT32 DrvFrame()
 {
 	if (DrvReset) {
 		DrvDoReset();
+	}
+
+	// normalize volume with other drivers by increasing it from its default 25% to around 60% in service menu
+	// note : this can't be done at init because the cmos has to be initialized first
+	// note2: we could also normalize by boosting volume with Dcs2kSetVolume,
+	//        but then the volume would be way too loud for anyone who did increase it in service menu
+	if (DrvNVRAM[0x41cc] == 0x3f && DrvNVRAM[0x4360] == 0xfd && DrvNVRAM[0x4364] == 0x05) {
+		DrvNVRAM[0x41cc] = 0xac;
+		DrvNVRAM[0x4360] = 0xfc;
+		DrvNVRAM[0x4364] = 0x98;
 	}
 
 	{
@@ -815,8 +806,6 @@ static INT32 DrvFrame()
 			BurnDrvRedraw();
 			bDrawn = 1;
 		}
-
-		HandleDCSIRQ(i);
 
 		sound_sync(); // sync to main cpu
 		if (i == nInterleave - 1)
@@ -881,7 +870,8 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 	return 0;
 }
 
-// Revolution X (rev 1.0 6/16/94)
+// Revolution X (revision 2.0 9/8/94)
+// temporarily relegated to clone and marked as not working due to some issues
 
 static struct BurnRomInfo revxRomDesc[] = {
 	{ "l1_revolution_x_sound_rom_u2.u2",	0x80000, 0xd2ed9f5e, 1 | BRF_SND },           //  0 DCS Sound Data
@@ -893,12 +883,12 @@ static struct BurnRomInfo revxRomDesc[] = {
 	{ "l1_revolution_x_sound_rom_u8.u8",	0x80000, 0x793a7eb5, 1 | BRF_SND },           //  6
 	{ "l1_revolution_x_sound_rom_u9.u9",	0x80000, 0x14ddbea1, 1 | BRF_SND },           //  7
 
-	{ "l1_revolution_x_game_rom_u51.u51",	0x80000, 0x9960ac7c, 2 | BRF_PRG | BRF_ESS }, //  8 TMS34020 Code
-	{ "l1_revolution_x_game_rom_u52.u52",	0x80000, 0xfbf55510, 2 | BRF_PRG | BRF_ESS }, //  9
-	{ "l1_revolution_x_game_rom_u53.u53",	0x80000, 0xa045b265, 2 | BRF_PRG | BRF_ESS }, // 10
-	{ "l1_revolution_x_game_rom_u54.u54",	0x80000, 0x24471269, 2 | BRF_PRG | BRF_ESS }, // 11
+	{ "revx_l2.0_u51.u51",					0x80000, 0x2c996003, 2 | BRF_PRG | BRF_ESS }, //  8 TMS34020 Code
+	{ "revx_l2.0_u52.u52",					0x80000, 0xf1d4d6fb, 2 | BRF_PRG | BRF_ESS }, //  9
+	{ "revx_l2.0_u53.u53",					0x80000, 0x59ca7084, 2 | BRF_PRG | BRF_ESS }, // 10
+	{ "revx_l2.0_u54.u54",					0x80000, 0x4f577dd9, 2 | BRF_PRG | BRF_ESS }, // 11
 
-	{ "419_revolution-x_u444.u444",			0x02000, 0x517e0110, 3 | BRF_PRG | BRF_OPT }, // 12 PIC Code
+	{ "419_revolution-x_u444.u444",			0x02000, 0x7df57330, 3 | BRF_PRG | BRF_OPT }, // 12 PIC Code
 
 	{ "p5_revolution_x_game_rom_u120.u120",	0x80000, 0x523af1f0, 4 | BRF_GRA },           // 13 Graphics Data
 	{ "p5_revolution_x_game_rom_u121.u121",	0x80000, 0x78201d93, 4 | BRF_GRA },           // 14
@@ -928,10 +918,6 @@ static struct BurnRomInfo revxRomDesc[] = {
 	{ "p5_revolution_x_game_rom_u64.u64",	0x80000, 0xc33f5309, 4 | BRF_GRA },           // 38
 	{ "p5_revolution_x_game_rom_u65.u65",	0x80000, 0x6eee3e71, 4 | BRF_GRA },           // 39
 	{ "p5_revolution_x_game_rom_u66.u66",	0x80000, 0xb43d6fff, 4 | BRF_GRA },           // 40
-	{ "revx.u51",							0x80000, 0x9960ac7c, 4 | BRF_GRA },           // 41
-	{ "revx.u52",							0x80000, 0xfbf55510, 4 | BRF_GRA },           // 42
-	{ "revx.u53",							0x80000, 0xa045b265, 4 | BRF_GRA },           // 43
-	{ "revx.u54",							0x80000, 0x24471269, 4 | BRF_GRA },           // 44
 
 	{ "a-17722.u1",							0x00117, 0x054de7a3, 5 | BRF_OPT },           // 45 PLDs
 	{ "a-17721.u955",						0x00117, 0x033fe902, 5 | BRF_OPT },           // 46
@@ -943,16 +929,82 @@ STD_ROM_FN(revx)
 
 struct BurnDriver BurnDrvRevx = {
 	"revx", NULL, NULL, NULL, "1994",
-	"Revolution X (rev 1.0 6/16/94)\0", NULL, "Midway", "X Unit",
+	"Revolution X (revision 2.0 9/8/94)\0", NULL, "Midway", "X Unit",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING, 3, HARDWARE_MIDWAY_XUNIT, GBF_SHOOT, 0,
 	NULL, revxRomInfo, revxRomName, NULL, NULL, NULL, NULL, RevxInputInfo, RevxDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &BurnRecalc, 0x8000,
-	400, 256, 4, 3
+	XUNIT_SCREEN_WIDTH, XUNIT_SCREEN_HEIGHT, 4, 3
+};
+
+// Revolution X (revision 1.0 6/16/94)
+
+static struct BurnRomInfo revx1RomDesc[] = {
+	{ "l1_revolution_x_sound_rom_u2.u2",	0x80000, 0xd2ed9f5e, 1 | BRF_SND },           //  0 DCS Sound Data
+	{ "l1_revolution_x_sound_rom_u3.u3",	0x80000, 0xaf8f253b, 1 | BRF_SND },           //  1
+	{ "l1_revolution_x_sound_rom_u4.u4",	0x80000, 0x3ccce59c, 1 | BRF_SND },           //  2
+	{ "l1_revolution_x_sound_rom_u5.u5",	0x80000, 0xa0438006, 1 | BRF_SND },           //  3
+	{ "l1_revolution_x_sound_rom_u6.u6",	0x80000, 0xb7b34f60, 1 | BRF_SND },           //  4
+	{ "l1_revolution_x_sound_rom_u7.u7",	0x80000, 0x6795fd88, 1 | BRF_SND },           //  5
+	{ "l1_revolution_x_sound_rom_u8.u8",	0x80000, 0x793a7eb5, 1 | BRF_SND },           //  6
+	{ "l1_revolution_x_sound_rom_u9.u9",	0x80000, 0x14ddbea1, 1 | BRF_SND },           //  7
+
+	{ "l1_revolution_x_game_rom_u51.u51",	0x80000, 0x9960ac7c, 2 | BRF_PRG | BRF_ESS }, //  8 TMS34020 Code
+	{ "l1_revolution_x_game_rom_u52.u52",	0x80000, 0xfbf55510, 2 | BRF_PRG | BRF_ESS }, //  9
+	{ "l1_revolution_x_game_rom_u53.u53",	0x80000, 0xa045b265, 2 | BRF_PRG | BRF_ESS }, // 10
+	{ "l1_revolution_x_game_rom_u54.u54",	0x80000, 0x24471269, 2 | BRF_PRG | BRF_ESS }, // 11
+
+	{ "419_revolution-x_u444.u444",			0x02000, 0x7df57330, 3 | BRF_PRG | BRF_OPT }, // 12 PIC Code
+
+	{ "p5_revolution_x_game_rom_u120.u120",	0x80000, 0x523af1f0, 4 | BRF_GRA },           // 13 Graphics Data
+	{ "p5_revolution_x_game_rom_u121.u121",	0x80000, 0x78201d93, 4 | BRF_GRA },           // 14
+	{ "p5_revolution_x_game_rom_u122.u122",	0x80000, 0x2cf36144, 4 | BRF_GRA },           // 15
+	{ "p5_revolution_x_game_rom_u123.u123",	0x80000, 0x6912e1fb, 4 | BRF_GRA },           // 16
+	{ "p5_revolution_x_game_rom_u110.u110",	0x80000, 0xe3f7f0af, 4 | BRF_GRA },           // 17
+	{ "p5_revolution_x_game_rom_u111.u111",	0x80000, 0x49fe1a69, 4 | BRF_GRA },           // 18
+	{ "p5_revolution_x_game_rom_u112.u112",	0x80000, 0x7e3ba175, 4 | BRF_GRA },           // 19
+	{ "p5_revolution_x_game_rom_u113.u113",	0x80000, 0xc0817583, 4 | BRF_GRA },           // 20
+	{ "p5_revolution_x_game_rom_u101.u101",	0x80000, 0x5a08272a, 4 | BRF_GRA },           // 21
+	{ "p5_revolution_x_game_rom_u102.u102",	0x80000, 0x11d567d2, 4 | BRF_GRA },           // 22
+	{ "p5_revolution_x_game_rom_u103.u103",	0x80000, 0xd338e63b, 4 | BRF_GRA },           // 23
+	{ "p5_revolution_x_game_rom_u104.u104",	0x80000, 0xf7b701ee, 4 | BRF_GRA },           // 24
+	{ "p5_revolution_x_game_rom_u91.u91",	0x80000, 0x52a63713, 4 | BRF_GRA },           // 25
+	{ "p5_revolution_x_game_rom_u92.u92",	0x80000, 0xfae3621b, 4 | BRF_GRA },           // 26
+	{ "p5_revolution_x_game_rom_u93.u93",	0x80000, 0x7065cf95, 4 | BRF_GRA },           // 27
+	{ "p5_revolution_x_game_rom_u94.u94",	0x80000, 0x600d5b98, 4 | BRF_GRA },           // 28
+	{ "p5_revolution_x_game_rom_u81.u81",	0x80000, 0x729eacb1, 4 | BRF_GRA },           // 29
+	{ "p5_revolution_x_game_rom_u82.u82",	0x80000, 0x19acb904, 4 | BRF_GRA },           // 30
+	{ "p5_revolution_x_game_rom_u83.u83",	0x80000, 0x0e223456, 4 | BRF_GRA },           // 31
+	{ "p5_revolution_x_game_rom_u84.u84",	0x80000, 0xd3de0192, 4 | BRF_GRA },           // 32
+	{ "p5_revolution_x_game_rom_u71.u71",	0x80000, 0x2b29fddb, 4 | BRF_GRA },           // 33
+	{ "p5_revolution_x_game_rom_u72.u72",	0x80000, 0x2680281b, 4 | BRF_GRA },           // 34
+	{ "p5_revolution_x_game_rom_u73.u73",	0x80000, 0x420bde4d, 4 | BRF_GRA },           // 35
+	{ "p5_revolution_x_game_rom_u74.u74",	0x80000, 0x26627410, 4 | BRF_GRA },           // 36
+	{ "p5_revolution_x_game_rom_u63.u63",	0x80000, 0x3066e3f3, 4 | BRF_GRA },           // 37
+	{ "p5_revolution_x_game_rom_u64.u64",	0x80000, 0xc33f5309, 4 | BRF_GRA },           // 38
+	{ "p5_revolution_x_game_rom_u65.u65",	0x80000, 0x6eee3e71, 4 | BRF_GRA },           // 39
+	{ "p5_revolution_x_game_rom_u66.u66",	0x80000, 0xb43d6fff, 4 | BRF_GRA },           // 40
+
+	{ "a-17722.u1",							0x00117, 0x054de7a3, 5 | BRF_OPT },           // 45 PLDs
+	{ "a-17721.u955",						0x00117, 0x033fe902, 5 | BRF_OPT },           // 46
+	{ "snd-gal16v8a.u17",					0x00117, 0x00000000, 5 | BRF_NODUMP | BRF_OPT },           // 47
+};
+
+STD_ROM_PICK(revx1)
+STD_ROM_FN(revx1)
+
+struct BurnDriver BurnDrvRevx1 = {
+	"revx1", "revx", NULL, NULL, "1994",
+	"Revolution X (revision 1.0 6/16/94)\0", NULL, "Midway", "X Unit",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE, 3, HARDWARE_MIDWAY_XUNIT, GBF_SHOOT, 0,
+	NULL, revx1RomInfo, revx1RomName, NULL, NULL, NULL, NULL, RevxInputInfo, RevxDIPInfo,
+	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &BurnRecalc, 0x8000,
+	XUNIT_SCREEN_WIDTH, XUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
-// Revolution X (prototype, rev 5.0 5/23/94)
+// Revolution X (prototype, revision 5.0 5/23/94)
 
 static struct BurnRomInfo revxp5RomDesc[] = {
 	{ "p5_revolution_x_sound_rom_u2.u2",	0x80000, 0x4ed9e803, 1 | BRF_SND },           //  0 DCS Sound Data
@@ -969,7 +1021,7 @@ static struct BurnRomInfo revxp5RomDesc[] = {
 	{ "p5_revolution_x_game_rom_u53.u53",	0x80000, 0xfcfcf72a, 2 | BRF_PRG | BRF_ESS }, // 10
 	{ "p5_revolution_x_game_rom_u54.u54",	0x80000, 0xfd684c31, 2 | BRF_PRG | BRF_ESS }, // 11
 
-	{ "419_revolution-x_u444.u444",			0x02000, 0x517e0110, 3 | BRF_PRG | BRF_OPT }, // 12 PIC Code
+	{ "419_revolution-x_u444.u444",			0x02000, 0x7df57330, 3 | BRF_PRG | BRF_OPT }, // 12 PIC Code
 
 	{ "p5_revolution_x_game_rom_u120.u120",	0x80000, 0x523af1f0, 4 | BRF_GRA },           // 13 Graphics Data
 	{ "p5_revolution_x_game_rom_u121.u121",	0x80000, 0x78201d93, 4 | BRF_GRA },           // 14
@@ -999,10 +1051,6 @@ static struct BurnRomInfo revxp5RomDesc[] = {
 	{ "p5_revolution_x_game_rom_u64.u64",	0x80000, 0xc33f5309, 4 | BRF_GRA },           // 38
 	{ "p5_revolution_x_game_rom_u65.u65",	0x80000, 0x6eee3e71, 4 | BRF_GRA },           // 39
 	{ "p5_revolution_x_game_rom_u66.u66",	0x80000, 0xb43d6fff, 4 | BRF_GRA },           // 40
-	{ "p5_revolution_x_game_rom_u51.u51",	0x80000, 0xf3877eee, 4 | BRF_GRA },           // 41
-	{ "p5_revolution_x_game_rom_u52.u52",	0x80000, 0x199a54d8, 4 | BRF_GRA },           // 42
-	{ "p5_revolution_x_game_rom_u53.u53",	0x80000, 0xfcfcf72a, 4 | BRF_GRA },           // 43
-	{ "p5_revolution_x_game_rom_u54.u54",	0x80000, 0xfd684c31, 4 | BRF_GRA },           // 44
 
 	{ "a-17722.u1",							0x00117, 0x054de7a3, 5 | BRF_OPT },           // 45 PLDs
 	{ "a-17721.u955",						0x00117, 0x033fe902, 5 | BRF_OPT },           // 46
@@ -1014,10 +1062,10 @@ STD_ROM_FN(revxp5)
 
 struct BurnDriver BurnDrvRevxp5 = {
 	"revxp5", "revx", NULL, NULL, "1994",
-	"Revolution X (prototype, rev 5.0 5/23/94)\0", NULL, "Midway", "X Unit",
+	"Revolution X (prototype, revision 5.0 5/23/94)\0", NULL, "Midway", "X Unit",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_PROTOTYPE, 3, HARDWARE_MIDWAY_XUNIT, GBF_SHOOT, 0,
 	NULL, revxp5RomInfo, revxp5RomName, NULL, NULL, NULL, NULL, RevxInputInfo, RevxDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &BurnRecalc, 0x8000,
-	400, 256, 4, 3
+	XUNIT_SCREEN_WIDTH, XUNIT_SCREEN_HEIGHT, 4, 3
 };

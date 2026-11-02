@@ -23,6 +23,7 @@ static struct BurnInputInfo Gforce2InputList[] = {
 	{"Reset"             , BIT_DIGITAL   , &System16Reset         , "reset"     },
 	{"Dip 1"             , BIT_DIPSWITCH , System16Dip + 0        , "dip"       },
 	{"Dip 2"             , BIT_DIPSWITCH , System16Dip + 1        , "dip"       },
+	{"Dip 3"             , BIT_DIPSWITCH , System16Dip + 2        , "dip"       },
 };
 
 STDINPUTINFO(Gforce2)
@@ -44,6 +45,7 @@ static struct BurnInputInfo GlocInputList[] = {
 	{"Reset"             , BIT_DIGITAL   , &System16Reset         , "reset"     },
 	{"Dip 1"             , BIT_DIPSWITCH , System16Dip + 0        , "dip"       },
 	{"Dip 2"             , BIT_DIPSWITCH , System16Dip + 1        , "dip"       },
+	{"Dip 3"             , BIT_DIPSWITCH , System16Dip + 2        , "dip"       },
 };
 
 STDINPUTINFO(Gloc)
@@ -65,6 +67,7 @@ static struct BurnInputInfo Glocr360InputList[] = {
 	{"Reset"             , BIT_DIGITAL   , &System16Reset         , "reset"     },
 	{"Dip 1"             , BIT_DIPSWITCH , System16Dip + 0        , "dip"       },
 	{"Dip 2"             , BIT_DIPSWITCH , System16Dip + 1        , "dip"       },
+	{"Dip 3"             , BIT_DIPSWITCH , System16Dip + 2        , "dip"       },
 };
 
 STDINPUTINFO(Glocr360)
@@ -108,6 +111,7 @@ static struct BurnInputInfo RchaseInputList[] = {
 	{"Reset"             , BIT_DIGITAL   , &System16Reset         , "reset"     },
 	{"Dip 1"             , BIT_DIPSWITCH , System16Dip + 0        , "dip"       },
 	{"Dip 2"             , BIT_DIPSWITCH , System16Dip + 1        , "dip"       },
+	{"Dip 3"             , BIT_DIPSWITCH , System16Dip + 2        , "dip"       },
 };
 
 STDINPUTINFO(Rchase)
@@ -155,11 +159,55 @@ Dip Defs
 	{dipval, 0x01, 0xf0, 0xa0, "1 Coin  6 Credits"                  },			\
 	{dipval, 0x01, 0xf0, 0x00, "Free Play (if coin A too) or 1C/1C" },
 
+#define YBOARD_COINAGE_NO_FREEPLAY(dipval)								\
+	{0   , 0xfe, 0   , 15  , "Coin A"                               },			\
+	{dipval, 0x01, 0x0f, 0x07, "4 Coins 1 Credit"                   },			\
+	{dipval, 0x01, 0x0f, 0x08, "3 Coins 1 Credit"                   },			\
+	{dipval, 0x01, 0x0f, 0x09, "2 Coins 1 Credit"                   },			\
+	{dipval, 0x01, 0x0f, 0x05, "2 Coins 1 Credit 5/3 6/4"           },			\
+	{dipval, 0x01, 0x0f, 0x04, "2 Coins 1 Credit 4/3"               },			\
+	{dipval, 0x01, 0x0f, 0x0f, "1 Coin  1 Credit"                   },			\
+	{dipval, 0x01, 0x0f, 0x01, "1 Coin  1 Credit 2/3"               },			\
+	{dipval, 0x01, 0x0f, 0x02, "1 Coin  1 Credit 4/5"               },			\
+	{dipval, 0x01, 0x0f, 0x03, "1 Coin  1 Credit 5/6"               },			\
+	{dipval, 0x01, 0x0f, 0x06, "2 Coins 3 Credits"                  },			\
+	{dipval, 0x01, 0x0f, 0x0e, "1 Coin  2 Credits"                  },			\
+	{dipval, 0x01, 0x0f, 0x0d, "1 Coin  3 Credits"                  },			\
+	{dipval, 0x01, 0x0f, 0x0c, "1 Coin  4 Credits"                  },			\
+	{dipval, 0x01, 0x0f, 0x0b, "1 Coin  5 Credits"                  },			\
+	{dipval, 0x01, 0x0f, 0x0a, "1 Coin  6 Credits"                  },			\
+												\
+	{0   , 0xfe, 0   , 15  , "Coin B"                               },			\
+	{dipval, 0x01, 0xf0, 0x70, "4 Coins 1 Credit"                   },			\
+	{dipval, 0x01, 0xf0, 0x80, "3 Coins 1 Credit"                   },			\
+	{dipval, 0x01, 0xf0, 0x90, "2 Coins 1 Credit"                   },			\
+	{dipval, 0x01, 0xf0, 0x50, "2 Coins 1 Credit 5/3 6/4"           },			\
+	{dipval, 0x01, 0xf0, 0x40, "2 Coins 1 Credit 4/3"               },			\
+	{dipval, 0x01, 0xf0, 0xf0, "1 Coin  1 Credit"                   },			\
+	{dipval, 0x01, 0xf0, 0x10, "1 Coin  1 Credit 2/3"               },			\
+	{dipval, 0x01, 0xf0, 0x20, "1 Coin  1 Credit 4/5"               },			\
+	{dipval, 0x01, 0xf0, 0x30, "1 Coin  1 Credit 5/6"               },			\
+	{dipval, 0x01, 0xf0, 0x60, "2 Coins 3 Credits"                  },			\
+	{dipval, 0x01, 0xf0, 0xe0, "1 Coin  2 Credits"                  },			\
+	{dipval, 0x01, 0xf0, 0xd0, "1 Coin  3 Credits"                  },			\
+	{dipval, 0x01, 0xf0, 0xc0, "1 Coin  4 Credits"                  },			\
+	{dipval, 0x01, 0xf0, 0xb0, "1 Coin  5 Credits"                  },			\
+	{dipval, 0x01, 0xf0, 0xa0, "1 Coin  6 Credits"                  },
+
+// Higher internal resolution (hi-res renderer in sys16_gfx.cpp), read by
+// YBoardSetResolution() when the game starts: bits 1-2 of DIP 3
+#define YBOARD_RESOLUTION(dipval)								\
+	{0   , 0xfe, 0   , 3   , "Game Resolution"                    },			\
+	{dipval, 0x01, 0x06, 0x00, "Original (320x224)"                 },			\
+	{dipval, 0x01, 0x06, 0x02, "2x (640x448)"                       },			\
+	{dipval, 0x01, 0x06, 0x04, "4x (1280x896)"                      },
+
 static struct BurnDIPInfo Gforce2DIPList[]=
 {
 	// Default Values
 	{0x0c, 0xff, 0xff, 0x7e, NULL                                 },
 	{0x0d, 0xff, 0xff, 0xff, NULL                                 },
+	{0x0e, 0xff, 0xff, 0x00, NULL                                 },
 
 	// Dip 1
 	{0   , 0xfe, 0   , 2   , "Demo Sounds"                        },
@@ -190,6 +238,9 @@ static struct BurnDIPInfo Gforce2DIPList[]=
 
 	// Dip 2
 	YBOARD_COINAGE(0x0d)
+
+	// Dip 3
+	YBOARD_RESOLUTION(0x0e)
 };
 
 STDDIPINFO(Gforce2)
@@ -199,6 +250,7 @@ static struct BurnDIPInfo GlocDIPList[]=
 	// Default Values
 	{0x0c, 0xff, 0xff, 0x6b, NULL                                 },
 	{0x0d, 0xff, 0xff, 0xff, NULL                                 },
+	{0x0e, 0xff, 0xff, 0x00, NULL                                 },
 
 	// Dip 1
 	{0   , 0xfe, 0   , 4   , "Difficulty"                         },
@@ -228,6 +280,9 @@ static struct BurnDIPInfo GlocDIPList[]=
 
 	// Dip 2
 	YBOARD_COINAGE(0x0d)
+
+	// Dip 3
+	YBOARD_RESOLUTION(0x0e)
 };
 
 STDDIPINFO(Gloc)
@@ -237,6 +292,7 @@ static struct BurnDIPInfo Glocr360DIPList[]=
 	// Default Values
 	{0x0c, 0xff, 0xff, 0xf3, NULL                                 },
 	{0x0d, 0xff, 0xff, 0xff, NULL                                 },
+	{0x0e, 0xff, 0xff, 0x00, NULL                                 },
 
 	// Dip 1
 	{0   , 0xfe, 0   , 3   , "Game Type"                          },
@@ -281,6 +337,9 @@ static struct BurnDIPInfo Glocr360DIPList[]=
 	{0x0d, 0x01, 0xf0, 0x90, "1 Coin  7 Credits"                  },
 	{0x0d, 0x01, 0xf0, 0x80, "1 Coin  8 Credits"                  },
 	{0x0d, 0x01, 0xf0, 0x00, "Free Play (if coin A too) or 1C/1C" },
+
+	// Dip 3
+	YBOARD_RESOLUTION(0x0e)
 };
 
 STDDIPINFO(Glocr360)
@@ -319,11 +378,17 @@ static struct BurnDIPInfo PdriftDIPList[]=
 	{0x0a, 0x01, 0xc0, 0x00, "Hardest"                            },
 
 	// Dip 2
-	YBOARD_COINAGE(0x0b)
+	YBOARD_COINAGE_NO_FREEPLAY(0x0b)
 
 	{0   , 0xfe, 0   , 2   , "Steering Fix"               		  },
 	{0x0c, 0x01, 0x01, 0x00, "No"                                 },
 	{0x0c, 0x01, 0x01, 0x01, "Yes"                                },
+
+	YBOARD_RESOLUTION(0x0c)
+
+	{0   , 0xfe, 0   , 2   , "Enable Female Voices"               },
+	{0x0c, 0x01, 0x08, 0x00, "No"                                 },
+	{0x0c, 0x01, 0x08, 0x08, "Yes"                                },
 };
 
 STDDIPINFO(Pdrift)
@@ -365,6 +430,12 @@ static struct BurnDIPInfo PdrifteDIPList[]=
 	{0   , 0xfe, 0   , 2   , "Steering Fix"               		  },
 	{0x0c, 0x01, 0x01, 0x00, "No"                                 },
 	{0x0c, 0x01, 0x01, 0x01, "Yes"                                },
+
+	YBOARD_RESOLUTION(0x0c)
+
+	{0   , 0xfe, 0   , 2   , "Enable Female Voices"               },
+	{0x0c, 0x01, 0x08, 0x00, "No"                                 },
+	{0x0c, 0x01, 0x08, 0x08, "Yes"                                },
 };
 
 STDDIPINFO(Pdrifte)
@@ -406,6 +477,12 @@ static struct BurnDIPInfo PdriftjDIPList[]=
 	{0   , 0xfe, 0   , 2   , "Steering Fix"               		  },
 	{0x0c, 0x01, 0x01, 0x00, "No"                                 },
 	{0x0c, 0x01, 0x01, 0x01, "Yes"                                },
+
+	YBOARD_RESOLUTION(0x0c)
+
+	{0   , 0xfe, 0   , 2   , "Enable Female Voices"               },
+	{0x0c, 0x01, 0x08, 0x00, "No"                                 },
+	{0x0c, 0x01, 0x08, 0x08, "Yes"                                },
 };
 
 STDDIPINFO(Pdriftj)
@@ -415,6 +492,7 @@ static struct BurnDIPInfo RchaseDIPList[]=
 	// Default Values
 	{0x0d, 0xff, 0xff, 0x63, NULL                                 },
 	{0x0e, 0xff, 0xff, 0xff, NULL                                 },
+	{0x0f, 0xff, 0xff, 0x00, NULL                                 },
 
 	// Dip 1
 	{0   , 0xfe, 0   , 4   , "Credits"                            },
@@ -467,6 +545,9 @@ static struct BurnDIPInfo RchaseDIPList[]=
 	{0x0e, 0x01, 0xe0, 0x40, "6 gives 1 more"                     },
 	{0x0e, 0x01, 0xe0, 0x20, "7 gives 1 more"                     },
 	{0x0e, 0x01, 0xe0, 0x00, "Error"                              },
+
+	// Dip 3
+	YBOARD_RESOLUTION(0x0f)
 };
 
 STDDIPINFO(Rchase)
@@ -476,6 +557,7 @@ static struct BurnDIPInfo StrkfgtrDIPList[]=
 	// Default Values
 	{0x0c, 0xff, 0xff, 0x5b, NULL                                 },
 	{0x0d, 0xff, 0xff, 0xff, NULL                                 },
+	{0x0e, 0xff, 0xff, 0x00, NULL                                 },
 
 	// Dip 1
 	{0   , 0xfe, 0   , 4   , "Difficulty"                         },
@@ -505,6 +587,9 @@ static struct BurnDIPInfo StrkfgtrDIPList[]=
 
 	// Dip 2
 	YBOARD_COINAGE(0x0d)
+
+	// Dip 3
+	YBOARD_RESOLUTION(0x0e)
 };
 
 STDDIPINFO(Strkfgtr)
@@ -842,6 +927,72 @@ static struct BurnRomInfo GlocRomDesc[] = {
 
 STD_ROM_PICK(Gloc)
 STD_ROM_FN(Gloc)
+
+static struct BurnRomInfo GlocjRomDesc[] = {
+	{ "epr-13026.25",     0x20000, 0xe39d1335, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-13025.24",     0x20000, 0xd4849853, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-13028.27",     0x20000, 0xb6aa2edf, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-13027.26",     0x20000, 0x6463c87a, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+
+	{ "epr-13032.81",     0x20000, 0x7da09c4e, SYS16_ROM_PROG2 | BRF_ESS | BRF_PRG },
+	{ "epr-13031.80",     0x20000, 0xf3c7e3f4, SYS16_ROM_PROG2 | BRF_ESS | BRF_PRG },
+
+	{ "epr-13030.54",     0x20000, 0x81abcabf, SYS16_ROM_PROG3 | BRF_ESS | BRF_PRG },
+	{ "epr-13029.53",     0x20000, 0xf3638efb, SYS16_ROM_PROG3 | BRF_ESS | BRF_PRG },
+
+	{ "epr-13037.14",     0x80000, 0xb801a250, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-13039.16",     0x80000, 0xd7e1266d, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-13038.15",     0x80000, 0x0b2edb6d, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-13040.17",     0x80000, 0x4aeb3a85, SYS16_ROM_SPRITES | BRF_GRA },
+
+	{ "epr-13048.67",     0x80000, 0xfe1eb0dd, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13056.75",     0x80000, 0x5904f8e6, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13044.63",     0x80000, 0x4d931f89, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13052.71",     0x80000, 0x0291f040, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13064.86",     0x80000, 0x5f8e651b, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13072.114",    0x80000, 0x6b85641a, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13060.82",     0x80000, 0xee16ad97, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13068.110",    0x80000, 0x64d52bbb, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-13047.66",     0x80000, 0x53340832, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13055.74",     0x80000, 0x39b6b665, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13043.62",     0x80000, 0x208f16fd, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13051.70",     0x80000, 0xad62cbd4, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13063.85",     0x80000, 0xc580bf6d, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13071.113",    0x80000, 0xdf99ef99, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13059.81",     0x80000, 0x4c982558, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13067.109",    0x80000, 0xf97f6119, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-13046.65",     0x80000, 0xc75a86e9, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13054.73",     0x80000, 0x2934549a, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13042.61",     0x80000, 0x53ed97af, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13050.69",     0x80000, 0x04429068, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13062.84",     0x80000, 0x4fdb4ee3, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13070.112",    0x80000, 0x52ea130e, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13058.80",     0x80000, 0x19ff1626, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13066.108",    0x80000, 0xbc70a250, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-13045.64",     0x80000, 0x54d5bc6d, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13053.72",     0x80000, 0x9502af13, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13041.60",     0x80000, 0xd0a7402c, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13049.68",     0x80000, 0x5b9c0b6c, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13061.83",     0x80000, 0x7b95ec3b, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13069.111",    0x80000, 0xe1f538f0, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13057.79",     0x80000, 0x73baefee, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-13065.107",    0x80000, 0x8937a655, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-13033.102",    0x10000, 0x6df5e827, SYS16_ROM_Z80PROG | BRF_ESS | BRF_PRG },
+
+	{ "epr-13036.107",    0x80000, 0x7890c26c, SYS16_ROM_PCMDATA | BRF_SND },
+	{ "epr-13035.106",    0x80000, 0x009fa13e, SYS16_ROM_PCMDATA | BRF_SND },
+	{ "epr-13034.105",    0x80000, 0xcd22d95d, SYS16_ROM_PCMDATA | BRF_SND },
+
+	{ "epr-11830.ic37",   0x08000, 0xc1201c02, BRF_OPT },
+};
+
+
+STD_ROM_PICK(Glocj)
+STD_ROM_FN(Glocj)
 
 static struct BurnRomInfo GlocuRomDesc[] = {
 	{ "epr-13170.25",     0x20000, 0x45189229, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
@@ -1262,6 +1413,78 @@ static struct BurnRomInfo PdriftjRomDesc[] = {
 	{ "epr-11752.81",     0x20000, 0xb6bb8111, SYS16_ROM_PROG2 | BRF_ESS | BRF_PRG },
 	{ "epr-11751.80",     0x20000, 0x7f0d0311, SYS16_ROM_PROG2 | BRF_ESS | BRF_PRG },
 
+	{ "epr-11750c.54",    0x20000, 0x4e0f4fcb, SYS16_ROM_PROG3 | BRF_ESS | BRF_PRG },
+	{ "epr-11749c.53",    0x20000, 0x603921f7, SYS16_ROM_PROG3 | BRF_ESS | BRF_PRG },
+
+	{ "epr-11791.14",     0x20000, 0x36b2910a, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-11789.16",     0x20000, 0xb86f8d2b, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-11792.15",     0x20000, 0xc85caf6e, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-11790.17",     0x20000, 0x2a564e66, SYS16_ROM_SPRITES | BRF_GRA },
+
+	{ "epr-11757.67",     0x20000, 0xe46dc478, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11758.75",     0x20000, 0x5b435c87, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11773.63",     0x20000, 0x1b5d5758, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11774.71",     0x20000, 0x2ca0c170, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11759.86",     0x20000, 0xac8111f6, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11760.114",    0x20000, 0x91282af9, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11775.82",     0x20000, 0x48225793, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11776.110",    0x20000, 0x78c46198, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-11761.66",     0x20000, 0xbaa5d065, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11762.74",     0x20000, 0x1d1af7a5, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11777.62",     0x20000, 0x9662dd32, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11778.70",     0x20000, 0x2dfb7494, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11763.85",     0x20000, 0x1ee23407, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11764.113",    0x20000, 0xe859305e, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11779.81",     0x20000, 0xa49cd793, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11780.109",    0x20000, 0xd514ed81, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-11765.65",     0x20000, 0x649e2dff, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11766.73",     0x20000, 0xd92fb7fc, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11781.61",     0x20000, 0x9692d4cd, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11782.69",     0x20000, 0xc913bb43, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11767.84",     0x20000, 0x1f8ad054, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11768.112",    0x20000, 0xdb2c4053, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11783.80",     0x20000, 0x6d189007, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11784.108",    0x20000, 0x57f5fd64, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-11769.64",     0x20000, 0x28f0ab51, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11770.72",     0x20000, 0xd7557ea9, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11785.60",     0x20000, 0xe6ef32c4, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11786.68",     0x20000, 0x2066b49d, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11771.83",     0x20000, 0x67635618, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11772.111",    0x20000, 0x0f798d3a, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11787.79",     0x20000, 0xe631dc12, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11788.107",    0x20000, 0x8464c66e, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-11753.ic102",  0x10000, 0xe81f5748, SYS16_ROM_Z80PROG | BRF_ESS | BRF_PRG },
+
+	{ "epr-11894.ic107",  0x40000, 0xb1e573f2, SYS16_ROM_PCMDATA | BRF_SND },
+	{ "epr-11893.ic106",  0x40000, 0x58b40f19, SYS16_ROM_PCMDATA | BRF_SND },
+	{ "epr-11892.ic105",  0x40000, 0x3248a758, SYS16_ROM_PCMDATA | BRF_SND },
+
+	// These are mpr-11754.107 split into 4 ROMs. They would be located on a Sega 839-0221 daughter card.
+	{ "epr-11895.ic1",    0x20000, 0xee99a6fd, SYS16_ROM_PROM | BRF_OPT },
+	{ "epr-11896.ic2",    0x20000, 0x4bebc015, SYS16_ROM_PROM | BRF_OPT },
+	{ "epr-11897.ic3",    0x20000, 0x4463cb95, SYS16_ROM_PROM | BRF_OPT },
+	{ "epr-11898.ic4",    0x20000, 0x5d19d767, SYS16_ROM_PROM | BRF_OPT },
+
+	{ "epr-11485.ic27",   0x08000, 0x069b4201, BRF_OPT },
+};
+
+
+STD_ROM_PICK(Pdriftj)
+STD_ROM_FN(Pdriftj)
+
+static struct BurnRomInfo PdriftjbRomDesc[] = {
+	{ "epr-11746a.25",    0x20000, 0xb0f1caf4, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-11745a.24",    0x20000, 0xa89720cd, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-11748.27",     0x20000, 0x82a76cab, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-11747.26",     0x20000, 0x9796ece5, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+
+	{ "epr-11752.81",     0x20000, 0xb6bb8111, SYS16_ROM_PROG2 | BRF_ESS | BRF_PRG },
+	{ "epr-11751.80",     0x20000, 0x7f0d0311, SYS16_ROM_PROG2 | BRF_ESS | BRF_PRG },
+
 	{ "epr-11750b.54",    0x20000, 0xbc14ce30, SYS16_ROM_PROG3 | BRF_ESS | BRF_PRG },
 	{ "epr-11749b.53",    0x20000, 0x9e385568, SYS16_ROM_PROG3 | BRF_ESS | BRF_PRG },
 
@@ -1312,6 +1535,7 @@ static struct BurnRomInfo PdriftjRomDesc[] = {
 	{ "epr-11893.ic106",  0x40000, 0x58b40f19, SYS16_ROM_PCMDATA | BRF_SND },
 	{ "epr-11892.ic105",  0x40000, 0x3248a758, SYS16_ROM_PCMDATA | BRF_SND },
 
+	// These are mpr-11754.107 split into 4 ROMs. They would be located on a Sega 839-0221 daughter card.
 	{ "epr-11895.ic1",    0x20000, 0xee99a6fd, SYS16_ROM_PROM | BRF_OPT },
 	{ "epr-11896.ic2",    0x20000, 0x4bebc015, SYS16_ROM_PROM | BRF_OPT },
 	{ "epr-11897.ic3",    0x20000, 0x4463cb95, SYS16_ROM_PROM | BRF_OPT },
@@ -1321,8 +1545,80 @@ static struct BurnRomInfo PdriftjRomDesc[] = {
 };
 
 
-STD_ROM_PICK(Pdriftj)
-STD_ROM_FN(Pdriftj)
+STD_ROM_PICK(Pdriftjb)
+STD_ROM_FN(Pdriftjb)
+
+static struct BurnRomInfo PdriftjaRomDesc[] = {
+	{ "epr-11746.25",     0x20000, 0xd8c4b0ef, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-11745.24",     0x20000, 0x100bce7b, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-11748.27",     0x20000, 0x82a76cab, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+	{ "epr-11747.26",     0x20000, 0x9796ece5, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
+
+	{ "epr-11752.81",     0x20000, 0xb6bb8111, SYS16_ROM_PROG2 | BRF_ESS | BRF_PRG },
+	{ "epr-11751.80",     0x20000, 0x7f0d0311, SYS16_ROM_PROG2 | BRF_ESS | BRF_PRG },
+
+	{ "epr-11750a.54",    0x20000, 0x46e649f1, SYS16_ROM_PROG3 | BRF_ESS | BRF_PRG },
+	{ "epr-11749a.53",    0x20000, 0xd3882b03, SYS16_ROM_PROG3 | BRF_ESS | BRF_PRG },
+
+	{ "epr-11791.14",     0x20000, 0x36b2910a, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-11789.16",     0x20000, 0xb86f8d2b, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-11792.15",     0x20000, 0xc85caf6e, SYS16_ROM_SPRITES | BRF_GRA },
+	{ "epr-11790.17",     0x20000, 0x2a564e66, SYS16_ROM_SPRITES | BRF_GRA },
+
+	{ "epr-11757.67",     0x20000, 0xe46dc478, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11758.75",     0x20000, 0x5b435c87, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11773.63",     0x20000, 0x1b5d5758, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11774.71",     0x20000, 0x2ca0c170, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11759.86",     0x20000, 0xac8111f6, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11760.114",    0x20000, 0x91282af9, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11775.82",     0x20000, 0x48225793, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11776.110",    0x20000, 0x78c46198, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-11761.66",     0x20000, 0xbaa5d065, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11762.74",     0x20000, 0x1d1af7a5, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11777.62",     0x20000, 0x9662dd32, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11778.70",     0x20000, 0x2dfb7494, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11763.85",     0x20000, 0x1ee23407, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11764.113",    0x20000, 0xe859305e, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11779.81",     0x20000, 0xa49cd793, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11780.109",    0x20000, 0xd514ed81, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-11765.65",     0x20000, 0x649e2dff, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11766.73",     0x20000, 0xd92fb7fc, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11781.61",     0x20000, 0x9692d4cd, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11782.69",     0x20000, 0xc913bb43, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11767.84",     0x20000, 0x1f8ad054, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11768.112",    0x20000, 0xdb2c4053, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11783.80",     0x20000, 0x6d189007, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11784.108",    0x20000, 0x57f5fd64, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-11769.64",     0x20000, 0x28f0ab51, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11770.72",     0x20000, 0xd7557ea9, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11785.60",     0x20000, 0xe6ef32c4, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11786.68",     0x20000, 0x2066b49d, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11771.83",     0x20000, 0x67635618, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11772.111",    0x20000, 0x0f798d3a, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11787.79",     0x20000, 0xe631dc12, SYS16_ROM_SPRITES2 | BRF_GRA },
+	{ "epr-11788.107",    0x20000, 0x8464c66e, SYS16_ROM_SPRITES2 | BRF_GRA },
+
+	{ "epr-11753.ic102",  0x10000, 0xe81f5748, SYS16_ROM_Z80PROG | BRF_ESS | BRF_PRG },
+
+	{ "epr-11894.ic107",  0x40000, 0xb1e573f2, SYS16_ROM_PCMDATA | BRF_SND },
+	{ "epr-11893.ic106",  0x40000, 0x58b40f19, SYS16_ROM_PCMDATA | BRF_SND },
+	{ "epr-11892.ic105",  0x40000, 0x3248a758, SYS16_ROM_PCMDATA | BRF_SND },
+
+	// These are mpr-11754.107 split into 4 ROMs. They would be located on a Sega 839-0221 daughter card.
+	{ "epr-11895.ic1",    0x20000, 0xee99a6fd, SYS16_ROM_PROM | BRF_OPT },
+	{ "epr-11896.ic2",    0x20000, 0x4bebc015, SYS16_ROM_PROM | BRF_OPT },
+	{ "epr-11897.ic3",    0x20000, 0x4463cb95, SYS16_ROM_PROM | BRF_OPT },
+	{ "epr-11898.ic4",    0x20000, 0x5d19d767, SYS16_ROM_PROM | BRF_OPT },
+
+	{ "epr-11485.ic27",   0x08000, 0x069b4201, BRF_OPT },
+};
+
+
+STD_ROM_PICK(Pdriftja)
+STD_ROM_FN(Pdriftja)
 
 static struct BurnRomInfo RchaseRomDesc[] = {
 	{ "epr-13986.25",     0x20000, 0x388b2365, SYS16_ROM_PROG | BRF_ESS | BRF_PRG },
@@ -1772,6 +2068,60 @@ void __fastcall YBoardWriteWord(UINT32 a, UINT16 d)
 #endif
 }
 
+// Sound commands: the main CPU writes one byte to 0x082001 for each sound it wants played
+// (the same number the sound test shows). Every command goes through here before it reaches
+// the sound board. Modify the commands to female voices if the current driver is female.
+
+// Power Drift: check the player's driver, 0-11 (the order of the selection screen),
+// as the game keeps it in shared RAM at 0x0ce310 (word). Value is present in attract
+// mode too. Return true if driver is female (7 = Lucy, 8 = Emily).
+static bool PdriftDriverIsFemale()
+{
+	INT32 driver = BURN_ENDIAN_SWAP_INT16(((UINT16*)System16Ram)[0xe310 / 2]);
+	return driver == 7 || driver == 8;
+}
+
+// Play an extra sound command alongside the one the game sent: put it straight into the sound
+// CPU's command queue (8 bytes at Z80 0xf800, 0x80 = empty), into the first empty slot, as the
+// sound CPU's own NMI handler (0x0066) does with the latch byte. If the queue is full the extra
+// command is dropped, like a command sent to a full queue on the real board.
+static void YBoardSoundAddCommand(UINT8 cmd)
+{
+	for (INT32 i = 0; i < 8; i++) {
+		if (System16Z80Ram[i] == 0x80) {
+			System16Z80Ram[i] = cmd;
+			return;
+		}
+	}
+}
+
+static UINT8 YBoardSoundCommand(UINT8 cmd)
+{
+	UINT8 played = cmd;
+
+	// Enable Female Voices - Power Drift only, dip switch dependent
+	if (strncmp(BurnDrvGetTextA(DRV_NAME), "pdrift", 6) == 0 && (System16Dip[2] & 0x08)) {
+		static UINT8 prev_cmd = 0;
+		if (cmd < 0x40) return cmd; // Engine sounds, pass through
+		if (cmd == 0x80) return cmd; // Not a sound but interferes with analysis, pass through
+
+		if (PdriftDriverIsFemale()) {
+			if (cmd == 0xc3) played = 0xbd; // male "later sucker" -> female "later sucker"
+			if (cmd == 0xbf) played = 0xbe; // male "eat dirt bozo" -> female "all right!"
+			if (cmd == 0xc0) played = 0xb7; // male "haha" -> female "haha"
+			if (cmd == 0xbc) played = 0xaf; // male "oh!" -> female "ouch!" - but see below
+
+			// The game never sends "oh!" (0xbc) for a female driver; for a male driver it often
+			// comes with sound effects 0x89+0x87. So add the female equivalent to that case.
+			if ((prev_cmd == 0x89 && cmd == 0x87) ||
+				(prev_cmd == 0x87 && cmd == 0x89)) YBoardSoundAddCommand(0xaf);
+		}
+		prev_cmd = cmd;
+	}
+
+	return played;
+}
+
 void __fastcall YBoardWriteByte(UINT32 a, UINT8 d)
 {
 	if (a >= 0x100000 && a <= 0x10001f) {
@@ -1786,7 +2136,7 @@ void __fastcall YBoardWriteByte(UINT32 a, UINT8 d)
 
 	switch (a) {
 		case 0x082001: {
-			System16SoundLatch = d & 0xff;
+			System16SoundLatch = YBoardSoundCommand(d & 0xff);
 			ZetNmi(0);
 			return;
 		}
@@ -2044,8 +2394,28 @@ static UINT8 RchaseProcessAnalogControls(UINT16 value)
 	return 0;
 }
 
+// The "Game Resolution" DIP is read only here, when the game starts. The
+// output size is fixed for the whole session, so a change needs a game reload.
+// Called by every Y-Board game's Init before System16Init(), which sizes the
+// buffers by System16ResScale.
+static void YBoardSetResolution()
+{
+	switch ((System16Dip[2] & 0x06) >> 1) {
+		case 1:  System16ResScale = 2; break;
+		case 2:  System16ResScale = 4; break;
+		default: System16ResScale = 1; break;
+	}
+
+	if (System16ResScale > 1) {
+		// restored to 320x224 automatically by BurnDrvExit()
+		BurnDrvSetVisibleSize(320 * System16ResScale, 224 * System16ResScale);
+	}
+}
+
 static INT32 Gforce2Init()
 {
+	YBoardSetResolution();
+
 	System16ProcessAnalogControlsDo = Gforce2ProcessAnalogControls;
 
 	System16PCMDataSizePreAllocate = 0x180000;
@@ -2071,6 +2441,8 @@ static INT32 Gforce2Init()
 
 static INT32 GlocInit()
 {
+	YBoardSetResolution();
+
 	System16ProcessAnalogControlsDo = GlocProcessAnalogControls;
 
 	return System16Init();
@@ -2078,6 +2450,8 @@ static INT32 GlocInit()
 
 static INT32 Glocr360Init()
 {
+	YBoardSetResolution();
+
 	System16ProcessAnalogControlsDo = Glocr360ProcessAnalogControls;
 
 	return System16Init();
@@ -2085,6 +2459,8 @@ static INT32 Glocr360Init()
 
 static INT32 PdriftInit()
 {
+	YBoardSetResolution();
+
 	Pdrift_analog_adder = Pdrift_analog_target = 0x80;
 
 	System16ProcessAnalogControlsDo = PdriftProcessAnalogControls;
@@ -2114,6 +2490,8 @@ static INT32 PdriftInit()
 
 static INT32 PdriftjInit()
 {
+	YBoardSetResolution();
+
 	Pdrift_analog_adder = Pdrift_analog_target = 0x80;
 
 	System16ProcessAnalogControlsDo = PdriftProcessAnalogControls;
@@ -2140,7 +2518,11 @@ static INT32 PdriftjInit()
 
 static INT32 RchaseInit()
 {
+	// (the guns keep working in native 320x224 coordinates: their targets
+	// aren't drawn, and the game draws its own crosshairs)
 	BurnGunInit(2, false);
+
+	YBoardSetResolution();
 
 	System16ProcessAnalogControlsDo = RchaseProcessAnalogControls;
 
@@ -2219,6 +2601,16 @@ struct BurnDriver BurnDrvGloc = {
 	NULL, 0x6000, 320, 224, 4, 3
 };
 
+struct BurnDriver BurnDrvGlocj = {
+	"glocj", "gloc", NULL, NULL, "1990",
+	"G-LOC Air Battle (Japan)\0", NULL, "Sega", "Y-Board",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_SYSTEMY, GBF_SHOOT, 0,
+	NULL, GlocjRomInfo, GlocjRomName, NULL, NULL, NULL, NULL, GlocInputInfo, GlocDIPInfo,
+	GlocInit, YBoardExit, YBoardFrame, YBoardRender, YBoardScan,
+	NULL, 0x6000, 320, 224, 4, 3
+};
+
 struct BurnDriver BurnDrvGlocu = {
 	"glocu", "gloc", NULL, NULL, "1990",
 	"G-LOC Air Battle (US)\0", NULL, "Sega", "Y-Board",
@@ -2271,7 +2663,7 @@ struct BurnDriver BurnDrvPdrifta = {
 
 struct BurnDriver BurnDrvPdrifte = {
 	"pdrifte", "pdrift", NULL, NULL, "1988",
-	"Power Drift (World, Earlier)\0", "Select Auto-Center preset in Input Configuration", "Sega", "Y-Board",
+	"Power Drift (World, earlier)\0", "Select Auto-Center preset in Input Configuration", "Sega", "Y-Board",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_SYSTEMY, GBF_RACING, 0,
 	NULL, PdrifteRomInfo, PdrifteRomName, NULL, NULL, NULL, NULL, PdriftInputInfo, PdrifteDIPInfo,
@@ -2281,10 +2673,30 @@ struct BurnDriver BurnDrvPdrifte = {
 
 struct BurnDriver BurnDrvPdriftj = {
 	"pdriftj", "pdrift", NULL, NULL, "1988",
-	"Power Drift (Japan)\0", "Select Auto-Center preset in Input Configuration", "Sega", "Y-Board",
+	"Power Drift (Japan, Rev C)\0", "Select Auto-Center preset in Input Configuration", "Sega", "Y-Board",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_SYSTEMY, GBF_RACING, 0,
 	NULL, PdriftjRomInfo, PdriftjRomName, NULL, NULL, NULL, NULL, PdriftInputInfo, PdriftjDIPInfo,
+	PdriftjInit, YBoardExit, YBoardFrame, YBoardRender, YBoardScan,
+	NULL, 0x6000, 320, 224, 4, 3
+};
+
+struct BurnDriver BurnDrvPdriftjb = {
+	"pdriftjb", "pdrift", NULL, NULL, "1988",
+	"Power Drift (Japan, Rev B)\0", "Select Auto-Center preset in Input Configuration", "Sega", "Y-Board",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_SYSTEMY, GBF_RACING, 0,
+	NULL, PdriftjbRomInfo, PdriftjbRomName, NULL, NULL, NULL, NULL, PdriftInputInfo, PdriftjDIPInfo,
+	PdriftjInit, YBoardExit, YBoardFrame, YBoardRender, YBoardScan,
+	NULL, 0x6000, 320, 224, 4, 3
+};
+
+struct BurnDriver BurnDrvPdriftja = {
+	"pdriftja", "pdrift", NULL, NULL, "1988",
+	"Power Drift (Japan, Rev A)\0", "Select Auto-Center preset in Input Configuration", "Sega", "Y-Board",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_SYSTEMY, GBF_RACING, 0,
+	NULL, PdriftjaRomInfo, PdriftjaRomName, NULL, NULL, NULL, NULL, PdriftInputInfo, PdriftjDIPInfo,
 	PdriftjInit, YBoardExit, YBoardFrame, YBoardRender, YBoardScan,
 	NULL, 0x6000, 320, 224, 4, 3
 };

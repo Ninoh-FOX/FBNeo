@@ -1,6 +1,9 @@
 // Menu handling
 
 #include "burner.h"
+#define TBCDRF_USECDCOLORS      0x00800000 // adding constant so NM_CUSTOMDRAW doesnt get ignored
+#define MFT_STRING          MF_STRING       
+#define MFT_SEPARATOR       MF_SEPARATOR    
 
 #ifdef _MSC_VER
 // #include <winable.h>
@@ -14,10 +17,91 @@ HMENU hMenu = NULL;
 HMENU hMenuPopup = NULL;
 HWND hMenubar = NULL;			  			// Handle to the Toolbar control comprising the menu
 static HMENU hBlitterMenu[8] = {NULL, };	// Handles to the blitter-specific sub-menus
+static HMENU hD3D11RecentMenu = NULL;		// "Recent shaders" sub-menu of the Direct3D 11 blitter
+
+// Find the (sub) menu that contains the item nID
+static HMENU MenuFindItemParent(HMENU hParent, UINT nID)
+{
+	if (hParent == NULL) {
+		return NULL;
+	}
+	for (int i = 0; i < GetMenuItemCount(hParent); i++) {
+		if (GetMenuItemID(hParent, i) == nID) {
+			return hParent;
+		}
+		HMENU hFound = MenuFindItemParent(GetSubMenu(hParent, i), nID);
+		if (hFound) {
+			return hFound;
+		}
+	}
+	return NULL;
+}
+
+// Rebuild the list of recently used Direct3D 11 shaders
+static void MenuUpdateD3D11Shaders()
+{
+	if (hD3D11RecentMenu) {
+		while (GetMenuItemCount(hD3D11RecentMenu) > 0) {
+			DeleteMenu(hD3D11RecentMenu, 0, MF_BYPOSITION);
+		}
+
+		int nItems = 0;
+		for (int i = 0; i < D3D11_SHADER_MRU_SIZE; i++) {
+			const TCHAR* szPath = szVidD3D11ShaderMRU[i];
+			if (szPath[0] == 0) {
+				continue;
+			}
+
+			// "&1  name.cgp<tab>folder"
+			const TCHAR* pName = szPath;
+			for (const TCHAR* p = szPath; *p; p++) {
+				if (*p == _T('\\') || *p == _T('/')) pName = p + 1;
+			}
+			TCHAR szFolder[MAX_PATH] = _T("");
+			if (pName > szPath + 1) {
+				int nLen = (int)(pName - szPath) - 1;
+				const TCHAR* pFolder = szPath;
+				for (int k = 0; k < nLen; k++) {
+					if (szPath[k] == _T('\\') || szPath[k] == _T('/')) pFolder = szPath + k + 1;
+				}
+				int nFolderLen = (int)(szPath + nLen - pFolder);
+				if (nFolderLen > 0 && nFolderLen < MAX_PATH) {
+					_tcsncpy(szFolder, pFolder, nFolderLen);
+					szFolder[nFolderLen] = 0;
+				}
+			}
+
+			TCHAR szItem[MAX_PATH * 2];
+			_sntprintf(szItem, MAX_PATH * 2, _T("&%d  %s\t%s"), (i + 1) % 10, pName, szFolder);
+			szItem[MAX_PATH * 2 - 1] = 0;
+
+			UINT nFlags = MF_STRING;
+			if (_tcsicmp(szPath, szVidD3D11Shader) == 0) {
+				nFlags |= MF_CHECKED;
+			}
+			AppendMenu(hD3D11RecentMenu, nFlags, MENU_D3D11_SHADER_MRU + i, szItem);
+			nItems++;
+		}
+
+		if (nItems == 0) {
+			AppendMenu(hD3D11RecentMenu, MF_STRING | MF_GRAYED, MENU_D3D11_SHADER_MRU, _T("(empty)"));
+		} else {
+			AppendMenu(hD3D11RecentMenu, MF_SEPARATOR, 0, NULL);
+			AppendMenu(hD3D11RecentMenu, MF_STRING, MENU_D3D11_SHADER_MRU_CLEAR, _T("Clear this list"));
+		}
+	}
+
+	CheckMenuItem(hMenu, MENU_D3D11_SHADER_NONE, szVidD3D11Shader[0] ? MF_UNCHECKED : MF_CHECKED);
+	EnableMenuItem(hMenu, MENU_D3D11_SHADER_PARAMS, (VidD3D11ShaderParamCount() > 0) ? (MF_ENABLED | MF_BYCOMMAND) : (MF_GRAYED | MF_BYCOMMAND));
+}
 static HMENU hAudioPluginMenu[8] = {NULL, };
 
 bool bMenuDisplayed = false;
-bool bModelessMenu = false;
+bool bModelessMenu  = false;
+bool bAdaptivepopup = false;
+
+bool szPrevGamesNeedsUpdate = true;
+
 int nLastMenu = 0;
 static int nRecursions = -1;
 static HMENU hCurrentMenu;
@@ -30,18 +114,157 @@ int nScreenSize = 0;
 int nScreenSizeHor = 0;
 int nScreenSizeVer = 0;
 
-TCHAR szPrevGames[SHOW_PREV_GAMES][32];
+TCHAR szPrevGames[SHOW_PREV_GAMES][64];
 
 static HHOOK hMenuHook;
 
-static LRESULT CALLBACK MenuHook(int nCode, WPARAM wParam, LPARAM lParam)
+static bool bTest = false;
+static RECT PopupRect = { 0,0,0,0, };
+
+UINT aMenuFTypeFlagsArray[]  = { MFT_STRING, MFT_SEPARATOR, MFT_RADIOCHECK, MFT_RIGHTJUSTIFY };
+UINT aMenuFStateFlagsArray[] = { MFS_CHECKED, MFS_GRAYED, MFS_DEFAULT};
+
+bool checkMenuItemFlag(UINT iMenuItemFMask, UINT iMaskTypeFlag)
 {
+	return (iMenuItemFMask & iMaskTypeFlag) != 0;
+}
 
+static INT32 GetCurrentMonitorHigh() {
+	HMONITOR hMonitor = MonitorFromWindow(hScrnWnd, MONITOR_DEFAULTTONEAREST);
+	if (NULL == hMonitor) return -1;
+
+	MONITORINFO monitorInfo = { 0 };
+	monitorInfo.cbSize = sizeof(MONITORINFO);
+	if (!GetMonitorInfo(hMonitor, &monitorInfo)) return -1;
+
+	return monitorInfo.rcMonitor.bottom;
+}
+
+//In order to properly clean up the currentMenuInfo structs created to handle owner Drawn components it is necessary to iterate over all the menus and clean 
+//the mii.dwItemData variable
+void CleanUpMenuInfos(HMENU hMenu)
+{
+	MENUINFO mi = { sizeof(MENUINFO) };
+	int count = GetMenuItemCount(hMenu);
+	for (int i = 0; i < count; i++) {
+		HMENU hSub = GetSubMenu(hMenu, i);
+		if(hSub)
+		{
+			CleanUpMenuInfos(hSub);
+		}
+
+		MENUITEMINFO mii = { sizeof(MENUITEMINFO) };
+
+        mii.fMask = MIIM_FTYPE | MIIM_DATA;
+        if (!GetMenuItemInfo(hMenu, i, TRUE, &mii))
+            continue;
+
+		if ((mii.fType & MFT_OWNERDRAW) && mii.dwItemData != 0)
+		{
+			delete (CurrentItemInfo*)mii.dwItemData;
+			mii.fMask = MIIM_DATA;  
+            mii.dwItemData = 0;
+            SetMenuItemInfo(hMenu, i, TRUE, &mii);
+		}
+
+	}
+}
+
+void ApplyMenuBackground(HMENU hMenu, HBRUSH hbr)
+{
+    MENUINFO mi = { sizeof(MENUINFO) };
+    mi.fMask   = MIM_BACKGROUND;
+    mi.hbrBack = hbr;
+    SetMenuInfo(hMenu, &mi);
+
+    int count = GetMenuItemCount(hMenu);
+	int aMenuTypeFlagsArraySize   = sizeof(aMenuFTypeFlagsArray)  / sizeof(UINT);
+	int aMenuFStateFlagsArraySize = sizeof(aMenuFStateFlagsArray) / sizeof(UINT);
+
+    for (int i = 0; i < count; i++) {
+		HMENU hSub = GetSubMenu(hMenu, i);
+
+        MENUITEMINFO mii = { sizeof(MENUITEMINFO) };
+        mii.fMask = MIIM_FTYPE | MIIM_DATA;
+        GetMenuItemInfo(hMenu, i, TRUE, &mii); 
+
+		MENUITEMINFO miiState = { sizeof(MENUITEMINFO) };
+		miiState.fMask = MIIM_STATE;
+		GetMenuItemInfo(hMenu, i, TRUE, &miiState);
+
+		UINT ItemTypeFlag = 0;
+		UINT ItemStateFlag = 0;
+
+		for(int currentTypeFlag = 0; currentTypeFlag < aMenuTypeFlagsArraySize; currentTypeFlag++)
+		{
+			if(checkMenuItemFlag(mii.fType, aMenuFTypeFlagsArray[currentTypeFlag]))
+			{
+				ItemTypeFlag |= aMenuFTypeFlagsArray[currentTypeFlag];
+			}
+		}
+
+		for(int currentStateFlag = 0; currentStateFlag < aMenuFStateFlagsArraySize; currentStateFlag++)
+		{
+			if(checkMenuItemFlag(miiState.fState, aMenuFStateFlagsArray[currentStateFlag]))
+			{
+				ItemStateFlag |= aMenuFStateFlagsArray[currentStateFlag];
+			}
+		}
+
+		//drawing checkmarks requires us to keep track of a combinantion of bitFlags
+		bool isRadioCheck = (ItemTypeFlag & MFT_RADIOCHECK) != 0;
+		
+		//in order to make the toggle background follow the ui color we must bring responsibility to the owner 
+		//to do this while still telling windows to draw the menuItem it was necessary to create a struct holding the currentMenu item info
+		CurrentItemInfo* currentMenuInfo = new CurrentItemInfo();
+
+		currentMenuInfo->menuItemTypeFlag = ItemTypeFlag;
+		currentMenuInfo->menuItemStateFlag = ItemStateFlag;
+		currentMenuInfo->itemHasCheckMark = !isRadioCheck;		
+
+        TCHAR szText[256] = { 0 };
+        MENUITEMINFO miiText = { sizeof(MENUITEMINFO) };
+        miiText.fMask = MIIM_STRING;
+        miiText.dwTypeData = szText;
+        miiText.cch = 256;
+        GetMenuItemInfo(hMenu, i, TRUE, &miiText);
+		// _tcscpy_s() don't work on winXP
+		// _tcscpy_s(currentMenuInfo->sText, _countof(currentMenuInfo->sText), szText);
+		_tcsncpy(currentMenuInfo->sText, szText, _countof(currentMenuInfo->sText) - 1);
+		currentMenuInfo->sText[_countof(currentMenuInfo->sText) - 1] = 0;
+
+        mii.fType    |= MFT_OWNERDRAW;
+        mii.dwItemData = (ULONG_PTR)currentMenuInfo; 
+        SetMenuItemInfo(hMenu, i, TRUE, &mii);
+
+        if (hSub) {
+            ApplyMenuBackground(hSub, hbr);
+        }
+    }
+}
+
+static LRESULT CALLBACK MenuHook(INT32 nCode, WPARAM wParam, LPARAM lParam)
+{
 	switch (((MSG*)lParam)->message) {
-
 		case WM_MOUSEMOVE: {				// Translate coordinates to menubar client coordinates
+			if (bAdaptivepopup && bTest) {	// Test the actual RECT after the MENU pop-up
+				HMENU hPopupMenu = GetSubMenu(hMenu, nLastMenu);
+				INT32 nMenuCount = GetMenuItemCount(hPopupMenu);
+				RECT itemRect    = { 0,0,0,0 };
+
+				GetMenuItemRect(NULL, hPopupMenu, 0, &itemRect);
+				PopupRect.left   = itemRect.left;
+				PopupRect.top    = itemRect.top;
+				GetMenuItemRect(NULL, hPopupMenu, nMenuCount - 1, &itemRect);
+				PopupRect.right  = itemRect.right;
+				PopupRect.bottom = itemRect.bottom;
+
+				EndMenu();					// Close the menu immediately after the test
+				return 1;
+			}
+
 			RECT rect;
-			POINT point = {GET_X_LPARAM(((MSG*)lParam)->lParam), GET_Y_LPARAM(((MSG*)lParam)->lParam)};
+			POINT point = { GET_X_LPARAM(((MSG*)lParam)->lParam), GET_Y_LPARAM(((MSG*)lParam)->lParam) };
 
 			GetWindowRect(hMenubar, &rect);
 
@@ -50,12 +273,95 @@ static LRESULT CALLBACK MenuHook(int nCode, WPARAM wParam, LPARAM lParam)
 				SendMessage(hMenubar, TB_GETITEMRECT, nLastMenu, (LPARAM)&buttonrect);
 
 				if (!(point.x >= rect.left + buttonrect.left && point.y >= rect.top + buttonrect.top && point.x < rect.left + buttonrect.right && point.y < rect.top + buttonrect.bottom)) {
-					SendNotifyMessage(hMenubar, WM_MOUSEMOVE, wParam, MAKELONG(point.x - rect.left, point.y - rect.top));
+
+					bool bRet = false, bLoop = true;
+					RECT subitemRect = { 0,0,0,0 }, submenuRect = { 0,0,0,0 };
+
+					for (INT32 i = 0; i < 6; i++) {
+						if (!bLoop) break;
+
+						//	1st level pop-up menu
+						HMENU h1stMenu = GetSubMenu(hMenu, i);
+						if (NULL== h1stMenu)
+							continue;
+
+						const INT32 n1stcnt = GetMenuItemCount(h1stMenu);
+
+						// Adaptive Orientation popup menus have collapsed attributes and have been designed to circumvent triggering
+						if (!bAdaptivepopup) {
+							if (!GetMenuItemRect(NULL, h1stMenu, n1stcnt - 1, &subitemRect))
+								continue;
+
+							submenuRect.right  = subitemRect.right;
+							submenuRect.bottom = subitemRect.bottom;
+							GetMenuItemRect(NULL, h1stMenu, 0, &subitemRect);
+							submenuRect.left   = subitemRect.left;
+							submenuRect.top    = subitemRect.top;
+
+							if (PtInRect(&submenuRect, point)) {
+								bRet = true;
+								break;
+							}
+						}
+
+						for (INT32 j = 0; j < n1stcnt; j++) {
+							if (!bLoop) break;
+
+							//	2nd level pop-up menu
+							HMENU h2ndMenu = GetSubMenu(h1stMenu, j);
+							if (NULL == h2ndMenu)
+								continue;
+
+							const INT32 n2ndcnt = GetMenuItemCount(h2ndMenu);
+
+							if (!GetMenuItemRect(NULL, h2ndMenu, n2ndcnt - 1, &subitemRect))
+								continue;
+
+							submenuRect.right  = subitemRect.right;
+							submenuRect.bottom = subitemRect.bottom;
+							GetMenuItemRect(NULL, h2ndMenu, 0, &subitemRect);
+							submenuRect.left   = subitemRect.left;
+							submenuRect.top    = subitemRect.top;
+
+							if (PtInRect(&submenuRect, point)) {
+								bRet = true, bLoop = false;
+								break;
+							}
+
+							for (INT32 k = 0; k < n1stcnt; k++) {
+								//	3rd level pop-up menu
+								HMENU h3rdMenu = GetSubMenu(h2ndMenu, k);
+								if (NULL == h3rdMenu)
+									continue;
+
+								const INT32 n3rdcnt = GetMenuItemCount(h3rdMenu);
+
+								if (!GetMenuItemRect(NULL, h3rdMenu, n3rdcnt - 1, &subitemRect))
+									continue;
+
+								submenuRect.right  = subitemRect.right;
+								submenuRect.bottom = subitemRect.bottom;
+								GetMenuItemRect(NULL, h3rdMenu, 0, &subitemRect);
+								submenuRect.left   = subitemRect.left;
+								submenuRect.top    = subitemRect.top;
+
+								if (PtInRect(&submenuRect, point)) {
+									bRet = true, bLoop = false;
+									break;
+								}
+							}
+						}
+					}
+
+					if (!bRet) {
+						SendNotifyMessage(hMenubar, WM_MOUSEMOVE, wParam, MAKELONG(point.x - rect.left, point.y - rect.top));
+					}
 				}
 			}
 			break;
 		}
-
+#if 0
+		// This is a troublemaker, no need.
 		case WM_LBUTTONDOWN: {
 			RECT rect;
 			RECT buttonrect;
@@ -71,9 +377,8 @@ static LRESULT CALLBACK MenuHook(int nCode, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 		}
-
+#endif
 	}
-
 	MenuHandleKeyboard((MSG*)lParam);
 
 	return CallNextHookEx(hMenuHook, nCode, wParam, lParam);
@@ -91,20 +396,83 @@ void DisplayPopupMenu(int nMenu)
 		RECT clientRect;
 		RECT buttonRect;
 
-		nLastMenu = nMenu;
-		nRecursions = 0;
+		//USER TOGGLED ON EXPERIMENTAL LIGHT AND DARK MODE
+		//FOR MORE INFO CHECK EVENTS MENU_UI_LIGHT_MODE && MENU_UI_DARK_MODE
+		if(uiOwnerDrawActive)
+		{
+			COLORREF color = uiMenuItemColor;
+			HBRUSH hbrColor = CreateSolidBrush(color);
+
+			ApplyMenuBackground(hPopupMenu, hbrColor);
+		}
+
+
+		nLastMenu         = nMenu;
+		nRecursions       = 0;
 		nCurrentItemFlags = 0;
 
 		GetWindowRect(hMenubar, &clientRect);
 		SendMessage(hMenubar, TB_GETITEMRECT, nMenu, (LPARAM)&buttonRect);
 
-	 	if (!bModelessMenu) {
+		memset(&PopupRect, 0, sizeof(RECT));
+
+		if (!bModelessMenu) {
 			hMenuHook = SetWindowsHookEx(WH_MSGFILTER, MenuHook, NULL, GetCurrentThreadId());
 		}
-  		TrackPopupMenuEx(hPopupMenu, TPM_LEFTALIGN | TPM_TOPALIGN, clientRect.left + buttonRect.left, clientRect.top + buttonRect.bottom, hScrnWnd, NULL);
-	 	if (!bModelessMenu) {
+		bTest = true;						// Test the actual RECT after the MENU pop-up
+		TrackPopupMenuEx(hPopupMenu, TPM_LEFTALIGN | TPM_TOPALIGN, clientRect.left + buttonRect.left, clientRect.top + buttonRect.bottom, hScrnWnd, NULL);
+
+		if (bAdaptivepopup) {
+			RECT workArea = { 0,0,0,0 };
+			SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+
+			const INT32 nMonitorHigh = GetCurrentMonitorHigh();
+			const INT32 nTaskBar = nMonitorHigh - workArea.bottom;
+			const INT32 nPopupHigh = PopupRect.bottom - PopupRect.top;
+			INT32 nCy = clientRect.top + buttonRect.bottom;
+			INT32 nToBottom = nMonitorHigh - nCy;
+			if (workArea.bottom < nMonitorHigh)	// Taskbar at bottom
+				nToBottom -= nTaskBar;
+
+			INT32 nToTop = clientRect.top + buttonRect.top;
+			if (workArea.top > 0)				// Taskbar on top
+				nToTop -= nTaskBar;
+
+			UINT32 uFlags = TPM_LEFTALIGN;
+			MENUINFO mi = { sizeof(MENUINFO) };
+			GetMenuInfo(hPopupMenu, &mi);
+			if (!(mi.fMask & MIM_MAXHEIGHT)) {
+				mi.fMask |= MIM_MAXHEIGHT;
+			}
+			mi.cyMax = 0;
+
+			// The menu height is greater than the remaining height at the bottom of the workspace
+			// Actual testing revealed that the automatic switching of the system occurred 6 pixels in advance
+			if (nPopupHigh > (nToBottom - 6)) {
+				uFlags |= TPM_BOTTOMALIGN;
+				nCy = clientRect.top + buttonRect.top;
+
+				// The menu height is greater than the remaining height of the top of the workspace
+				// The maximum height of the menu when collapsed is the remaining height of the top of the workspace
+				if (nPopupHigh > nToTop)
+					mi.cyMax = nToTop;
+			}
+			else {
+				uFlags |= TPM_TOPALIGN;
+			}
+			SetMenuInfo(hPopupMenu, &mi);
+			bTest = false;						// Officially open the menu
+			TrackPopupMenuEx(hPopupMenu, uFlags, clientRect.left + buttonRect.left, nCy, hScrnWnd, NULL);
+		}
+
+		if (!bModelessMenu) {
 			UnhookWindowsHookEx(hMenuHook);
 		}
+
+		if (uiOwnerDrawActive) {
+			CleanUpMenuInfos(hPopupMenu);
+		}
+
 	}
 }
 
@@ -118,6 +486,20 @@ int OnNotify(HWND, int, NMHDR* lpnmhdr)		// HWND hwnd, int id, NMHDR* lpnmhdr
 				nLastMenu = ((TBNOTIFY*)lpnmhdr)->iItem - MENU_MENU_0;
 			}
 			return TBDDRET_DEFAULT;
+		}
+
+		//adds a custom draw event to change the text font color in the button bar
+		case NM_CUSTOMDRAW: {
+			LPNMTBCUSTOMDRAW lpnmtbcd = (LPNMTBCUSTOMDRAW)lpnmhdr;
+			switch (lpnmtbcd->nmcd.dwDrawStage) {
+				case CDDS_PREPAINT:
+					return CDRF_NOTIFYITEMDRAW;
+
+				case CDDS_ITEMPREPAINT:
+					lpnmtbcd->clrText = (COLORREF) uiTextFontColor; 
+					return TBCDRF_USECDCOLORS;
+			}
+			return CDRF_DODEFAULT;
 		}
 
 		case TBN_HOTITEMCHANGE: {
@@ -168,7 +550,7 @@ int OnUnInitMenuPopup(HWND, HMENU, UINT, BOOL)
 {
 	if (nRecursions <= 1) {
 		bMenuDisplayed = false;
-  		SendMessage(hMenubar, TB_PRESSBUTTON, nLastMenu + MENU_MENU_0, MAKELONG(0, 0));
+		SendMessage(hMenubar, TB_PRESSBUTTON, nLastMenu + MENU_MENU_0, MAKELONG(0, 0));
 		if(!bAltPause) {
 			if (bRunPause) {
 				bRunPause = 0;
@@ -332,6 +714,8 @@ int MenuCreate()
 	MENUITEMINFO menuItemInfo;
 	MENUINFO menu;
 
+	szPrevGamesNeedsUpdate = true;
+
 	if (hMenu == NULL) {
 		hMenu = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU));					// Main application menu
 		hBlitterMenu[0] = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU_BLITTER_1));	// DirectDraw Standard blitter
@@ -339,9 +723,12 @@ int MenuCreate()
 		hBlitterMenu[2] = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU_BLITTER_3));	// Software effects blitter
 		hBlitterMenu[3] = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU_BLITTER_4));	// DirectX 9
 		hBlitterMenu[4] = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU_BLITTER_5));	// DirectX 9 Alt
+		hBlitterMenu[5] = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU_BLITTER_6));	// Direct3D 11
+		hD3D11RecentMenu = MenuFindItemParent(hBlitterMenu[5], MENU_D3D11_SHADER_MRU);
 
 		hAudioPluginMenu[0] = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU_AUD_PLUGIN_1));
 		hAudioPluginMenu[1] = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU_AUD_PLUGIN_2));
+		hAudioPluginMenu[2] = FBALoadMenu(hAppInst, MAKEINTRESOURCE(IDR_MENU_AUD_PLUGIN_3));
 	}
 
 	if (hMenuPopup == NULL) {
@@ -443,8 +830,8 @@ void MenuDestroy()
 		MENUITEMINFO myMenuItemInfo;
 		myMenuItemInfo.cbSize = sizeof(MENUITEMINFO);
 		myMenuItemInfo.fMask = MIIM_SUBMENU | MIIM_STATE;
-        myMenuItemInfo.fState = MFS_GRAYED;
-        myMenuItemInfo.hSubMenu = NULL;
+		myMenuItemInfo.fState = MFS_GRAYED;
+		myMenuItemInfo.hSubMenu = NULL;
 		if (hMenu) {
 			SetMenuItemInfo(GetSubMenu(hMenu, 1), 1, TRUE, &myMenuItemInfo);
 		}
@@ -452,12 +839,13 @@ void MenuDestroy()
 			SetMenuItemInfo(GetSubMenu(hMenuPopup, 1), 1, TRUE, &myMenuItemInfo);
 		}
 
-		for (int i = 0; i < 5; i++) {
+		for (int i = 0; i < 8; i++) {
 			if (hBlitterMenu[i]) {
 				DestroyMenu(hBlitterMenu[i]);
 				hBlitterMenu[i] = 0;
 			}
 		}
+		hD3D11RecentMenu = NULL;
 
 		for (int i = 0; i < 2; i++) {
 			if (hAudioPluginMenu[i]) {
@@ -625,7 +1013,7 @@ static void CreateCDItems()
 void MenuUpdateVolume()
 {
 	int var = MENU_AUDIO_VOLUME_0 + (nAudVolume / 1000);
-	CheckMenuRadioItem(hMenu, MENU_AUDIO_VOLUME_0, MENU_AUDIO_VOLUME_100, var, MF_BYCOMMAND);
+	CheckMenuRadioItem(hMenu, MENU_AUDIO_VOLUME_0, MENU_AUDIO_VOLUME_200, var, MF_BYCOMMAND);
 }
 
 void MenuUpdateSlowMo()
@@ -665,6 +1053,9 @@ void MenuUpdate()
 	CheckMenuItem(hMenu, MENU_SETCPUCLOCK, nBurnCPUSpeedAdjust != 0x0100 ? MF_CHECKED : MF_UNCHECKED);
 	CreateCPUSpeedItem(nBurnCPUSpeedAdjust != 0x0100);
 
+	if (bVidIntegerScale) {
+		var = MENU_INTSCALE;
+	} else
 	if (bVidFullStretch) {
 		var = MENU_STRETCH;
 	} else {
@@ -674,14 +1065,14 @@ void MenuUpdate()
 			var = MENU_NOSTRETCH;
 		}
 	}
-	CheckMenuRadioItem(hMenu, MENU_NOSTRETCH, MENU_ASPECT, var, MF_BYCOMMAND);
-	CheckMenuItem(hMenu, MENU_STRETCH, bVidFullStretch ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuRadioItem(hMenu, MENU_NOSTRETCH, MENU_INTSCALE, var, MF_BYCOMMAND);
 
 	CheckMenuItem(hMenu, MENU_TRIPLE, bVidTripleBuffer ? MF_CHECKED : MF_UNCHECKED);
 
 	CheckMenuItem(hMenu, MENU_WINFS, bVidDX9WinFullscreen ? MF_CHECKED : MF_UNCHECKED);
 
 	CheckMenuItem(hMenu, MENU_DWMFIX, bVidDWMSync ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_VRR, bVidVRR ? MF_CHECKED : MF_UNCHECKED);
 
 	var = nVidSelect + MENU_BLITTER_1;
 	CheckMenuRadioItem(hMenu, MENU_BLITTER_1, MENU_BLITTER_8, var, MF_BYCOMMAND);
@@ -782,6 +1173,7 @@ void MenuUpdate()
 			CheckMenuRadioItem(hMenu, MENU_DX9_CUBIC0, MENU_DX9_CUBIC0 + 8, var, MF_BYCOMMAND);
 			break;
 		case 4:
+		case 5:
 			var = (nVidBlitterOpt[nVidSelect] & 0xFF) + MENU_DX9_ALT_SOFT_STRETCH;
 			CheckMenuRadioItem(hMenu, MENU_DX9_ALT_SOFT_STRETCH, MENU_DX9_ALT_SOFT_STRETCH + FILTER_LAST, var, MF_BYCOMMAND);
 			CheckMenuItem(hMenu, MENU_DX9_ALT_SOFT_AUTOSIZE, (nVidBlitterOpt[nVidSelect] & 0x0100) ? MF_CHECKED : MF_UNCHECKED);
@@ -789,7 +1181,16 @@ void MenuUpdate()
 			CheckMenuItem(hMenu, MENU_DX9_ALT_HARDWAREVERTEX, (bVidHardwareVertex) ? MF_CHECKED : MF_UNCHECKED);
 			CheckMenuItem(hMenu, MENU_DX9_ALT_MOTIONBLUR, (bVidMotionBlur) ? MF_CHECKED : MF_UNCHECKED);
 			CheckMenuRadioItem(hMenu, MENU_DX9_ALT_HARD_FX_NONE, MENU_DX9_ALT_HARD_FX_LAST, MENU_DX9_ALT_HARD_FX_NONE + nVidDX9HardFX, MF_BYCOMMAND);
+
+			// Enable HardFX Settings if we have options!
+			bool hFXDisabled = (nVidDX9HardFX == 0) || (HardFXConfigs[nVidDX9HardFX].nOptions == 0);
+			EnableMenuItem(hMenu, MENU_DX9_ALT_HARD_FX_SETTINGS, hFXDisabled ? (MF_GRAYED | MF_BYCOMMAND) : (MF_ENABLED | MF_BYCOMMAND));
+
 			CheckMenuItem(hMenu, MENU_DX9_ALT_FORCE_16BIT, bVidForce16bitDx9Alt ? MF_CHECKED : MF_UNCHECKED);
+
+			if (nVidSelect == 5) {
+				MenuUpdateD3D11Shaders();
+			}
 			break;
 	}
 
@@ -972,6 +1373,9 @@ void MenuUpdate()
 	CheckMenuItem(hMenu, MENU_AUTOFRAMESKIP, !bAlwaysDrawFrames ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, MENU_RUNAHEAD, bRunAhead ? MF_CHECKED : MF_UNCHECKED);
 
+	var = nInputSelect + MENU_INP_PLUGIN_1;
+	CheckMenuRadioItem(hMenu, MENU_INP_PLUGIN_1, MENU_INP_PLUGIN_8, var, MF_BYCOMMAND);
+
 	var = nAudSelect + MENU_AUD_PLUGIN_1;
 	CheckMenuRadioItem(hMenu, MENU_AUD_PLUGIN_1, MENU_AUD_PLUGIN_8, var, MF_BYCOMMAND);
 
@@ -989,6 +1393,10 @@ void MenuUpdate()
 			}
 			CheckMenuRadioItem(hMenu, MENU_DSOUND_NOSOUND, MENU_DSOUND_48000, var, MF_BYCOMMAND);
 			CheckMenuItem(hMenu, MENU_DSOUND_BASS, nAudDSPModule[0] ? MF_CHECKED : MF_UNCHECKED);
+			// DSound isn't able to amp volume above 0db, disable and sanity:
+			if (nAudVolume > 10000) nAudVolume = 10000; // 100%
+			EnableMenuItem(hMenu, MENU_AUDIO_VOLUME_150,			MF_GRAYED  | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_AUDIO_VOLUME_200,			MF_GRAYED  | MF_BYCOMMAND);
 			break;
 		}
 
@@ -1006,6 +1414,28 @@ void MenuUpdate()
 			CheckMenuRadioItem(hMenu, MENU_XAUDIO_NOSOUND, MENU_XAUDIO_48000, var, MF_BYCOMMAND);
 			CheckMenuItem(hMenu, MENU_XAUDIO_BASS, (nAudDSPModule[1] & 1) ? MF_CHECKED : MF_UNCHECKED);
 			CheckMenuItem(hMenu, MENU_XAUDIO_REVERB, (nAudDSPModule[1] & 2) ? MF_CHECKED : MF_UNCHECKED);
+			// XAudio2 is able to amp volume above 0db, enable:
+			EnableMenuItem(hMenu, MENU_AUDIO_VOLUME_150,			MF_ENABLED  | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_AUDIO_VOLUME_200,			MF_ENABLED  | MF_BYCOMMAND);
+			break;
+		}
+
+		case 2: {
+			var = MENU_WASAPI_NOSOUND;
+			if (nAudSampleRate[2] > 0) {
+				if (nAudSampleRate[2] <= 44100) {
+					var = MENU_WASAPI_44100;
+					nAudSampleRate[2] = 44100; // sanity
+				} else {
+					var = MENU_WASAPI_48000;
+					nAudSampleRate[2] = 48000;
+				}
+			}
+			CheckMenuRadioItem(hMenu, MENU_WASAPI_NOSOUND, MENU_WASAPI_48000, var, MF_BYCOMMAND);
+			CheckMenuItem(hMenu, MENU_WASAPI_BASS, (nAudDSPModule[2] & 1) ? MF_CHECKED : MF_UNCHECKED);
+			// WASAPI is able to amp volume above 0db, enable:
+			EnableMenuItem(hMenu, MENU_AUDIO_VOLUME_150,			MF_ENABLED  | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_AUDIO_VOLUME_200,			MF_ENABLED  | MF_BYCOMMAND);
 			break;
 		}
 	}
@@ -1025,6 +1455,7 @@ void MenuUpdate()
 	}
 	CheckMenuItem(hMenu, MENU_DISPLAYINDICATOR, nVidSDisplayStatus ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, MENU_MODELESS, bModelessMenu ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_ADAPTIVEPOPUP, bAdaptivepopup ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, MENU_NOCHANGENUMLOCK, bNoChangeNumLock ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, MENU_HIGHRESTIMER, bEnableHighResTimer ? MF_CHECKED : MF_UNCHECKED);
 #if defined (FBNEO_DEBUG)
@@ -1032,13 +1463,13 @@ void MenuUpdate()
 #else
 	DeleteMenu(hMenu, MENU_DEBUGCONSOLE, MF_BYCOMMAND);
 #endif
-	CheckMenuItem(hMenu, MENU_CREATEDIRS, bAlwaysCreateSupportFolders ? MF_CHECKED : MF_UNCHECKED);
-	CheckMenuItem(hMenu, MENU_AUTOLOADGAMELIST, bAutoLoadGameList ? MF_CHECKED : MF_UNCHECKED);
-	CheckMenuItem(hMenu, MENU_AUTOSCANGAMELIST, !bSkipStartupCheck ? MF_CHECKED : MF_UNCHECKED);
-	CheckMenuItem(hMenu, MENU_SAVEHISCORES, EnableHiscores ? MF_CHECKED : MF_UNCHECKED);
-	CheckMenuItem(hMenu, MENU_USEBLEND, bBurnUseBlend ? MF_CHECKED : MF_UNCHECKED);
-	CheckMenuItem(hMenu, MENU_GEARSHIFT, BurnShiftEnabled ? MF_CHECKED : MF_UNCHECKED);
-	CheckMenuItem(hMenu, MENU_LIGHTGUNRETICLES, bBurnGunDrawReticles ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_CREATEDIRS,        bAlwaysCreateSupportFolders ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_AUTOLOADGAMELIST,  bAutoLoadGameList           ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_AUTOSCANGAMELIST,  !bSkipStartupCheck          ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_SAVEHISCORES,      EnableHiscores              ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_USEBLEND,          bBurnUseBlend               ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_GEARSHIFT,         BurnShiftEnabled            ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, MENU_LIGHTGUNRETICLES,  bBurnGunDrawReticles        ? MF_CHECKED : MF_UNCHECKED);
 
 	MenuUpdateSlowMo();
 
@@ -1101,11 +1532,22 @@ void MenuUpdate()
 	if (nRewindMemory == 1024) var = MENU_INPUT_REWIND_1GB;
 	CheckMenuRadioItem(hMenu, MENU_INPUT_REWIND_128MB, MENU_INPUT_REWIND_1GB, var, MF_BYCOMMAND);
 
+	// SOCD
+	const INT32 nPlayer = sizeof(nSocd) / sizeof(nSocd[0]), nCount = (MENU_INPUT_P6_SOCDDL - MENU_INPUT_P1_DISABLE + 1) / nPlayer;
+	for (INT32 i = 0; i < nPlayer; i++) {
+		var = MENU_INPUT_P1_DISABLE + i * nCount + nSocd[i];
+		const INT32 startId = MENU_INPUT_P1_DISABLE + i * nCount, endId = startId + nCount - 1;
+
+		CheckMenuRadioItem(hMenu, startId, endId, var, MF_BYCOMMAND);
+	}
+
 	MenuUpdateVolume(); // also called in run.cpp by alt+ / alt-
 
 #ifdef BUILD_A68K
 	CheckMenuItem(hMenu, MENU_ASSEMBLYCORE, bBurnUseASMCPUEmulation ? MF_CHECKED : MF_UNCHECKED);
 #endif
+
+	UpdateUiColorMode(nUiColorTheme);
 
 	var = MENU_ICONS_SIZE_16;
 	switch (nIconsSize) {
@@ -1117,60 +1559,80 @@ void MenuUpdate()
 	CheckMenuItem(hMenu, MENU_ENABLEICONS, bEnableIcons ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, MENU_ICONS_PARENTSONLY, bIconsOnlyParents ? MF_CHECKED : MF_UNCHECKED);
 
-	// Previous games list
-	for (int i = 0; i < SHOW_PREV_GAMES; i++) {
-		MENUITEMINFO menuItemInfo;
-		TCHAR szText[256] = _T("");
-		int OldDrvSelect = nBurnDrvActive;
+	var = (bIconsByHardwares) ? MENU_ICONS_BY_HARDWARE : MENU_ICONS_BY_GAME;
+	CheckMenuRadioItem(hMenu, MENU_ICONS_BY_GAME, MENU_ICONS_BY_HARDWARE, var, MF_BYCOMMAND);
 
-		memset(&menuItemInfo, 0, sizeof(MENUITEMINFO));
-		menuItemInfo.cbSize = sizeof(MENUITEMINFO);
-		menuItemInfo.fType = MFT_STRING;
-		menuItemInfo.fMask = MIIM_TYPE;
+	if (szPrevGamesNeedsUpdate) {
+		szPrevGamesNeedsUpdate = false;
 
-		if (_tcslen(szPrevGames[i])) {
-			for (unsigned int j = 0; j < nBurnDrvCount; j++) {
-				nBurnDrvActive = j;
-				if (!_tcsicmp(szPrevGames[i], BurnDrvGetText(DRV_NAME))) {
-					_stprintf(szText, _T("%s\t%s"), BurnDrvGetText(DRV_FULLNAME), BurnDrvGetText(DRV_NAME));
+		// Previous games list
+		for (int i = 0; i < SHOW_PREV_GAMES; i++) {
+			MENUITEMINFO menuItemInfo;
+			TCHAR szText[256] = _T("");
+			int OldDrvSelect = nBurnDrvActive;
 
-					break;
+			memset(&menuItemInfo, 0, sizeof(MENUITEMINFO));
+			menuItemInfo.cbSize = sizeof(MENUITEMINFO);
+			menuItemInfo.fType = MFT_STRING;
+			menuItemInfo.fMask = MIIM_TYPE;
+
+			if (_tcslen(szPrevGames[i])) {
+
+				// First we'll check the internal fbneo-database for szPrevGames[] resolution
+				bool found = false;
+				for (unsigned int j = 0; j < nBurnDrvCount; j++) {
+					nBurnDrvActive = j;
+					if (!_tcsicmp(szPrevGames[i], BurnDrvGetText(DRV_NAME))) {
+						_stprintf(szText, _T("%s\t%s"), BurnDrvGetText(DRV_FULLNAME), BurnDrvGetText(DRV_NAME));
+						found = true;
+						break;
+					}
 				}
+				nBurnDrvActive = OldDrvSelect;
+
+				// If it's not found, attempt to resolve via RomData
+				if (found == false) {
+					// Find RomData directory (recursive or not depending on settings)
+					TCHAR szDatFile[MAX_PATH] = { 0 };
+					if (FindZipNameFromDats(szAppRomdataPath, TCHARToANSI(szPrevGames[i], NULL, 0), szDatFile)) {
+						_stprintf(szText, _T("%s\t%s"), RomdataGetFullName(szDatFile), szPrevGames[i]);
+					}
+				}
+
+				// Check for &s and change to &&
+				TCHAR szText2[256] = _T("");
+				TCHAR *Tokens = NULL;
+				int NumTokens = 0;
+
+				Tokens = _tcstok(szText, _T("&"));
+				while (Tokens != NULL) {
+					if (NumTokens) {
+						_stprintf(szText2, _T("%s&&%s"), szText2, Tokens);
+					} else {
+						_stprintf(szText2, _T("%s"), Tokens);
+					}
+
+					Tokens = _tcstok(NULL, _T("&"));
+					NumTokens++;
+				}
+
+				menuItemInfo.dwTypeData = szText2;
+				menuItemInfo.cch = _tcslen(szText2);
+
+				SetMenuItemInfo(hMenu, MENU_PREVIOUSGAMES1 + i, FALSE, &menuItemInfo);
+				EnableMenuItem(hMenu, MENU_PREVIOUSGAMES1 + i, MF_ENABLED | MF_BYCOMMAND);
+			} else {
+				_tcscpy(szText, FBALoadStringEx(hAppInst, IDS_MENU_6, true));
+
+				menuItemInfo.dwTypeData = szText;
+				menuItemInfo.cch = _tcslen(szText);
+
+				SetMenuItemInfo(hMenu, MENU_PREVIOUSGAMES1 + i, FALSE, &menuItemInfo);
+				EnableMenuItem(hMenu, MENU_PREVIOUSGAMES1 + i, MF_GRAYED | MF_BYCOMMAND);
 			}
 
-			// Check for &s and change to &&
-			TCHAR szText2[256] = _T("");
-			TCHAR *Tokens = NULL;
-			int NumTokens = 0;
-
-			Tokens = _tcstok(szText, _T("&"));
-			while (Tokens != NULL) {
-				if (NumTokens) {
-					_stprintf(szText2, _T("%s&&%s"), szText2, Tokens);
-				} else {
-					_stprintf(szText2, _T("%s"), Tokens);
-				}
-
-				Tokens = _tcstok(NULL, _T("&"));
-				NumTokens++;
-			}
-
-			menuItemInfo.dwTypeData = szText2;
-			menuItemInfo.cch = _tcslen(szText2);
-
-			SetMenuItemInfo(hMenu, MENU_PREVIOUSGAMES1 + i, FALSE, &menuItemInfo);
-			EnableMenuItem(hMenu, MENU_PREVIOUSGAMES1 + i, ((NULL == pDataRomDesc) ? MF_ENABLED : MF_GRAYED) | MF_BYCOMMAND);
-		} else {
-			_tcscpy(szText, FBALoadStringEx(hAppInst, IDS_MENU_6, true));
-
-			menuItemInfo.dwTypeData = szText;
-			menuItemInfo.cch = _tcslen(szText);
-
-			SetMenuItemInfo(hMenu, MENU_PREVIOUSGAMES1 + i, FALSE, &menuItemInfo);
-			EnableMenuItem(hMenu, MENU_PREVIOUSGAMES1 + i, MF_GRAYED | MF_BYCOMMAND);
+			nBurnDrvActive = OldDrvSelect;
 		}
-
-		nBurnDrvActive = OldDrvSelect;
 	}
 
 #if !defined BUILD_X86_ASM
@@ -1223,6 +1685,8 @@ void MenuUpdate()
 #if defined BUILD_X64_EXE
 	EnableMenuItem(hMenu, MENU_BLITTER_2, MF_GRAYED  | MF_BYCOMMAND);
 #endif
+
+	HotkeysUpdateMenu();						// Show the user's hotkeys next to the menu items
 }
 
 void MenuEnableItems()
@@ -1234,31 +1698,31 @@ void MenuEnableItems()
 		MENUITEMINFO myMenuItemInfo;
 		myMenuItemInfo.cbSize = sizeof(MENUITEMINFO);
 		myMenuItemInfo.fMask = MIIM_SUBMENU | MIIM_STATE;
-        	myMenuItemInfo.fState = MFS_ENABLED;
-        	myMenuItemInfo.hSubMenu = GetSubMenu(hBlitterMenu[nVidSelect], 0);
+		myMenuItemInfo.fState = MFS_ENABLED;
+		myMenuItemInfo.hSubMenu = GetSubMenu(hBlitterMenu[nVidSelect], 0);
 		SetMenuItemInfo(GetSubMenu(hMenu, 1), 1, TRUE, &myMenuItemInfo);
 	} else {
 		MENUITEMINFO myMenuItemInfo;
 		myMenuItemInfo.cbSize = sizeof(MENUITEMINFO);
 		myMenuItemInfo.fMask = MIIM_SUBMENU | MIIM_STATE;
-        	myMenuItemInfo.fState = MFS_GRAYED;
-        	myMenuItemInfo.hSubMenu = NULL;
+		myMenuItemInfo.fState = MFS_GRAYED;
+		myMenuItemInfo.hSubMenu = NULL;
 		SetMenuItemInfo(GetSubMenu(hMenu, 1), 1, TRUE, &myMenuItemInfo);
 	}
 
-	if (hBlitterMenu[nAudSelect]) {
+	if (hAudioPluginMenu[nAudSelect]) {
 		MENUITEMINFO myMenuItemInfo;
 		myMenuItemInfo.cbSize = sizeof(MENUITEMINFO);
 		myMenuItemInfo.fMask = MIIM_SUBMENU | MIIM_STATE;
-        	myMenuItemInfo.fState = MFS_ENABLED;
-        	myMenuItemInfo.hSubMenu = GetSubMenu(hAudioPluginMenu[nAudSelect], 0);
+		myMenuItemInfo.fState = MFS_ENABLED;
+		myMenuItemInfo.hSubMenu = GetSubMenu(hAudioPluginMenu[nAudSelect], 0);
 		SetMenuItemInfo(GetSubMenu(hMenu, 2), 1, TRUE, &myMenuItemInfo);
 	} else {
 		MENUITEMINFO myMenuItemInfo;
 		myMenuItemInfo.cbSize = sizeof(MENUITEMINFO);
 		myMenuItemInfo.fMask = MIIM_SUBMENU | MIIM_STATE;
-        	myMenuItemInfo.fState = MFS_GRAYED;
-        	myMenuItemInfo.hSubMenu = NULL;
+		myMenuItemInfo.fState = MFS_GRAYED;
+		myMenuItemInfo.hSubMenu = NULL;
 		SetMenuItemInfo(GetSubMenu(hMenu, 2), 1, TRUE, &myMenuItemInfo);
 	}
 
@@ -1304,28 +1768,16 @@ void MenuEnableItems()
 	}
 
 	EnableMenuItem(hMenu, MENU_MODELESS,				MF_ENABLED | MF_BYCOMMAND);
+	EnableMenuItem(hMenu, MENU_ADAPTIVEPOPUP,			MF_ENABLED | MF_BYCOMMAND);
 
 #if defined BUILD_X86_ASM
 	EnableMenuItem(hBlitterMenu[1], MENU_ENHANCED_SOFT_HQ3XS_VBA,	MF_ENABLED | MF_BYCOMMAND);
 	EnableMenuItem(hBlitterMenu[2], MENU_SOFTFX_SOFT_HQ3XS_VBA,		MF_ENABLED | MF_BYCOMMAND);
 	EnableMenuItem(hBlitterMenu[4], MENU_DX9_ALT_SOFT_HQ3XS_VBA,	MF_ENABLED | MF_BYCOMMAND);
+	EnableMenuItem(hBlitterMenu[5], MENU_DX9_ALT_SOFT_HQ3XS_VBA,	MF_ENABLED | MF_BYCOMMAND);
 #endif
 
 	if (bDrvOkay) {
-		if (NULL == pDataRomDesc) {
-			EnableMenuItem(hMenu, MENU_LOAD,     (kNetGame ? MF_GRAYED : MF_ENABLED) | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_STARTNET, (kNetGame ? MF_GRAYED : MF_ENABLED) | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_START_NEOGEO_MVS,	MF_ENABLED | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_LOAD_NEOCD,			MF_ENABLED | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_START_NEOGEO_CD,		MF_ENABLED | MF_BYCOMMAND);
-		} else {
-			EnableMenuItem(hMenu, MENU_LOAD,				MF_GRAYED  | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_STARTNET,			MF_GRAYED  | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_START_NEOGEO_MVS,	MF_GRAYED  | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_LOAD_NEOCD,			MF_GRAYED  | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_START_NEOGEO_CD,		MF_GRAYED  | MF_BYCOMMAND);
-		}
-		EnableMenuItem(hMenu, MENU_LOAD_ROMDATA,		MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_QUIT,				MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_INPUT,				MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_FORCE60HZ,			MF_GRAYED  | MF_BYCOMMAND);
@@ -1335,10 +1787,15 @@ void MenuEnableItems()
 		EnableMenuItem(hMenu, MENU_XAUDIO_NOSOUND,		MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_XAUDIO_44100,		MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_XAUDIO_48000,		MF_GRAYED  | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_WASAPI_NOSOUND,		MF_GRAYED  | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_WASAPI_44100,		MF_GRAYED  | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_WASAPI_48000,		MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_INTERPOLATE_FM_0,	MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_INTERPOLATE_FM_3,	MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_FRAMES,				MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_SAVESNAP,			MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_SAVETITLESNAP,			MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_SAVEPREVIEWSNAP,			MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_SAVEGAMEINPUTNOW,	MF_ENABLED | MF_BYCOMMAND);
 #ifdef BUILD_A68K
 		EnableMenuItem(hMenu, MENU_ASSEMBLYCORE,		MF_GRAYED  | MF_BYCOMMAND);
@@ -1350,6 +1807,10 @@ void MenuEnableItems()
 
 		EnableMenuItem(hMenu, MENU_AUD_PLUGIN_1,		MF_GRAYED   | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_AUD_PLUGIN_2,		MF_GRAYED   | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_AUD_PLUGIN_3,		MF_GRAYED   | MF_BYCOMMAND);
+
+		EnableMenuItem(hMenu, MENU_INP_PLUGIN_1,		MF_GRAYED   | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_INP_PLUGIN_2,		MF_GRAYED   | MF_BYCOMMAND);
 
 		BurnDIPInfo bdi;
 		if (BurnDrvGetDIPInfo(&bdi, 0) == 0) {
@@ -1382,29 +1843,140 @@ void MenuEnableItems()
 		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SNK_NEOGEO) {
 			EnableMenuItem(hMenu, MENU_INTERPOLATE_1,				MF_GRAYED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_INTERPOLATE_3,				MF_GRAYED | MF_BYCOMMAND);
+		}
 
+		if (HasMemCard()) {
 			if (!kNetGame) {
-				EnableMenuItem(hMenu, MENU_MEMCARD_CREATE,			MF_ENABLED | MF_BYCOMMAND);
-				EnableMenuItem(hMenu, MENU_MEMCARD_SELECT,			MF_ENABLED | MF_BYCOMMAND);
-				if (nMemoryCardStatus & 1) {
-					if (nMemoryCardStatus & 2) {
-						EnableMenuItem(hMenu, MENU_MEMCARD_EJECT,	MF_ENABLED | MF_BYCOMMAND);
-					} else {
-						EnableMenuItem(hMenu, MENU_MEMCARD_INSERT,	MF_ENABLED | MF_BYCOMMAND);
+#ifdef BUILD_PGM2
+				if (IsPGM2WithCards()) {
+					// PGM2 per-slot: dynamically rebuild "Memory Card..." submenu
+					static HMENU hPgm2CardPopup = NULL;
+
+					// Find the Memory Card popup (first time or after menu reset)
+					if (!hPgm2CardPopup || !IsMenu(hPgm2CardPopup)) {
+						hPgm2CardPopup = NULL;
+						HMENU hGameMenu = GetSubMenu(hMenu, 0);
+						if (hGameMenu) {
+							int nItems = GetMenuItemCount(hGameMenu);
+							for (int i = 0; i < nItems && !hPgm2CardPopup; i++) {
+								HMENU hSub = GetSubMenu(hGameMenu, i);
+								if (!hSub) continue;
+								int nSubItems = GetMenuItemCount(hSub);
+								for (int j = 0; j < nSubItems; j++) {
+									UINT nID = GetMenuItemID(hSub, j);
+									if (nID == MENU_MEMCARD_CREATE || nID == MENU_MEMCARD_PGM2_ID(0, 0)) {
+										hPgm2CardPopup = hSub;
+										break;
+									}
+									// Check nested submenus
+									HMENU hSub2 = GetSubMenu(hSub, j);
+									if (hSub2) {
+										int nSub2Items = GetMenuItemCount(hSub2);
+										for (int k = 0; k < nSub2Items; k++) {
+											UINT nID2 = GetMenuItemID(hSub2, k);
+											if (nID2 == MENU_MEMCARD_CREATE || nID2 == MENU_MEMCARD_PGM2_ID(0, 0)) {
+												hPgm2CardPopup = hSub2;
+												break;
+											}
+										}
+									}
+									if (hPgm2CardPopup) break;
+								}
+							}
+						}
+					}
+
+					if (hPgm2CardPopup) {
+						// Clear existing items
+						while (GetMenuItemCount(hPgm2CardPopup) > 0) {
+							DeleteMenu(hPgm2CardPopup, 0, MF_BYPOSITION);
+						}
+
+						// Build per-player submenus
+						TCHAR szBuf[128];
+						for (int s = 0; s < Pgm2MaxCardSlots; s++) {
+							HMENU hSlotMenu = CreatePopupMenu();
+							AppendMenu(hSlotMenu, MF_STRING, MENU_MEMCARD_PGM2_ID(s, 0), FBALoadStringEx(hAppInst, IDS_MEMCARD_CREATE, true));
+							AppendMenu(hSlotMenu, MF_STRING, MENU_MEMCARD_PGM2_ID(s, 1), FBALoadStringEx(hAppInst, IDS_MEMCARD_SELECT, true));
+							AppendMenu(hSlotMenu, MF_STRING, MENU_MEMCARD_PGM2_ID(s, 2), FBALoadStringEx(hAppInst, IDS_MEMCARD_INSERT, true));
+							AppendMenu(hSlotMenu, MF_STRING, MENU_MEMCARD_PGM2_ID(s, 3), FBALoadStringEx(hAppInst, IDS_MEMCARD_EJECT,  true));
+
+							// Enable/disable based on per-slot state
+							if (nPgm2CardStatus[s] & 1) {
+								if (nPgm2CardStatus[s] & 2) {
+									// Inserted: gray Insert, enable Eject
+									EnableMenuItem(hSlotMenu, MENU_MEMCARD_PGM2_ID(s, 2), MF_GRAYED | MF_BYCOMMAND);
+								} else {
+									// File selected but not inserted: enable Insert, gray Eject
+									EnableMenuItem(hSlotMenu, MENU_MEMCARD_PGM2_ID(s, 3), MF_GRAYED | MF_BYCOMMAND);
+								}
+							} else {
+								// No file: gray both Insert and Eject
+								EnableMenuItem(hSlotMenu, MENU_MEMCARD_PGM2_ID(s, 2), MF_GRAYED | MF_BYCOMMAND);
+								EnableMenuItem(hSlotMenu, MENU_MEMCARD_PGM2_ID(s, 3), MF_GRAYED | MF_BYCOMMAND);
+							}
+
+							// Build menu title with card filename if available
+							if (nPgm2CardStatus[s] & 1) {
+								TCHAR* pFileName = _tcsrchr(szPgm2CardFile[s], _T('\\'));
+								if (!pFileName) pFileName = _tcsrchr(szPgm2CardFile[s], _T('/'));
+								if (pFileName) pFileName++; else pFileName = szPgm2CardFile[s];
+								if (nPgm2CardStatus[s] & 2) {
+									_stprintf(szBuf, _T("P%d %s [%s] *"), s + 1, FBALoadStringEx(hAppInst, IDS_MEMCARD, true), pFileName);
+								} else {
+									_stprintf(szBuf, _T("P%d %s [%s]"), s + 1, FBALoadStringEx(hAppInst, IDS_MEMCARD, true), pFileName);
+								}
+							} else {
+								_stprintf(szBuf, _T("P%d %s"), s + 1, FBALoadStringEx(hAppInst, IDS_MEMCARD, true));
+							}
+							AppendMenu(hPgm2CardPopup, MF_POPUP, (UINT_PTR)hSlotMenu, szBuf);
+						}
+					}
+				} else
+#endif
+				{
+					EnableMenuItem(hMenu, MENU_MEMCARD_CREATE,			MF_ENABLED | MF_BYCOMMAND);
+					EnableMenuItem(hMenu, MENU_MEMCARD_SELECT,			MF_ENABLED | MF_BYCOMMAND);
+					if (nMemoryCardStatus & 1) {
+						if (nMemoryCardStatus & 2) {
+							EnableMenuItem(hMenu, MENU_MEMCARD_EJECT,	MF_ENABLED | MF_BYCOMMAND);
+						} else {
+							EnableMenuItem(hMenu, MENU_MEMCARD_INSERT,	MF_ENABLED | MF_BYCOMMAND);
+						}
 					}
 				}
 			}
 		}
 
 		if (kNetGame) {
+			EnableMenuItem(hMenu, MENU_LOAD,			MF_GRAYED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_LOAD_ROMDATA,	MF_GRAYED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_LOAD_IPSPATCH,	MF_GRAYED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_LOAD_CDIMAGE,	MF_GRAYED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_LOAD_ARCHIVE,	MF_GRAYED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_ROMDATA_MANAGER,	MF_GRAYED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_STARTNET,		MF_GRAYED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_EXIT,			MF_GRAYED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_SETCPUCLOCK,		MF_GRAYED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_RESETCPUCLOCK,	MF_GRAYED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_PAUSE,			MF_GRAYED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_RESET,			MF_GRAYED | MF_BYCOMMAND);
-			EnableMenuItem(hMenu, MENU_ENABLECHEAT,		MF_GRAYED | MF_BYCOMMAND);
+			if (nKailleraCheatEnableHack) {
+				if (pCheatInfo) {
+					EnableMenuItem(hMenu, MENU_ENABLECHEAT, MF_ENABLED | MF_BYCOMMAND);
+				}
+			} else {
+				EnableMenuItem(hMenu, MENU_ENABLECHEAT,		MF_GRAYED | MF_BYCOMMAND);
+			}
 			EnableMenuItem(hMenu, MENU_SNAPFACT,		MF_GRAYED | MF_BYCOMMAND);
 		} else {
+			EnableMenuItem(hMenu, MENU_LOAD,			MF_ENABLED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_LOAD_ROMDATA,	MF_ENABLED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_LOAD_IPSPATCH,	MF_ENABLED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_LOAD_CDIMAGE,	MF_ENABLED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_LOAD_ARCHIVE,	MF_ENABLED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_ROMDATA_MANAGER, MF_ENABLED | MF_BYCOMMAND);
+			EnableMenuItem(hMenu, MENU_STARTNET,		MF_ENABLED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_EXIT,			MF_ENABLED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_SETCPUCLOCK,		MF_ENABLED | MF_BYCOMMAND);
 			EnableMenuItem(hMenu, MENU_RESETCPUCLOCK,	(nBurnCPUSpeedAdjust != 0x0100 ? MF_ENABLED : MF_GRAYED) | MF_BYCOMMAND);
@@ -1487,6 +2059,10 @@ void MenuEnableItems()
 
 		EnableMenuItem(hMenu, MENU_LOAD,				MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_LOAD_ROMDATA,		MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_LOAD_IPSPATCH,		MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_LOAD_CDIMAGE,		MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_LOAD_ARCHIVE,		MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_ROMDATA_MANAGER,		MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, ID_SLOMO_0,				MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, ID_SLOMO_1,				MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, ID_SLOMO_2,				MF_GRAYED  | MF_BYCOMMAND);
@@ -1529,6 +2105,9 @@ void MenuEnableItems()
 		EnableMenuItem(hMenu, MENU_XAUDIO_NOSOUND,				MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_XAUDIO_44100,				MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_XAUDIO_48000,				MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_WASAPI_NOSOUND,				MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_WASAPI_44100,				MF_ENABLED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_WASAPI_48000,				MF_ENABLED | MF_BYCOMMAND);
 //		EnableMenuItem(hMenu, MENU_INTERPOLATE_1,		MF_ENABLED | MF_BYCOMMAND);
 //		EnableMenuItem(hMenu, MENU_INTERPOLATE_3,		MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_WLOGSTART,			MF_GRAYED  | MF_BYCOMMAND);
@@ -1536,6 +2115,8 @@ void MenuEnableItems()
 		EnableMenuItem(hMenu, MENU_INTERPOLATE_FM_3,	MF_ENABLED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_WLOGEND,				MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_SAVESNAP,			MF_GRAYED  | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_SAVETITLESNAP,		MF_GRAYED | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_SAVEPREVIEWSNAP,		MF_GRAYED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_SNAPFACT,			MF_GRAYED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_PALETTEVIEWER,		MF_GRAYED | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_SAVEGAMEINPUTNOW,		MF_GRAYED  | MF_BYCOMMAND);
@@ -1547,6 +2128,9 @@ void MenuEnableItems()
 
 		EnableMenuItem(hMenu, MENU_AUD_PLUGIN_1, 		MF_ENABLED  | MF_BYCOMMAND);
 		EnableMenuItem(hMenu, MENU_AUD_PLUGIN_2,		 MF_ENABLED  | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_AUD_PLUGIN_3,		 MF_ENABLED  | MF_BYCOMMAND);
+
+		EnableMenuItem(hMenu, MENU_INP_PLUGIN_1,		MF_ENABLED  | MF_BYCOMMAND);
+		EnableMenuItem(hMenu, MENU_INP_PLUGIN_2,		MF_ENABLED  | MF_BYCOMMAND);
 	}
 }
-

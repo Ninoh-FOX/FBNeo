@@ -1,6 +1,9 @@
-// FB Alpha Space Invaders driver module
+// FB Neo Space Invaders driver module
 // Based on MAME driver by Michael Strutts, Nicola Salmoria, Tormod Tjaberg, Mirko Buffoni,
 // Lee Taylor, Valerio Verrando, Marco Cassili, Zsolt Vasvari and others
+
+//  TODINK Todo:
+//    Hook Up ozma wars samples (ow[*].wav)
 
 #include "tiles_generic.h"
 #include "z80_intf.h"
@@ -17,7 +20,8 @@ static UINT32 *DrvPalette;
 static UINT8 DrvRecalc;
 
 static UINT8 *prev_snd_data;
-static INT32 explosion_counter = 0;
+
+static INT32 mute_audio;
 
 static UINT16 shift_data;
 static UINT8 shift_count;
@@ -174,28 +178,40 @@ STDDIPINFO(Ozmawars)
 
 static void invaders_sh_1_write(UINT8 data, UINT8 *last)
 {
-	if ( data & 0x01 && ~*last & 0x01) BurnSamplePlay(9);	// Ufo Sound
-	if ( data & 0x02 && ~*last & 0x02) BurnSamplePlay(0);	// Shot Sound
-	if ( data & 0x04 && ~*last & 0x04 && BurnSampleGetStatus(1) == 0 && explosion_counter == 0) {
-		BurnSamplePlay(1);	// Base Hit
-		explosion_counter = 120;
-	}
-	if (~data & 0x04 &&  *last & 0x04 && BurnSampleGetStatus(1) != 0) BurnSampleStop(1);
-	if ( data & 0x08 && ~*last & 0x08) BurnSamplePlay(2);	// Invader Hit
-	if ( data & 0x10 && ~*last & 0x10) BurnSamplePlay(8);	// Bonus Missle Base
-
+	UINT8 Low  = (*last ^ data) & ~data;
+	UINT8 High = (*last ^ data) & data;
 	*last = data;
+
+	//if (Low || High) bprintf(0, _T("p1 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
+
+	if (High & 0x20) mute_audio = 0;
+	if ( Low & 0x20) { BurnSampleStopAll(); mute_audio = 1; }
+
+	if (mute_audio) return;
+
+	if (High & 0x01) BurnSamplePlay(7);	// Ufo Sound
+	if ( Low & 0x01) BurnSampleStop(7);	// Stop Ufo Sound
+	if (High & 0x02) BurnSamplePlay(0);	// Shot Sound
+	if (High & 0x04) BurnSamplePlay(1);	// Base Hit
+	if (High & 0x08) BurnSamplePlay(2);	// Invader Hit
+	if (High & 0x10) BurnSamplePlay(8);	// Bonus Missle Base
 }
 
 static void invaders_sh_2_write(UINT8 data, UINT8 *last)
 {
-	if (data & 0x01 && ~*last & 0x01) BurnSamplePlay(3);	// Fleet 1
-	if (data & 0x02 && ~*last & 0x02) BurnSamplePlay(4);	// Fleet 2
-	if (data & 0x04 && ~*last & 0x04) BurnSamplePlay(5);	// Fleet 3
-	if (data & 0x08 && ~*last & 0x08) BurnSamplePlay(6);	// Fleet 4
-	if (data & 0x10 && ~*last & 0x10) BurnSamplePlay(7);	// Saucer Hit
-
+	UINT8 Low  = (*last ^ data) & ~data;
+	UINT8 High = (*last ^ data) & data;
 	*last = data;
+
+	//if (Low || High) bprintf(0, _T("p2 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
+
+	if (mute_audio) return;
+
+	if (High & 0x01) BurnSamplePlay(3);	// Fleet 1
+	if (High & 0x02) BurnSamplePlay(4);	// Fleet 2
+	if (High & 0x04) BurnSamplePlay(5);	// Fleet 3
+	if (High & 0x08) BurnSamplePlay(6);	// Fleet 4
+	if (High & 0x10) BurnSamplePlay(9);	// Saucer Hit
 }
 
 static void __fastcall invaders_write_port(UINT16 port, UINT8 data)
@@ -257,9 +273,8 @@ static INT32 DrvDoReset(INT32 clear_mem)
 	BurnSampleReset();
 	HiscoreReset();
 
-	explosion_counter = 0; // prevent double-playing sample
-
 	watchdog = 0;
+	mute_audio = 0;
 
 	return 0;
 }
@@ -287,12 +302,7 @@ static INT32 MemIndex()
 
 static INT32 DrvInit(INT32 rom_size, INT32 rom_count, UINT32 input_xor)
 {
-	AllMem = NULL;
-	MemIndex();
-	INT32 nLen = MemEnd - (UINT8 *)0;
-	if ((AllMem = (UINT8 *)BurnMalloc(nLen)) == NULL) return 1;
-	memset(AllMem, 0, nLen);
-	MemIndex();
+	BurnAllocMemIndex();
 
 	{
 		INT32 load_offset = 0;
@@ -338,7 +348,7 @@ static INT32 DrvExit()
 
 	BurnSampleExit();
 
-	BurnFree (AllMem);
+	BurnFreeMemIndex();
 
 	return 0;
 }
@@ -458,16 +468,15 @@ static INT32 DrvFrame()
 
 	for (INT32 i = 0; i < nInterleave; i++)
 	{
-		INT32 nSegment = nCyclesTotal[0] / nInterleave;
+		CPU_RUN(0, Zet);
 
-		nCyclesDone[0] += ZetRun(nSegment);
 		if (i == 96) {
 			ZetSetVector(0xd7);
-			ZetSetIRQLine(0, CPU_IRQSTATUS_AUTO);
+			ZetSetIRQLine(0, CPU_IRQSTATUS_HOLD);
 		}
 		if (i == 224) {
 			ZetSetVector(0xcf);
-			ZetSetIRQLine(0, CPU_IRQSTATUS_AUTO);
+			ZetSetIRQLine(0, CPU_IRQSTATUS_HOLD);
 
 			if (pBurnDraw) {
 				DrvDraw();
@@ -479,10 +488,6 @@ static INT32 DrvFrame()
 
 	if (pBurnSoundOut) {
 		BurnSampleRender(pBurnSoundOut, nBurnSoundLen);
-	}
-
-	if (explosion_counter) {
-		explosion_counter--;
 	}
 
 	return 0;
@@ -506,15 +511,18 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 
 		ZetScan(nAction);
 
+		BurnSampleScan(nAction, pnMin);
+
 		SCAN_VAR(shift_data);
 		SCAN_VAR(shift_count);
+		SCAN_VAR(mute_audio);
+		SCAN_VAR(watchdog);
 	}
 
 	return 0;
 }
 
 static struct BurnSampleInfo InvadersSampleDesc[] = {
-#if !defined (ROM_VERIFY)
 	{ "1", SAMPLE_NOLOOP },	// Shot/Missle
 	{ "2", SAMPLE_NOLOOP },	// Base Hit/Explosion
 	{ "3", SAMPLE_NOLOOP },	// Invader Hit
@@ -522,10 +530,9 @@ static struct BurnSampleInfo InvadersSampleDesc[] = {
 	{ "5", SAMPLE_NOLOOP },	// Fleet move 2
 	{ "6", SAMPLE_NOLOOP },	// Fleet move 3
 	{ "7", SAMPLE_NOLOOP },	// Fleet move 4
-	{ "8", SAMPLE_NOLOOP },	// UFO/Saucer Hit
+	{ "8", SAMPLE_NOLOOP },	// UFO Sound
 	{ "9", SAMPLE_NOLOOP },	// Bonus Base
-	{ "18",SAMPLE_NOLOOP },	// UFO Sound
-#endif
+	{ "18",SAMPLE_NOLOOP },	// UFO/Saucer Hit
 	{ "", 0 }
 };
 
@@ -737,6 +744,30 @@ struct BurnDriver BurnDrvSitv = {
 };
 
 
+// Tiny Vaders (Hack)
+// https://archive.org/details/tinyinva
+
+static struct BurnRomInfo tinyvadersRomDesc[] = {
+	{ "tv9316b-0869_m739h.h1",	0x0800, 0xbf3121f7, 1 | BRF_ESS | BRF_PRG }, //  0 i8080 code
+	{ "tv9316b-0856_m739g.g1",	0x0800, 0xac58c700, 1 | BRF_ESS | BRF_PRG }, //  1
+	{ "tv9316b-0855_m739f.f1",	0x0800, 0x4d5cbcf8, 1 | BRF_ESS | BRF_PRG }, //  2
+	{ "tv9316b-0854_m739e.e1",	0x0800, 0x387e15f9, 1 | BRF_ESS | BRF_PRG }, //  3
+};
+
+STD_ROM_PICK(tinyvaders)
+STD_ROM_FN(tinyvaders)
+
+struct BurnDriver BurnDrvTinyvaders = {
+	"tinyvaders", "invaders", NULL, "invaders", "2026",
+	"Tiny Vaders (Hack)\0", NULL, "zeroco", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HACK | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SHOOT, 0,
+	NULL, tinyvadersRomInfo, tinyvadersRomName, NULL, NULL, InvadersSampleInfo, InvadersSampleName, InvadersInputInfo, InvadersDIPInfo,
+	InvadersInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x02,
+	224, 260, 3, 4
+};
+
+
 // Ozma Wars (set 1)
 
 static struct BurnRomInfo ozmawarsRomDesc[] = {
@@ -808,6 +839,40 @@ struct BurnDriver BurnDrvOzmawars2 = {
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SHOOT, 0,
 	NULL, ozmawars2RomInfo, ozmawars2RomName, NULL, NULL, OzmawarsSampleInfo, OzmawarsSampleName, InvadersInputInfo, OzmawarsDIPInfo,
+	Ozmawars2Init, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 2,
+	224, 260, 3, 4
+};
+
+
+// Ozma Wars (set 3)
+
+static struct BurnRomInfo ozmawars3RomDesc[] = {
+	{ "u36",		0x0400, 0xf71ae28d, 1 | BRF_ESS | BRF_PRG }, //  0 i8080 Code
+	{ "u35",		0x0400, 0xab922611, 1 | BRF_ESS | BRF_PRG }, //  1
+	{ "u34",		0x0400, 0x689c5c2b, 1 | BRF_ESS | BRF_PRG }, //  2
+	{ "u33",		0x0400, 0xda0c394a, 1 | BRF_ESS | BRF_PRG }, //  3
+	{ "u32",		0x0400, 0x1980bad9, 1 | BRF_ESS | BRF_PRG }, //  4
+	{ "u31",		0x0400, 0x19b43578, 1 | BRF_ESS | BRF_PRG }, //  5
+	{ "u42",		0x0400, 0xa285bfde, 1 | BRF_ESS | BRF_PRG }, //  6
+	{ "u41",		0x0400, 0xae59a629, 1 | BRF_ESS | BRF_PRG }, //  7
+	{ "u40",		0x0400, 0xdf0cc633, 1 | BRF_ESS | BRF_PRG }, //  8
+	{ "u39",		0x0400, 0x31b7692e, 1 | BRF_ESS | BRF_PRG }, //  9
+	{ "u38",		0x0400, 0x50257351, 1 | BRF_ESS | BRF_PRG }, //  10
+	{ "u37",		0x0400, 0x8b969f61, 1 | BRF_ESS | BRF_PRG }, //  11
+	
+	{ "82s137.u1",	0x0400, 0xaac24f34, 0 | BRF_OPT },
+	{ "82s137.u2",	0x0400, 0x2bdf83a0, 0 | BRF_OPT },
+};
+
+STD_ROM_PICK(ozmawars3)
+STD_ROM_FN(ozmawars3)
+
+struct BurnDriver BurnDrvOzmawars3 = {
+	"ozmawars3", "ozmawars", NULL, "invaders", "1979",
+	"Ozma Wars (set 3)\0", NULL, "SNK", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SHOOT, 0,
+	NULL, ozmawars3RomInfo, ozmawars3RomName, NULL, NULL, OzmawarsSampleInfo, OzmawarsSampleName, InvadersInputInfo, OzmawarsDIPInfo,
 	Ozmawars2Init, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 2,
 	224, 260, 3, 4
 };

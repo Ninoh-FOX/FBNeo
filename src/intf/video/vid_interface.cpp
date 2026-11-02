@@ -12,8 +12,11 @@
 	extern struct VidOut VidOutDDrawFX;
 	extern struct VidOut VidOutDX9;
 	extern struct VidOut VidOutDX9Alt;
+	extern struct VidOut VidOutD3D11;
 #elif defined (BUILD_MACOS)
 	extern struct VidOut VidOutMacOS;
+#elif defined (BUILD_HEADLESS)
+	extern struct VidOut VidOutHeadless;
 #elif defined (BUILD_PI)
 	extern struct VidOut VidOutPi;
 #elif defined (BUILD_SDL2)
@@ -35,8 +38,11 @@ static struct VidOut *pVidOut[] = {
 	&VidOutDDrawFX,
 	&VidOutDX9,
 	&VidOutDX9Alt,
+	&VidOutD3D11,
 #elif defined (BUILD_MACOS)
 	&VidOutMacOS,
+#elif defined (BUILD_HEADLESS)
+	&VidOutHeadless,
 #elif defined (BUILD_PI)
 	&VidOutPi,
 #elif defined (BUILD_SDL2)
@@ -82,7 +88,9 @@ INT32 nVidVerWidth	= 640, nVidVerHeight	= 480;	// Default Vertical oriented reso
 INT32 nVidFullscreen = 0;
 INT32 bVidFullStretch = 0;						// 1 = stretch to fill the entire window/screen
 INT32 bVidCorrectAspect = 0;						// 1 = stretch to fill the window/screen while maintaining the correct aspect ratio
+INT32 bVidIntegerScale = 0;						// Wants integer scaling
 INT32 bVidVSync = 0;								// 1 = sync blits/pageflips/presents to the screen
+INT32 bVidVRR = 0;									// 1 = variable refresh rate (G-Sync/FreeSync), DX11 blitter only
 INT32 bVidTripleBuffer = 0;						// 1 = use triple buffering
 INT32 bVidBilinear = 0;							// 1 = enable bi-linear filtering (D3D blitter)
 INT32 bVidScanlines = 0;							// 1 = draw scanlines
@@ -201,7 +209,22 @@ INT32 VidInit()
 				}
 			}
 		} else {
-			hbitmap = (HBITMAP)LoadImage(hAppInst, MAKEINTRESOURCE(BMP_SPLASH), IMAGE_BITMAP, 304, 224, 0);
+			if(uiOwnerDrawActive)
+			{
+				if(nUiColorTheme == uiLightModeCode)
+				{
+					hbitmap = (HBITMAP)LoadImage(hAppInst, MAKEINTRESOURCE(BMP_SPLASH), IMAGE_BITMAP, 304, 224, 0);
+				}
+				else
+				{
+					hbitmap = (HBITMAP)LoadImage(hAppInst, MAKEINTRESOURCE(BMP_DARK_MODE_SPLASH), IMAGE_BITMAP, 304, 224, 0);
+				}
+			}
+			else
+			{
+				hbitmap = (HBITMAP)LoadImage(hAppInst, MAKEINTRESOURCE(BMP_SPLASH), IMAGE_BITMAP, 304, 224, 0);
+			}
+
 		}
 
 		if (!hbitmap) hbitmap = (HBITMAP)LoadImage(hAppInst, MAKEINTRESOURCE(BMP_SPLASH), IMAGE_BITMAP, 304, 224, 0);
@@ -238,6 +261,9 @@ INT32 VidInit()
 					VidExit();
 					nRet = 1;
 				}
+
+				memset(pVidTransPalette, 0, 32768 * sizeof(UINT32));
+				memset(pVidTransImage, 0, nVidImageWidth * nVidImageHeight * sizeof(INT16));
 			}
 		}
 	}
@@ -292,6 +318,10 @@ INT32 VidInit()
 			free(pLineBuffer);
 			pLineBuffer = NULL;
 		}
+
+		// Paint & Validate: fixes sizing w/some systems & blitter
+		// combinations with the splash screen.
+		VidPaint(1);
 	}
 
 	if (hbitmap) {
@@ -382,6 +412,7 @@ static INT32 VidDoFrame(bool bRedraw)
 			bVidRecalcPalette = false;
 		}
 
+		nBurnBpp = 2;
 		pBurnDraw = pVidTransImage;
 		nBurnPitch = nVidImageWidth * 2;
 
@@ -438,6 +469,7 @@ INT32 VidReInitialise()
 
 		free(pVidTransImage);
 		pVidTransImage = (UINT8*)malloc(nVidImageWidth * nVidImageHeight * sizeof(INT16));
+		memset(pVidTransImage, 0, nVidImageWidth * nVidImageHeight * sizeof(INT16));
 	}
 
 	pVidImage = NULL; // Invalidate pVidImage* until blitter is reinitted. (pBurnDraw points to it on active video-frames)

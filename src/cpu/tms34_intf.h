@@ -22,7 +22,7 @@ INT32 TMS34010Run(INT32 cycles);
 INT32 TMS34010Idle(INT32 cycles);
 void TMS34010TimerSetCB(void (*timer_cb)());
 void TMS34010TimerSet(INT32 cycles);
-INT64 TMS34010TotalCycles();
+INT32 TMS34010TotalCycles();
 INT32 TMS34010GetActive();
 INT32 TMS34010Scan(INT32 nAction);
 void TMS34010RunEnd();
@@ -41,6 +41,8 @@ void TMS34010SetHaltOnReset(INT32 onoff);
 INT32 TMS34010GenerateScanline(INT32 line);
 UINT32 TMS34010GetPC();
 UINT32 TMS34010GetPPC();
+// TMS34020: during a 16-bit field write, the upper half of the register driven on the data bus (-1 otherwise)
+INT32 TMS34020GetWordWriteHigh();
 
 UINT8 TMS34010ReadByte(UINT32 address);
 UINT16 TMS34010ReadWord(UINT32 address);
@@ -64,6 +66,7 @@ register defines: (from tms34/tms34010.h)
 */
 
 void TMS34010HostWrite(INT32 reg, UINT16 data);
+void TMS34010HostWriteMask(INT32 reg, UINT16 data, UINT16 mask);
 UINT16 TMS34010HostRead(INT32 reg);
 
 #endif // TMS34010_INTF_H

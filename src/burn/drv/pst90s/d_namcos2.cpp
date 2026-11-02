@@ -134,8 +134,10 @@ static UINT8 DrvJoy2[8];
 static UINT8 DrvJoy3[8];
 static UINT8 DrvJoy4[8];
 static UINT8 DrvInputs[4];
-static UINT8 DrvDips[2];
+static UINT8 DrvDips[4];
 static UINT8 DrvReset;
+static UINT8 mcuBmask;
+static UINT8 mcuHmask;
 
 static INT16 DrvAnalogPort0 = 0;
 static INT16 DrvAnalogPort1 = 0;
@@ -328,9 +330,28 @@ static struct BurnInputInfo FourtraxInputList[] = {
 	{"Service",			BIT_DIGITAL,	DrvJoy2 + 7,	"service"	},
 	{"Dip A",			BIT_DIPSWITCH,	DrvDips + 0,	"dip"		},
 	{"Debug",			BIT_DIPSWITCH,  DrvDips + 1,    "dip"       },
+	{"Dip B",			BIT_DIPSWITCH,	DrvDips + 2,	"dip"		},
+	{"Dip H",			BIT_DIPSWITCH,	DrvDips + 3,	"dip"		},
 };
 
 STDINPUTINFO(Fourtrax)
+
+static struct BurnInputInfo FinallapInputList[] = {
+	{"P1 Coin",			BIT_DIGITAL,	DrvJoy2 + 5,	"p1 coin"	},
+	A("Steering",		BIT_ANALOG_REL, &DrvAnalogPort0, "p1 x-axis"),
+	A("Brake",			BIT_ANALOG_REL, &DrvAnalogPort1, "p1 fire 1"),
+	A("Accelerator",	BIT_ANALOG_REL, &DrvAnalogPort2, "p1 fire 2"),
+	{"P1 Gear",			BIT_DIGITAL,	DrvJoy3 + 5,	"p1 fire 3"	},
+
+	{"Reset",			BIT_DIGITAL,	&DrvReset,		"reset"		},
+	{"Service",			BIT_DIGITAL,	DrvJoy2 + 7,	"service"	},
+	{"Dip A",			BIT_DIPSWITCH,	DrvDips + 0,	"dip"		},
+	{"Debug",			BIT_DIPSWITCH,  DrvDips + 1,    "dip"       },
+	{"Dip B",			BIT_DIPSWITCH,	DrvDips + 2,	"dip"		},
+	{"Dip H",			BIT_DIPSWITCH,	DrvDips + 3,	"dip"		},
+};
+
+STDINPUTINFO(Finallap)
 
 static struct BurnDIPInfo DefaultDIPList[]=
 {
@@ -349,7 +370,42 @@ static struct BurnDIPInfo DefaultDIPList[]=
 
 STDDIPINFO(Default)
 
-static struct BurnDIPInfo FourtraxDIPList[]= // finallap*, suzuka*
+static struct BurnDIPInfo FinallapDIPList[]= // finallap 1-3
+{
+	DIP_OFFSET(0x07)
+	{0x00, 0xff, 0xff, 0xff, NULL						},
+	{0x01, 0xff, 0xff, 0xff, NULL						},
+	{0x02, 0xff, 0xff, 0x02, NULL						},
+	{0x03, 0xff, 0xff, 0x8a, NULL						},
+
+	{0   , 0xfe, 0   ,    2, "Video Display"			},
+	{0x00, 0x01, 0x01, 0x01, "Normal"					},
+	{0x00, 0x01, 0x01, 0x00, "Frozen"					},
+
+	{0   , 0xfe, 0   ,    2, "Service Mode"				},
+	{0x01, 0x01, 0x40, 0x40, "Off"						},
+	{0x01, 0x01, 0x40, 0x00, "On"						},
+
+	{0   , 0xfe, 0   ,    2, "Car Type(A)"				}, // mcub port (see mcuBmask)
+	{0x02, 0x01, 0x02, 0x02, "McLaren/Williams"			},
+	{0x02, 0x01, 0x02, 0x00, "Lotus/March"				},
+
+	{0   , 0xfe, 0   ,    2, "Automatic Car Select"		}, // mcuh port (see mcuHmask)
+	{0x03, 0x01, 0x02, 0x02, "No"						},
+	{0x03, 0x01, 0x02, 0x00, "Yes"						},
+
+	{0   , 0xfe, 0   ,    2, "Enable Onscreen Diagnostics"	},
+	{0x03, 0x01, 0x08, 0x08, "No"						},
+	{0x03, 0x01, 0x08, 0x00, "Yes"						},
+
+	{0   , 0xfe, 0   ,    2, "Car Type(B)"				},
+	{0x03, 0x01, 0x80, 0x00, "McLaren/March"			},
+	{0x03, 0x01, 0x80, 0x80, "Williams/Lotus"			},
+};
+
+STDDIPINFO(Finallap)
+
+static struct BurnDIPInfo FourtraxDIPList[]= // & suzuka*
 {
 	DIP_OFFSET(0x08)
 	{0x00, 0xff, 0xff, 0xff, NULL				},
@@ -409,6 +465,10 @@ static struct BurnDIPInfo LuckywldDIPList[]=
 	{0   , 0xfe, 0   ,    2, "Video Display"	},
 	{0x00, 0x01, 0x01, 0x01, "Normal"			},
 	{0x00, 0x01, 0x01, 0x00, "Frozen"			},
+
+	{0   , 0xfe, 0   ,    2, "Show Winners Don't Use Drugs"	},
+	{0x00, 0x01, 0x40, 0x00, "Off"				},
+	{0x00, 0x01, 0x40, 0x40, "On"		   	 	},
 
 	{0   , 0xfe, 0   ,    2, "Service Mode"		},
 	{0x01, 0x01, 0x40, 0x40, "Off"				},
@@ -582,12 +642,12 @@ static UINT16 __fastcall namcos2_68k_read_word(UINT32 address)
 	}
 
 	if ((address & 0xffffc0) == 0x420000) {
-		return *((UINT16*)(DrvC123Ctrl + (address & 0x3e)));
+		return BURN_ENDIAN_SWAP_INT16(*((UINT16*)(DrvC123Ctrl + (address & 0x3e))));
 	}
 
 	if ((address & 0xff0000) == 0x440000) {
 		if ((address & 0x301e) > 0x3016) return 0xff;
-		return *((UINT16*)(DrvPalRAM + (address & 0x301e)));
+		return BURN_ENDIAN_SWAP_INT16(*((UINT16*)(DrvPalRAM + (address & 0x301e))));
 	}
 
 	if ((address & 0xff0000) == 0x460000) {
@@ -595,7 +655,7 @@ static UINT16 __fastcall namcos2_68k_read_word(UINT32 address)
 	}
 
 	if ((address & 0xfffff0) == 0xcc0000) {
-		return *((UINT16*)(DrvRozCtrl + (address & 0x0e)));
+		return BURN_ENDIAN_SWAP_INT16(*((UINT16*)(DrvRozCtrl + (address & 0x0e))));
 	}
 
 	if ((address & 0xfffff0) == 0xd00000) {
@@ -630,7 +690,7 @@ static UINT8 __fastcall namcos2_68k_read_byte(UINT32 address)
 
 	if ((address & 0xff0000) == 0x440000) {
 		if ((address & 0x301e) > 0x3016) return 0xff;
-		return *((UINT16*)(DrvPalRAM + (address & 0x301e)));
+		return BURN_ENDIAN_SWAP_INT16(*((UINT16*)(DrvPalRAM + (address & 0x301e))));
 	}
 
 	if ((address & 0xff0000) == 0x460000) {
@@ -823,7 +883,7 @@ static void __fastcall luckywld_68k_write_byte(UINT32 address, UINT8 data)
 static UINT16 __fastcall luckywld_68k_read_word(UINT32 address)
 {
 	if ((address & 0xffffe0) == 0xd00000) {
-		return *((UINT16*)(DrvRozCtrl + (address & 0x1e)));
+		return BURN_ENDIAN_SWAP_INT16(*((UINT16*)(DrvRozCtrl + (address & 0x1e))));
 	}
 
 	if ((address & 0xfffff8) == 0xf00000) {
@@ -879,7 +939,7 @@ static void __fastcall metlhawk_68k_write_byte(UINT32 address, UINT8 data)
 static UINT16 __fastcall metlhawk_68k_read_word(UINT32 address)
 {
 	if ((address & 0xffffe0) == 0xd00000) {
-		return *((UINT16*)(DrvRozCtrl + (address & 0x0e)));
+		return BURN_ENDIAN_SWAP_INT16(*((UINT16*)(DrvRozCtrl + (address & 0x0e))));
 	}
 
 	switch (address)
@@ -1163,7 +1223,7 @@ static UINT8 namcos2_mcu_read(UINT16 address)
 			return 0;
 
 		case 0x0001:
-			return DrvInputs[0]; // mcub
+			return (DrvInputs[0] & ~mcuBmask) | (DrvDips[2] & mcuBmask); // mcub
 
 		case 0x0002:
 			return (DrvInputs[1] & ~0x40) | (DrvDips[1] & 0x40); // mcuc
@@ -1172,7 +1232,7 @@ static UINT8 namcos2_mcu_read(UINT16 address)
 			return mcu_port_d_r();
 
 		case 0x0007:
-			return DrvInputs[2]; // mcuh
+			return (DrvInputs[2] & ~mcuHmask) | (DrvDips[3] & mcuHmask); // mcuh
 
 		case 0x0010:
 			return mcu_analog_ctrl_read();
@@ -1434,6 +1494,9 @@ static void namcos2_sound_init()
 
 static void namcos2_mcu_init()
 {
+	mcuBmask = 0x00;
+	mcuHmask = 0x00;
+
 	m6805Init(1, 1 << 16);
 	m6805Open(0);
 //	m6805MapMemory(DrvMCURAM + 0x0100,	0x0100, 0x01ff, MAP_RAM);
@@ -2092,6 +2155,9 @@ static INT32 FinallapInit()
 	namcos2_sound_init();
 	namcos2_mcu_init();
 
+	mcuBmask = 0x02; // DrvDips[2]
+	mcuHmask = 0x02 | 0x08 | 0x80; // DrvDips[3]
+
 	GenericTilesInit();
 
 	is_finallap = 1;
@@ -2136,6 +2202,9 @@ static INT32 Finalap2Init()
 	SekMapMemory(Drv68KData + 0x140000,	0x340000, 0x3fffff, MAP_ROM);
 
 	SekClose();
+
+	mcuBmask = 0x02; // DrvDips[2]
+	mcuHmask = 0x02 | 0x08 | 0x80; // DrvDips[3]
 
 	GenericTilesInit();
 
@@ -4745,6 +4814,8 @@ static struct BurnRomInfo valkyrieRomDesc[] = {
 
 	{ "wd1voi1.bin",	0x40000, 0xf1ace193, 0x0a | BRF_SND },           // 28 C140 Samples Samples
 	{ "wd1voi2.bin",	0x20000, 0xe95c5cf3, 0x0a | BRF_SND },           // 29
+
+	{ "valkyrie.nv",	0x02000, 0xd5ce4069, 0x0b | BRF_PRG | BRF_ESS},  // 30 nvram
 };
 
 STD_ROM_PICK(valkyrie)
@@ -4772,6 +4843,69 @@ struct BurnDriver BurnDrvValkyrie = {
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SCRFIGHT, 0,
 	NULL, valkyrieRomInfo, valkyrieRomName, NULL, NULL, NULL, NULL, DefaultInputInfo, DefaultDIPInfo,
+	ValkyrieInit, Namcos2Exit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x4000,
+	224, 288, 3, 4
+};
+
+
+// Valkyrie no Densetsu (Hack, English Translation from Namco Museum Vol. 5)
+// https://github.com/SpiralBrad/valkyrie-no-densetsu-english
+
+static struct BurnRomInfo valkyrienmv5RomDesc[] = {
+	{ "wd1mpr0.bin",	0x20000, 0xf6e93a8c, 0x01 | BRF_PRG | BRF_ESS }, //  0 Main 68K Code
+	{ "wd1mpr1.bin",	0x20000, 0x0f496013, 0x01 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "wd1spr0.bin",	0x10000, 0xb2398321, 0x02 | BRF_PRG | BRF_ESS }, //  2 Sub 68K Code
+	{ "wd1spr1.bin",	0x10000, 0x38dba897, 0x02 | BRF_PRG | BRF_ESS }, //  3
+
+	{ "wd1snd0.bin",	0x20000, 0xd0fbf58b, 0x03 | BRF_PRG | BRF_ESS }, //  4 M6809 Code
+
+#if !defined ROM_VERIFY
+	{ "sys2mcpu.bin",	0x02000, 0xa342a97e, 0x04 | BRF_PRG | BRF_ESS }, //  5 HD68705 Code
+#endif
+	{ "sys2c65c.bin",	0x08000, 0xa5b2a4ff, 0x04 | BRF_PRG | BRF_ESS }, //  6
+
+	{ "wdobj0.bin",		0x40000, 0xe8089451, 0x05 | BRF_GRA },           //  7 Sprites
+	{ "wdobj1.bin",		0x40000, 0x7ca65666, 0x05 | BRF_GRA },           //  8
+	{ "wdobj2.bin",		0x40000, 0x7c159407, 0x05 | BRF_GRA },           //  9
+	{ "wdobj3.bin",		0x40000, 0x649f8760, 0x05 | BRF_GRA },           // 10
+	{ "wdobj4.bin",		0x40000, 0x7ca39ae7, 0x05 | BRF_GRA },           // 11
+	{ "wdobj5.bin",		0x40000, 0x9ead2444, 0x05 | BRF_GRA },           // 12
+	{ "wdobj6.bin",		0x40000, 0x9fa2ea21, 0x05 | BRF_GRA },           // 13
+	{ "wdobj7.bin",		0x40000, 0x66e07a36, 0x05 | BRF_GRA },           // 14
+
+	{ "wdchr0.bin",		0x20000, 0xdebb0116, 0x06 | BRF_GRA },           // 15 Layer Tiles
+	{ "wdchr1.bin",		0x20000, 0x8a1431e8, 0x06 | BRF_GRA },           // 16
+	{ "wdchr2.bin",		0x20000, 0x62f75f69, 0x06 | BRF_GRA },           // 17
+	{ "wdchr3.bin",		0x20000, 0xcc43bbe7, 0x06 | BRF_GRA },           // 18
+	{ "wdchr4.bin",		0x20000, 0x2f73d05e, 0x06 | BRF_GRA },           // 19
+	{ "wdchr5.bin",		0x20000, 0xb632b2ec, 0x06 | BRF_GRA },           // 20
+
+	{ "wdroz0.bin",		0x20000, 0xf776bf66, 0x07 | BRF_GRA },           // 21 Roz Layer Tiles
+	{ "wdroz1.bin",		0x20000, 0xc1a345c3, 0x07 | BRF_GRA },           // 22
+	{ "wdroz2.bin",		0x20000, 0x28ffb44a, 0x07 | BRF_GRA },           // 23
+	{ "wdroz3.bin",		0x20000, 0x7e77b46d, 0x07 | BRF_GRA },           // 24
+
+	{ "wdshape.bin",	0x20000, 0x3b5e0249, 0x08 | BRF_GRA },           // 25 Layer Tiles Mask Data
+
+	{ "wd1dat0.13s",	0x20000, 0xea209f48, 0x09 | BRF_PRG | BRF_ESS }, // 26 Shared 68K Data
+	{ "wd1dat1.13p",	0x20000, 0x04b48ada, 0x09 | BRF_PRG | BRF_ESS }, // 27
+
+	{ "wd1voi1.bin",	0x40000, 0xf1ace193, 0x0a | BRF_SND },           // 28 C140 Samples Samples
+	{ "wd1voi2.bin",	0x20000, 0xe95c5cf3, 0x0a | BRF_SND },           // 29
+
+	{ "valkyrie.nv",	0x02000, 0xd5ce4069, 0x0b | BRF_PRG | BRF_ESS},  // 30 nvram
+};
+
+STD_ROM_PICK(valkyrienmv5)
+STD_ROM_FN(valkyrienmv5)
+
+struct BurnDriver BurnDrvValkyrienmv5 = {
+	"valkyrienmv5", "valkyrie", NULL, NULL, "2026",
+	"Valkyrie no Densetsu (Hack, English Translation from Namco Museum Vol. 5)\0", NULL, "hack (SpiralBrad)", "System 2",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SCRFIGHT, 0,
+	NULL, valkyrienmv5RomInfo, valkyrienmv5RomName, NULL, NULL, NULL, NULL, DefaultInputInfo, DefaultDIPInfo,
 	ValkyrieInit, Namcos2Exit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x4000,
 	224, 288, 3, 4
 };
@@ -6762,7 +6896,7 @@ struct BurnDriver BurnDrvFinallap = {
 	"Final Lap (Rev E)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING, 2, HARDWARE_MISC_PRE90S, GBF_RACING, 0,
-	NULL, finallapRomInfo, finallapRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finallapRomInfo, finallapRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	FinallapInit, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -6813,7 +6947,7 @@ struct BurnDriver BurnDrvFinallapd = {
 	"Final Lap (Rev D)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MISC_PRE90S, GBF_RACING, 0,
-	NULL, finallapdRomInfo, finallapdRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finallapdRomInfo, finallapdRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	FinallapInit, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -6864,7 +6998,7 @@ struct BurnDriver BurnDrvFinallapc = {
 	"Final Lap (Rev C)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MISC_PRE90S, GBF_RACING, 0,
-	NULL, finallapcRomInfo, finallapcRomName, NULL, NULL, NULL, NULL, DefaultInputInfo, DefaultDIPInfo, //FinallapInputInfo, FinallapDIPInfo,
+	NULL, finallapcRomInfo, finallapcRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	FinallapInit, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -6915,7 +7049,7 @@ struct BurnDriver BurnDrvFinallapjc = {
 	"Final Lap (Japan, Rev C)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MISC_PRE90S, GBF_RACING, 0,
-	NULL, finallapjcRomInfo, finallapjcRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finallapjcRomInfo, finallapjcRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	FinallapInit, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -6966,7 +7100,7 @@ struct BurnDriver BurnDrvFinallapjb = {
 	"Final Lap (Japan, Rev B)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MISC_PRE90S, GBF_RACING, 0,
-	NULL, finallapjbRomInfo, finallapjbRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finallapjbRomInfo, finallapjbRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	FinallapInit, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -6978,8 +7112,8 @@ static struct BurnRomInfo finalap2RomDesc[] = {
 	{ "fls2mp0b",		0x20000, 0x97b48aae, 0x01 | BRF_PRG | BRF_ESS }, //  0 Main 68K Code
 	{ "fls2mp1b",		0x20000, 0xc9f3e0e7, 0x01 | BRF_PRG | BRF_ESS }, //  1
 
-	{ "fls2sp0b",		0x20000, 0x8bf15d9c, 0x02 | BRF_PRG | BRF_ESS }, //  2 Sub 68K Code
-	{ "fls2sp1b",		0x20000, 0xc1a31086, 0x02 | BRF_PRG | BRF_ESS }, //  3
+	{ "fls1sp0b",		0x20000, 0x8bf15d9c, 0x02 | BRF_PRG | BRF_ESS }, //  2 Sub 68K Code
+	{ "fls1sp1b",		0x20000, 0xc1a31086, 0x02 | BRF_PRG | BRF_ESS }, //  3
 
 	{ "flss0",		0x20000, 0xc07cc10a, 0x03 | BRF_PRG | BRF_ESS }, //  4 M6809 Code
 
@@ -7027,7 +7161,7 @@ struct BurnDriver BurnDrvFinalap2 = {
 	"Final Lap 2\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_RACING, 0,
-	NULL, finalap2RomInfo, finalap2RomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finalap2RomInfo, finalap2RomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	Finalap2Init, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -7036,46 +7170,46 @@ struct BurnDriver BurnDrvFinalap2 = {
 // Final Lap 2 (Japan)
 
 static struct BurnRomInfo finalap2jRomDesc[] = {
-	{ "fls1_mp0.bin",	0x20000, 0x05ea8090, 0x01 | BRF_PRG | BRF_ESS }, //  0 Main 68K Code
-	{ "fls1_mp1.bin",	0x20000, 0xfb189f50, 0x01 | BRF_PRG | BRF_ESS }, //  1
+	{ "fls1_mp0.11d",	0x20000, 0x05ea8090, 0x01 | BRF_PRG | BRF_ESS }, //  0 Main 68K Code
+	{ "fls1_mp1.13d",	0x20000, 0xfb189f50, 0x01 | BRF_PRG | BRF_ESS }, //  1
 
-	{ "fls2sp0b",		0x20000, 0x8bf15d9c, 0x02 | BRF_PRG | BRF_ESS }, //  2 Sub 68K Code
-	{ "fls2sp1b",		0x20000, 0xc1a31086, 0x02 | BRF_PRG | BRF_ESS }, //  3
+	{ "fls1_sp0b.11k",	0x20000, 0x8bf15d9c, 0x02 | BRF_PRG | BRF_ESS }, //  2 Sub 68K Code
+	{ "fls1_sp1b.13k",	0x20000, 0xc1a31086, 0x02 | BRF_PRG | BRF_ESS }, //  3
 
-	{ "flss0",		0x20000, 0xc07cc10a, 0x03 | BRF_PRG | BRF_ESS }, //  4 M6809 Code
+	{ "fls1_s0.7j",		0x20000, 0xc07cc10a, 0x03 | BRF_PRG | BRF_ESS }, //  4 M6809 Code
 
 #if !defined ROM_VERIFY
 	{ "sys2mcpu.bin",	0x02000, 0xa342a97e, 0x04 | BRF_PRG | BRF_ESS }, //  5 HD68705 Code
 #endif
 	{ "sys2c65c.bin",	0x08000, 0xa5b2a4ff, 0x04 | BRF_PRG | BRF_ESS }, //  6
 
-	{ "fl2obj0",		0x80000, 0x3657dd7a, 0x05 | BRF_GRA },           //  7 Sprites
-	{ "fl2obj2",		0x80000, 0x8ac933fd, 0x05 | BRF_GRA },           //  8
-	{ "fl2obj4",		0x80000, 0xe7b989e6, 0x05 | BRF_GRA },           //  9
-	{ "fl2obj6",		0x80000, 0x4936583d, 0x05 | BRF_GRA },           // 10
-	{ "fl2obj1",		0x80000, 0x3cebf419, 0x05 | BRF_GRA },           // 11
-	{ "fl2obj3",		0x80000, 0x0959ed55, 0x05 | BRF_GRA },           // 12
-	{ "fl2obj5",		0x80000, 0xd74ae0d3, 0x05 | BRF_GRA },           // 13
-	{ "fl2obj7",		0x80000, 0x5ca68c93, 0x05 | BRF_GRA },           // 14
+	{ "fls_obj-0.4c",	0x80000, 0x3657dd7a, 0x05 | BRF_GRA },           //  7 Sprites
+	{ "fls_obj-2.4a",	0x80000, 0x8ac933fd, 0x05 | BRF_GRA },           //  8
+	{ "fls_obj-4.8c",	0x80000, 0xe7b989e6, 0x05 | BRF_GRA },           //  9
+	{ "fls_obj-6.8a",	0x80000, 0x4936583d, 0x05 | BRF_GRA },           // 10
+	{ "fls_obj-1.2c",	0x80000, 0x3cebf419, 0x05 | BRF_GRA },           // 11
+	{ "fls_obj-3.2a",	0x80000, 0x0959ed55, 0x05 | BRF_GRA },           // 12
+	{ "fls_obj-5.5c",	0x80000, 0xd74ae0d3, 0x05 | BRF_GRA },           // 13
+	{ "fls_obj-7.6a",	0x80000, 0x5ca68c93, 0x05 | BRF_GRA },           // 14
 
-	{ "fls2chr0",		0x40000, 0x7bbda499, 0x16 | BRF_GRA },           // 15 Layer Tiles
-	{ "fls2chr1",		0x40000, 0xac8940e5, 0x16 | BRF_GRA },           // 16
-	{ "fls2chr2",		0x40000, 0x1756173d, 0x16 | BRF_GRA },           // 17
-	{ "fls2chr3",		0x40000, 0x69032785, 0x16 | BRF_GRA },           // 18
-	{ "fls2chr4",		0x40000, 0x8216cf42, 0x16 | BRF_GRA },           // 19
-	{ "fls2chr5",		0x40000, 0xdc3e8e1c, 0x16 | BRF_GRA },           // 20
-	{ "fls2chr6",		0x40000, 0x1ef4bdde, 0x16 | BRF_GRA },           // 21
-	{ "fls2chr7",		0x40000, 0x53dafcde, 0x16 | BRF_GRA },           // 22
+	{ "fls_chr-0.11n",	0x40000, 0xfdc8f3b6, 0x16 | BRF_GRA },           // 15 Layer Tiles
+	{ "fls_chr-1.11p",	0x40000, 0xdd5917d9, 0x16 | BRF_GRA },           // 16
+	{ "fls_chr-2.11r",	0x40000, 0x1756173d, 0x16 | BRF_GRA },           // 17
+	{ "fls_chr-3.11s",	0x40000, 0x69032785, 0x16 | BRF_GRA },           // 18
+	{ "fls_chr-4.9n",	0x40000, 0x8216cf42, 0x16 | BRF_GRA },           // 19
+	{ "fls_chr-5.9p",	0x40000, 0x099e704c, 0x16 | BRF_GRA },           // 20
+	{ "fls_chr-6.9r",	0x40000, 0xd97fe308, 0x16 | BRF_GRA },           // 21
+	{ "fls_chr-7.9s",	0x40000, 0xcc43dea8, 0x16 | BRF_GRA },           // 22
 
-	{ "fls2sha",		0x40000, 0xf7b40a85, 0x08 | BRF_GRA },           // 23 Layer Tiles Mask Data
+	{ "fls_sha.7n",		0x40000, 0xf9ca8962, 0x08 | BRF_GRA },           // 23 Layer Tiles Mask Data
 
-	{ "fls2dat0.13s",	0x40000, 0xf1af432c, 0x09 | BRF_PRG | BRF_ESS }, // 24 Shared 68K Data
-	{ "fls2dat1.13p",	0x40000, 0x8719533e, 0x09 | BRF_PRG | BRF_ESS }, // 25
+	{ "fls1_dat0.13s",	0x40000, 0x2f993682, 0x09 | BRF_PRG | BRF_ESS }, // 24 Shared 68K Data
+	{ "fls1_dat1.13p",	0x40000, 0x8719533e, 0x09 | BRF_PRG | BRF_ESS }, // 25
 
 	{ "fl1-3.5b",		0x00100, 0xd179d99a, 0x0c | BRF_GRA },           // 26 C45 Color Look-up
 
-	{ "flsvoi1",		0x80000, 0x590be52f, 0x0a | BRF_SND },           // 27 C140 Samples
-	{ "flsvoi2",		0x80000, 0x204b3c27, 0x0a | BRF_SND },           // 28
+	{ "fls_voi-1.3m",	0x80000, 0x590be52f, 0x0a | BRF_SND },           // 27 C140 Samples
+	{ "fls_voi-2.3l",	0x80000, 0x204b3c27, 0x0a | BRF_SND },           // 28
 
 	{ "finalap2.nv",	0x02000, 0xc7ae5d0a, 0x0b | BRF_PRG | BRF_ESS},  // 29 nvram
 };
@@ -7088,7 +7222,68 @@ struct BurnDriver BurnDrvFinalap2j = {
 	"Final Lap 2 (Japan)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_RACING, 0,
-	NULL, finalap2jRomInfo, finalap2jRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finalap2jRomInfo, finalap2jRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
+	Finalap2Init, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
+	288, 224, 4, 3
+};
+
+
+// Final Lap 2 (Japan, Rev B)
+
+static struct BurnRomInfo finalap2jbRomDesc[] = {
+	{ "fls1_mp0b.11d",	0x20000, 0xea09d01b, 0x01 | BRF_PRG | BRF_ESS }, //  0 Main 68K Code
+	{ "fls_mp1b.13d",	0x20000, 0x5e20b03a, 0x01 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "fls1_sp0b.11k",	0x20000, 0x8bf15d9c, 0x02 | BRF_PRG | BRF_ESS }, //  2 Sub 68K Code
+	{ "fls1_sp1b.13k",	0x20000, 0xc1a31086, 0x02 | BRF_PRG | BRF_ESS }, //  3
+
+	{ "fls1_s0.7j",		0x20000, 0xc07cc10a, 0x03 | BRF_PRG | BRF_ESS }, //  4 M6809 Code
+
+#if !defined ROM_VERIFY
+	{ "sys2mcpu.bin",	0x02000, 0xa342a97e, 0x04 | BRF_PRG | BRF_ESS }, //  5 HD68705 Code
+#endif
+	{ "sys2c65c.bin",	0x08000, 0xa5b2a4ff, 0x04 | BRF_PRG | BRF_ESS }, //  6
+
+	{ "fls_obj-0.4c",	0x80000, 0x3657dd7a, 0x05 | BRF_GRA },           //  7 Sprites
+	{ "fls_obj-2.4a",	0x80000, 0x8ac933fd, 0x05 | BRF_GRA },           //  8
+	{ "fls_obj-4.8c",	0x80000, 0xe7b989e6, 0x05 | BRF_GRA },           //  9
+	{ "fls_obj-6.8a",	0x80000, 0x4936583d, 0x05 | BRF_GRA },           // 10
+	{ "fls_obj-1.2c",	0x80000, 0x3cebf419, 0x05 | BRF_GRA },           // 11
+	{ "fls_obj-3.2a",	0x80000, 0x0959ed55, 0x05 | BRF_GRA },           // 12
+	{ "fls_obj-5.5c",	0x80000, 0xd74ae0d3, 0x05 | BRF_GRA },           // 13
+	{ "fls_obj-7.6a",	0x80000, 0x5ca68c93, 0x05 | BRF_GRA },           // 14
+
+	{ "fls_chr-0.11n",	0x40000, 0xfdc8f3b6, 0x16 | BRF_GRA },           // 15 Layer Tiles
+	{ "fls_chr-1.11p",	0x40000, 0xdd5917d9, 0x16 | BRF_GRA },           // 16
+	{ "fls_chr-2.11r",	0x40000, 0x1756173d, 0x16 | BRF_GRA },           // 17
+	{ "fls_chr-3.11s",	0x40000, 0x69032785, 0x16 | BRF_GRA },           // 18
+	{ "fls_chr-4.9n",	0x40000, 0x8216cf42, 0x16 | BRF_GRA },           // 19
+	{ "fls_chr-5.9p",	0x40000, 0x099e704c, 0x16 | BRF_GRA },           // 20
+	{ "fls_chr-6.9r",	0x40000, 0xd97fe308, 0x16 | BRF_GRA },           // 21
+	{ "fls_chr-7.9s",	0x40000, 0xcc43dea8, 0x16 | BRF_GRA },           // 22
+
+	{ "fls_sha.7n",		0x40000, 0xf9ca8962, 0x08 | BRF_GRA },           // 23 Layer Tiles Mask Data
+
+	{ "fls1_dat0.13s",	0x40000, 0x2f993682, 0x09 | BRF_PRG | BRF_ESS }, // 24 Shared 68K Data
+	{ "fls1_dat1.13p",	0x40000, 0x8719533e, 0x09 | BRF_PRG | BRF_ESS }, // 25
+
+	{ "fl1-3.5b",		0x00100, 0xd179d99a, 0x0c | BRF_GRA },           // 26 C45 Color Look-up
+
+	{ "fls_voi-1.3m",	0x80000, 0x590be52f, 0x0a | BRF_SND },           // 27 C140 Samples
+	{ "fls_voi-2.3l",	0x80000, 0x204b3c27, 0x0a | BRF_SND },           // 28
+
+	{ "finalap2.nv",	0x02000, 0xc7ae5d0a, 0x0b | BRF_PRG | BRF_ESS},  // 29 nvram
+};
+
+STD_ROM_PICK(finalap2jb)
+STD_ROM_FN(finalap2jb)
+
+struct BurnDriver BurnDrvFinalap2jb = {
+	"finalap2jb", "finalap2", NULL, NULL, "1990",
+	"Final Lap 2 (Japan, Rev B)\0", "Imperfect graphics", "Namco", "System 2",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_RACING, 0,
+	NULL, finalap2jbRomInfo, finalap2jbRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	Finalap2Init, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -7151,7 +7346,7 @@ struct BurnDriver BurnDrvFinalap3 = {
 	"Final Lap 3 (World, Rev C)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_RACING, 0,
-	NULL, finalap3RomInfo, finalap3RomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finalap3RomInfo, finalap3RomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	Finalap2Init, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -7216,7 +7411,7 @@ struct BurnDriver BurnDrvFinalap3a = {
 	"Final Lap 3 (World, set 2)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MISC_POST90S, GBF_RACING, 0,
-	NULL, finalap3aRomInfo, finalap3aRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finalap3aRomInfo, finalap3aRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	Finalap2Init, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -7279,7 +7474,7 @@ struct BurnDriver BurnDrvFinalap3j = {
 	"Final Lap 3 (Japan)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_RACING, 0,
-	NULL, finalap3jRomInfo, finalap3jRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finalap3jRomInfo, finalap3jRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	Finalap2Init, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -7342,7 +7537,7 @@ struct BurnDriver BurnDrvFinalap3jc = {
 	"Final Lap 3 (Japan, Rev C)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MISC_POST90S, GBF_RACING, 0,
-	NULL, finalap3jcRomInfo, finalap3jcRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finalap3jcRomInfo, finalap3jcRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	Finalap2Init, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };
@@ -7405,7 +7600,7 @@ struct BurnDriver BurnDrvFinalap3bl = {
 	"Final Lap 3 (bootleg)\0", "Imperfect graphics", "Namco", "System 2",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG, 2, HARDWARE_MISC_POST90S, GBF_RACING, 0,
-	NULL, finalap3blRomInfo, finalap3blRomName, NULL, NULL, NULL, NULL, FourtraxInputInfo, FourtraxDIPInfo,
+	NULL, finalap3blRomInfo, finalap3blRomName, NULL, NULL, NULL, NULL, FinallapInputInfo, FinallapDIPInfo,
 	Finalap2Init, Namcos2Exit, DrvFrame, FinallapDraw, DrvScan, &DrvRecalc, 0x4000,
 	288, 224, 4, 3
 };

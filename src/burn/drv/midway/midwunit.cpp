@@ -25,7 +25,7 @@ UINT8 nWolfUnitRecalc;
 UINT8 nWolfUnitJoy1[32];
 UINT8 nWolfUnitJoy2[32];
 UINT8 nWolfUnitJoy3[32];
-UINT8 nWolfUnitDSW[2];
+UINT8 nWolfUnitDSW[3];
 UINT8 nWolfReset = 0;
 static UINT32 DrvInputs[4];
 
@@ -40,6 +40,7 @@ static INT32 nIOShuffle[16];
 
 static INT32 wwfmania = 0;
 static INT32 is_umk3 = 0;
+static INT32 is_umk3_patchable = 0;
 
 static INT32 nExtraCycles = 0;
 
@@ -230,7 +231,7 @@ void WolfUnitUMK3PaletteHack(UINT32 address, UINT16 value)
 		tms34010_modify_timeslice(-100);
 	}
 	address &= 0xFFF;
-	*(UINT16*)(&DrvRAM[TOBYTE(0x6a000 + address)]) = value;
+	*(UINT16*)(&DrvRAM[TOBYTE(0x6a000 + address)]) = BURN_ENDIAN_SWAP_INT16(value);
 }
 
 UINT16 WolfUnitPalRead(UINT32 address)
@@ -407,6 +408,21 @@ static void WolfDoReset()
 
 	MidwaySerialPicReset();
 
+	if (is_umk3_patchable) {
+		// UMK3 Scorpion voice bug patch
+		// kredit "tehdrewsus", March 2026
+		const INT32 patch_len = 4;
+		const UINT8 patch_bytes[2][4] = { { 0x71, 0x52, 0x71, 0x9f }, { 0x0b, 0xff, 0xc3, 0xff } };
+		const INT32 patch_offs[4] = { 0x35c18, 0x35c19, 0x35c1a, 0x77f80 };
+
+		for (INT32 i = 0; i < patch_len; i++) {
+			DrvBootROM[patch_offs[i] * 2 + 1] = patch_bytes[(nWolfUnitDSW[2] & 1)][i];
+		}
+		if (~nWolfUnitDSW[2] & 1) {
+			bprintf(0, _T("**  Hot-Patched UMK3 w/Scorpion voice Bugfix!\n"));
+		}
+	}
+
 	bCMOSWriteEnable = false;
 	nVideoBank = 1;
 	nWolfUnitCtrl = 0;
@@ -525,6 +541,14 @@ INT32 WolfUnitInit()
     return 0;
 }
 
+INT32 WolfUnitInitUMK3Patch()
+{
+	is_umk3_patchable = 1;
+
+	return WolfUnitInit();
+
+}
+
 static void MakeInputs()
 {
     DrvInputs[0] = 0;
@@ -537,11 +561,6 @@ static void MakeInputs()
         if (nWolfUnitJoy2[i] & 1) DrvInputs[1] |= (1 << i);
         if (nWolfUnitJoy3[i] & 1) DrvInputs[3] |= (1 << i);
     }
-}
-
-static void HandleDCSIRQ(INT32 line)
-{
-	if (line == 0 || line == 96 || line == 192) DcsCheckIRQ();
 }
 
 INT32 WolfUnitFrame()
@@ -565,8 +584,6 @@ INT32 WolfUnitFrame()
 		CPU_RUN(0, TMS34010);
 
 		TMS34010GenerateScanline(our_line);
-
-		HandleDCSIRQ(i);
 
 		sound_sync(); // sync to main cpu
 		if (i == nInterleave - 1)
@@ -599,6 +616,7 @@ INT32 WolfUnitExit()
 
 	wwfmania = 0;
 	is_umk3 = 0;
+	is_umk3_patchable = 0;
 
     return 0;
 }

@@ -31,8 +31,19 @@
 #include "megadrive.h"
 #include "bitswap.h"
 #include "m68000_debug.h"
-#include "mdeeprom.h" // i2c eeprom for MD
+#include "i2ceeprom.h" // i2c eeprom for MD
+#include "burn_gun.h" // menacer, justifier
 
+UINT8 MegadriveUnmappedRom = 0xff;
+
+// Light Gun, in second port
+enum {GUN_NONE = 0, GUN_MENACER = 1, GUN_JUSTIFIER = 2 };
+static INT32 has_gun = 0; // 1,2 (menacer, justifier)
+static UINT16 lg_latch;
+static UINT16 lg_latched = 0;
+static INT32 lg_x_offset = 0;
+static INT32 lg_y_offset = 0;
+static bool lg_has_reticle = true;
 //#define CYCDBUG
 
 #define OSC_NTSC 53693175
@@ -45,6 +56,7 @@
 
 // PicoDrive Sek interface
 static UINT64 SekCycleCnt, SekCycleAim, SekCycleCntDELTA, line_base_cycles;
+static INT32 lines_vis;
 
 #define SekCyclesReset()        { SekCycleCnt = SekCycleAim = SekCycleCntDELTA = 0; }
 #define SekCyclesNewFrame()     { SekCycleCntDELTA = line_base_cycles = SekCycleCnt; }
@@ -69,23 +81,21 @@ static void SekRunM68k(INT32 cyc)
 	m68k_ICount = 0;
 }
 
-static UINT64 z80_cycle_cnt, z80_cycle_aim, last_z80_sync;
+static UINT64 z80_cycle_cnt;
+static INT32 Z80HasBus = 0;
+static INT32 MegadriveZ80Reset = 0;
 
-#define z80CyclesReset()        { last_z80_sync = z80_cycle_cnt = z80_cycle_aim = 0; }
-#define cycles_68k_to_z80(x)    ( (x)*957 >> 11 )
+#define z80CyclesReset()        { z80_cycle_cnt = 0; }
+#define cycles_68k_to_z80(x)    ((UINT64) (x)*957 >> 11 )
 
 /* sync z80 to 68k */
-static void z80CyclesSync(INT32 bRun)
+static void z80CyclesSync()
 {
-	INT64 m68k_cycles_done = SekCyclesDone();
-
-	INT32 m68k_cnt = m68k_cycles_done - last_z80_sync;
-	z80_cycle_aim += cycles_68k_to_z80(m68k_cnt);
-	INT32 cnt = z80_cycle_aim - z80_cycle_cnt;
-	last_z80_sync = m68k_cycles_done;
+	INT64 z80_total = cycles_68k_to_z80(SekCyclesDone());
+	INT32 cnt = z80_total - z80_cycle_cnt;
 
 	if (cnt > 0) {
-		if (bRun) {
+		if (Z80HasBus && !MegadriveZ80Reset) {
 			z80_cycle_cnt += ZetRun(cnt);
 		} else {
 			z80_cycle_cnt += cnt;
@@ -96,7 +106,7 @@ static void z80CyclesSync(INT32 bRun)
 typedef void (*MegadriveCb)();
 static MegadriveCb MegadriveCallback;
 
-struct PicoVideo {
+struct MegadrivePicoVideo {
 	UINT8 reg[0x20];
 	UINT32 command;		// 32-bit Command
 	UINT8 pending;		// 1 if waiting for second half of 32-bit command
@@ -105,12 +115,55 @@ struct PicoVideo {
 	UINT8 addr_u;       // bit16 of .addr (for 128k)
 	INT32 status;		// Status bits
 	UINT8 pending_ints;	// pending interrupts: ??VH????
+	UINT16 hv_latch;
 	INT8 lwrite_cnt;    // VDP write count during active display line
 	UINT16 v_counter;   // V-counter
-	INT32 h_mask;
 	INT32 field;		// for interlace mode 2.  -dink
 	INT32 rotate;
+	INT32 debug_p;		// debug port
+    INT32 rendstatus;	// status of vdp renderer
 };
+
+
+#define LF_PLANE   (1 << 0) // must be = 1
+#define LF_SH      (1 << 1) // must be = 2
+#define LF_FORCE   (1 << 2)
+#define LF_LINE    (1 << 3) // layer covers line
+#define LF_LPRIO   (1 << 8) // line has low prio tiles
+
+#define LF_PLANE_A 0
+#define LF_PLANE_B 1
+
+#define SPRL_HAVE_HI     0x80 // have hi priority sprites
+#define SPRL_HAVE_LO     0x40 // *lo*
+#define SPRL_MAY_HAVE_OP 0x20 // may have operator sprites on the line
+#define SPRL_LO_ABOVE_HI 0x10 // low priority sprites may be on top of hi
+#define SPRL_HAVE_X      0x08 // have sprites with x != 0
+#define SPRL_TILE_OVFL   0x04 // tile limit exceeded on previous line
+#define SPRL_HAVE_MASK0  0x02 // have sprite with x == 0 in 1st slot
+#define SPRL_MASKED      0x01 // lo prio masking by sprite with x == 0 active
+
+#define PVD_KILL_A    (1 << 0)
+#define PVD_KILL_B    (1 << 1)
+#define PVD_KILL_S_LO (1 << 2)
+#define PVD_KILL_S_HI (1 << 3)
+#define PVD_KILL_32X  (1 << 4)
+#define PVD_FORCE_A   (1 << 5)
+#define PVD_FORCE_B   (1 << 6)
+#define PVD_FORCE_S   (1 << 7)
+
+#define PDRAW_SPRITES_MOVED (1<<0) // (asm)
+#define PDRAW_WND_DIFF_PRIO (1<<1) // not all window tiles use same priority
+#define PDRAW_INTERLACE     (1<<3)
+#define PDRAW_DIRTY_SPRITES (1<<4) // (asm)
+#define PDRAW_SONIC_MODE    (1<<5) // mid-frame palette changes for 8bit renderer
+#define PDRAW_PLANE_HI_PRIO (1<<6) // have layer with all hi prio tiles (mk3)
+#define PDRAW_SHHI_DONE     (1<<7) // layer sh/hi already processed
+#define PDRAW_32_COLS       (1<<8) // 32 column mode
+
+#define MAX_LINE_SPRITES 29
+
+static UINT8 HighLnSpr[240][3 + MAX_LINE_SPRITES]; // sprite_count, ^flags, tile_count, [spritep]...
 
 #define SR_MAPPED   (1 << 0)
 #define SR_READONLY (1 << 1)
@@ -126,9 +179,6 @@ struct PicoMisc {
 	UINT32 SRamHandlersInstalled;
 	UINT32 SRamReadOnly;
 	UINT32 SRamHasSerialEEPROM;
-
-	UINT8 I2CMem;
-	UINT8 I2CClk;
 
 	UINT16 JCartIOData[2];
 
@@ -146,13 +196,13 @@ struct PicoMisc {
 	UINT8 MapperBank[0x10];
 };
 
-struct TileStrip
+struct MegadriveTileStrip
 {
 	INT32 nametab; // Position in VRAM of name table (for this tile line)
 	INT32 line;    // Line number in pixels 0x000-0x3ff within the virtual tilemap
 	INT32 hscroll; // Horizontal scroll value in pixels for the line
 	INT32 xmask;   // X-Mask (0x1f - 0x7f) for horizontal wraparound in the tilemap
-	INT32 *hc;     // cache for high tile codes and their positions
+	UINT32 *hc;     // cache for high tile codes and their positions
 	INT32 cells;   // cells (tiles) to draw (32 col mode doesn't need to update whole 320)
 };
 
@@ -188,23 +238,19 @@ static UINT8 *RamIO;
 static UINT16 *RamPal;
 static UINT16 *RamVid;
 static UINT16 *RamSVid;
-static struct PicoVideo *RamVReg;
+static struct MegadrivePicoVideo *RamVReg;
 static struct PicoMisc *RamMisc;
 static struct MegadriveJoyPad *JoyPad;
 
 UINT32 *MegadriveCurPal;
 
-static UINT16 *MegadriveBackupRam;
-
 static UINT8 *HighCol;
 static UINT8 *HighColFull;
 static UINT16 *LineBuf;
 
-static INT32 *HighCacheA;
-static INT32 *HighCacheB;
-static INT32 *HighCacheS;
+static UINT32 *HighCacheA;
+static UINT32 *HighCacheB;
 static INT32 *HighPreSpr;
-static INT8 *HighSprZ;
 
 UINT8 MegadriveReset = 0;
 UINT8 bMegadriveRecalcPalette = 0;
@@ -214,32 +260,36 @@ UINT8 MegadriveJoy2[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 UINT8 MegadriveJoy3[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 UINT8 MegadriveJoy4[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 UINT8 MegadriveJoy5[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-UINT8 MegadriveDIP[2] = {0, 0};
+UINT8 MegadriveDIP[3] = {0, 0, 0};
+static ClearOpposite<5, UINT16> clear_opposite;
+INT16 MegadriveAnalog[4];
 
 static UINT32 RomNum = 0;
 static UINT32 RomSize = 0;
 static UINT32 SRamSize = 0;
 
-static INT32 SpriteBlocks;
-
 static INT32 Scanline = 0;
 
-static INT32 Z80HasBus = 0;
-static INT32 MegadriveZ80Reset = 0;
-static INT32 RomNoByteswap;
-
 static INT32 dma_xfers = 0; // vdp dma
-static INT32 rendstatus = 0; // status of vdp renderer
+
 static INT32 BlankedLine = 0;
 static INT32 interlacemode2 = 0;
 
 static UINT8 Hardware;
-static UINT8 DrvSECAM = 0;	// NTSC
 static UINT8 bNoDebug = 0;
 static INT32 bForce3Button = 0;
 INT32 psolarmode = 0; // pier solar
 static INT32 TeamPlayerMode = 0;
 static INT32 FourWayPlayMode = 0;
+
+static INT32 papriummode = 0;
+static INT32 sot4wmode = 0;
+static INT32 colocodxmode = 0;
+
+static void __fastcall MegadriveWriteByte(UINT32 sekAddress, UINT8 byteValue); // forward
+static UINT8 __fastcall MegadriveReadByte(UINT32 address);
+
+#include "paprium.h"
 
 static void MegadriveCheckHardware()
 {
@@ -361,7 +411,7 @@ inline static void CalcCol(INT32 index, UINT16 nColour)
 	INT32 g = (nColour & 0x00e0) >> 4; 	// Green
 	INT32 b = (nColour & 0x0e00) >> 8;	// Blue
 
-	RamPal[index] = nColour;
+	RamPal[index] = BURN_ENDIAN_SWAP_INT16(nColour & 0xeee);
 
 	// Normal Color
 	MegadriveCurPal[index + 0x00] = BurnHighCol(color_ramp[r], color_ramp[g], color_ramp[b], 0);
@@ -393,7 +443,7 @@ static INT32 MemIndex()
 	RamPal		= (UINT16 *) Next; Next += 0x000040 * sizeof(UINT16);
 	RamSVid		= (UINT16 *) Next; Next += 0x000040 * sizeof(UINT16);	// VSRam
 	RamVid		= (UINT16 *) Next; Next += 0x010000 * sizeof(UINT16);	// Video Ram
-	RamVReg		= (struct PicoVideo *)Next; Next += sizeof(struct PicoVideo);
+	RamVReg		= (struct MegadrivePicoVideo *)Next; Next += sizeof(struct MegadrivePicoVideo);
 
 	JoyPad		= (struct MegadriveJoyPad *) Next; Next += sizeof(struct MegadriveJoyPad);
 
@@ -409,11 +459,9 @@ static INT32 MemIndex()
 
 	LineBuf     = (UINT16 *) Next; Next += 320 * (240 * 2) * sizeof(UINT16); // palete-processed line-buffer (dink / for sonic mode)
 
-	HighCacheA	= (INT32 *) Next; Next += (41+1) * sizeof(INT32);	// caches for high layers
-	HighCacheB	= (INT32 *) Next; Next += (41+1) * sizeof(INT32);
-	HighCacheS	= (INT32 *) Next; Next += (80+1) * sizeof(INT32);	// and sprites
+	HighCacheA	= (UINT32 *) Next; Next += (41+1) * sizeof(INT32);	// caches for high layers
+	HighCacheB	= (UINT32 *) Next; Next += (41+1) * sizeof(INT32);
 	HighPreSpr	= (INT32 *) Next; Next += (80*2+1) * sizeof(INT32);	// slightly preprocessed sprites
-	HighSprZ	= (INT8*) Next; Next += (320+8+8);				// Z-buffer for accurate sprites and shadow/hilight mode
 
 	MemEnd		= Next;
 	return 0;
@@ -432,6 +480,7 @@ static void __fastcall Megadrive68K_Z80WriteByte(UINT32 address, UINT8 data)
 	address &= 0xffff;
 
 	if ((address & 0xc000) == 0x0000) { // z80 ram: 0000 - 1fff, 2000 - 3fff(mirror)
+		SekCyclesBurn(2);
 		RamZ80[address & 0x1fff] = data;
 		return;
 	}
@@ -454,6 +503,7 @@ static UINT8 __fastcall Megadrive68K_Z80ReadByte(UINT32 address)
 	address &= 0xffff;
 
 	if ((address & 0xc000) == 0x0000) { // z80 ram: 0000 - 1fff, 2000 - 3fff(mirror)
+		SekCyclesBurn(2);
 		return RamZ80[address & 0x1fff];
 	}
 
@@ -529,19 +579,6 @@ static UINT16 __fastcall MegadriveReadWord(UINT32 address)
 
 static void __fastcall MegadriveWriteByte(UINT32 sekAddress, UINT8 byteValue)
 {
-	if(sekAddress >= 0xA13004 && sekAddress < 0xA13040) {
-		bprintf(0, _T("---------dumb 12-in-1 banking stuff.\n"));
-		// dumb 12-in-1 or 4-in-1 banking support
-		sekAddress &= 0x3f;
-		sekAddress <<= 16;
-		INT32 len = RomSize - sekAddress;
-		if (len <= 0) return; // invalid/missing bank
-		if (len > 0x200000) len = 0x200000; // 2 megs
-		// code which does this is in RAM so this is safe.
-		memcpy(RomMain, RomMain + sekAddress, len);
-		return;
-	}
-
 	if (sekAddress >= 0xa00000 && sekAddress <= 0xa07fff) {
 		Megadrive68K_Z80WriteByte(sekAddress, byteValue);
 		return;
@@ -553,12 +590,12 @@ static void __fastcall MegadriveWriteByte(UINT32 sekAddress, UINT8 byteValue)
 		case 0xA11100: {
 			if (byteValue & 1) {
 				if (Z80HasBus == 1) {
-					z80CyclesSync(Z80HasBus && !MegadriveZ80Reset); // synch before disconnecting.  fixes hang in Golden Axe III (z80run)
+					z80CyclesSync(); // synch before disconnecting.  fixes hang in Golden Axe III (z80run)
 					Z80HasBus = 0;
 				}
 			} else {
 				if (Z80HasBus == 0) {
-					z80CyclesSync(Z80HasBus && !MegadriveZ80Reset); // synch before disconnecting.  fixes hang in Golden Axe III (z80run)
+					z80CyclesSync(); // synch before disconnecting.  fixes hang in Golden Axe III (z80run)
 					z80_cycle_cnt += 2;
 					Z80HasBus = 1;
 				}
@@ -569,13 +606,13 @@ static void __fastcall MegadriveWriteByte(UINT32 sekAddress, UINT8 byteValue)
 		case 0xA11200: {
 			if (~byteValue & 1) {
 				if (MegadriveZ80Reset == 0) {
-					z80CyclesSync(Z80HasBus && !MegadriveZ80Reset);
+					z80CyclesSync();
 					BurnMD2612Reset();
 					MegadriveZ80Reset = 1;
 				}
 			} else {
 				if (MegadriveZ80Reset == 1) {
-					z80CyclesSync(Z80HasBus && !MegadriveZ80Reset); // synch before disconnecting.  fixes hang in Golden Axe III (z80run)
+					z80CyclesSync(); // synch before disconnecting.  fixes hang in Golden Axe III (z80run)
 					ZetReset();
 					z80_cycle_cnt += 2;
 					MegadriveZ80Reset = 0;
@@ -587,8 +624,8 @@ static void __fastcall MegadriveWriteByte(UINT32 sekAddress, UINT8 byteValue)
 		case 0xa12000: return; // NOP (cd-stuff, called repeatedly by rnrracin)
 
 		default: {
-			if (!bNoDebug)
-				bprintf(PRINT_NORMAL, _T("Attempt to write byte value %x to location %x (PC: %X, PPC: %x)\n"), byteValue, sekAddress, SekGetPC(-1), SekGetPPC(-1));
+//			if (!bNoDebug)
+			   bprintf(PRINT_NORMAL, _T("Attempt to write byte value %x to location %x (PC: %X, PPC: %x)\n"), byteValue, sekAddress, SekGetPC(-1), SekGetPPC(-1));
 		}
 	}
 }
@@ -624,6 +661,21 @@ static INT32 GetDmaLength()
   // Charles MacDonald:
   if(!len) len = 0xffff;
   return len;
+}
+
+static void UpdateDMARegs()
+{
+
+	INT32 len = GetDmaLength();
+	UINT32 source  = RamVReg->reg[0x15];
+	source |= RamVReg->reg[0x16] << 8;
+	source |= RamVReg->reg[0x17] << 16;
+	source += len;
+
+	RamVReg->reg[0x13] = RamVReg->reg[0x14] = 0;
+
+	RamVReg->reg[0x15] = source;
+	RamVReg->reg[0x16] = source >> 8;
 }
 
 // dma2vram settings are just hacks to unglitch Legend of Galahad (needs <= 104 to work)
@@ -673,16 +725,10 @@ static UINT32 CheckDMA(void)
   return burn;
 }
 
-static INT32 DMABURN() { // add cycles to the 68k cpu
-    if (dma_xfers) {
-        return CheckDMA();
-    } else return 0;
-}
-
 static void DmaSlow(INT32 len)
 {
 	UINT16 *pd=0, *pdend, *r;
-	UINT32 a = RamVReg->addr, a2, d;
+	UINT32 a = RamVReg->addr, a2, d = 0;
 	UINT8 inc = RamVReg->reg[0xf];
 	UINT32 source;
 	UINT32 fromrom = 0;
@@ -694,23 +740,25 @@ static void DmaSlow(INT32 len)
   //dprintf("DmaSlow[%i] %06x->%04x len %i inc=%i blank %i [%i|%i]", Pico.video.type, source, a, len, inc,
   //         (Pico.video.status&8)||!(Pico.video.reg[1]&0x40), Pico.m.scanline, SekCyclesDone());
 
-	dma_xfers += len;
+	dma_xfers += (papriummode) ? 1 : len;
 
-	INT32 dmab = CheckDMA();
+//	INT32 dmab = CheckDMA();
 
 #ifdef CYCDBUG
 //	bprintf(0, _T("dma @ ln %d cyc %d, burnt: %d.\n"), Scanline, SekCyclesLine(), dmab);
 #endif
-	SekCyclesBurnRun(dmab);
+	SekCyclesBurnRun(CheckDMA());
 
 	if ((source & 0xe00000) == 0xe00000) { // RAM
 		pd    = (UINT16 *)(Ram68K + (source & 0xfffe));
 		pdend = (UINT16 *)(Ram68K + 0x10000);
 	} else if( source < RomSize) {	// ROM
+		if (papriummode || psolarmode) fromrom = 1;
 		fromrom = 1;
 		source &= ~1;
 		pd    = (UINT16 *)(RomMain + source);
 		pdend = (UINT16 *)(RomMain + RomSize);
+		if (papriummode && source > 0xffff) fromrom = 0;
 	} else return; // Invalid source address
 
 	// overflow protection, might break something..
@@ -719,38 +767,52 @@ static void DmaSlow(INT32 len)
 		//bprintf(0, _T("DmaSlow() overflow(!).\n"));
 	}
 
+#if 0
+	char *dmatypes[] = { "", "vram", "", "cram", "", "vsram", "", "" };
+
+	bprintf(0, _T("dma  %S  len  %x, inc  %x, source  %x  dest  %x\n"), dmatypes[RamVReg->type&7], len, inc, source, a);
+#endif
+
 	switch ( RamVReg->type ) {
 	case 1: // vram
 		r = RamVid;
 		for(; len; len--) {
-			if (psolarmode && fromrom) {
-				d = md_psolar_rw(source);
+			if (fromrom) {
+				if (psolarmode) {
+					d = md_psolar_rw(source);
+				} else {
+					d = SekReadWord(source);
+				}
 				source+=2;
 			} else {
-				d = *pd++;
+				d = BURN_ENDIAN_SWAP_INT16(*pd++);
 			}
 			if(a&1) d=(d<<8)|(d>>8);
-			r[a>>1] = (UINT16)d; // will drop the upper bits
+			r[a>>1] = BURN_ENDIAN_SWAP_INT16((UINT16)d); // will drop the upper bits
 			// AutoIncrement
 			a = (UINT16)(a+inc);
 			// didn't src overlap?
 			//if(pd >= pdend) pd -= 0x8000; // should be good for RAM, bad for ROM
 		}
 
-		rendstatus |= 0x10;
+		RamVReg->rendstatus |= PDRAW_DIRTY_SPRITES;
 		break;
 
 	case 3: // cram
 		//dprintf("DmaSlow[%i] %06x->%04x len %i inc=%i blank %i [%i|%i]", Pico.video.type, source, a, len, inc,
 		//         (Pico.video.status&8)||!(Pico.video.reg[1]&0x40), Pico.m.scanline, SekCyclesDone());
 		for(a2 = a&0x7f; len; len--) {
-			if (psolarmode && fromrom) {
-				d = md_psolar_rw(source);
+			if (fromrom) {
+				if (psolarmode) {
+					d = md_psolar_rw(source);
+				} else {
+					d = SekReadWord(source);
+				}
 				source+=2;
 			} else {
-				d = *pd++;
+				d = BURN_ENDIAN_SWAP_INT16(*pd++);
 			}
-			CalcCol( a2>>1, BURN_ENDIAN_SWAP_INT16(d) );
+			CalcCol( a2>>1, d );
 			//pd++;
 			// AutoIncrement
 			a2+=inc;
@@ -764,16 +826,20 @@ static void DmaSlow(INT32 len)
 
 	case 5: // vsram[a&0x003f]=d;
 		r = RamSVid;
-		for(a2=a&0x7f; len; len--) {
-			if (psolarmode && fromrom) {
-				d = md_psolar_rw(source);
+		for(a2=a; len; len--) {
+			if (fromrom) {
+				if (psolarmode) {
+					d = md_psolar_rw(source);
+				} else {
+					d = SekReadWord(source);
+				}
 				source+=2;
 			} else {
-				d = *pd++;
+				d = BURN_ENDIAN_SWAP_INT16(*pd++);
 			}
-			r[a2>>1] = (UINT16)d;
+			r[(a2>>1)&0x3f] = BURN_ENDIAN_SWAP_INT16(d&0x7ff);//(UINT16)d;
 			// AutoIncrement
-			a2+=inc;
+			a2 = (a2+inc)&0xffff;
 			// didn't src overlap?
 			//if(pd >= pdend) pd-=0x8000;
 			// good dest?
@@ -786,7 +852,7 @@ static void DmaSlow(INT32 len)
       a |= RamVReg->addr_u << 16;
       for(; len; len--)
       {
-        VideoWrite128(a, *pd++);
+        VideoWrite128(a, BURN_ENDIAN_SWAP_INT16(*pd++));
         // AutoIncrement
         a = (a + inc) & 0x1ffff;
       }
@@ -795,8 +861,8 @@ static void DmaSlow(INT32 len)
 
 	}
 	// remember addr
-	RamVReg->reg[0x13] = RamVReg->reg[0x14] = 0; // Dino Dini's Soccer (E) (by Haze)
 	RamVReg->addr = (UINT16)a;
+	UpdateDMARegs();
 }
 
 static void DmaCopy(INT32 len)
@@ -810,7 +876,7 @@ static void DmaCopy(INT32 len)
 	//dprintf("DmaCopy len %i [%i|%i]", len, Pico.m.scanline, SekCyclesDone());
 
 	RamVReg->status |= 2; // dma busy
-	dma_xfers += len;
+	dma_xfers += (papriummode) ? 1 : len;
 
 	source  = RamVReg->reg[0x15];
 	source |= RamVReg->reg[0x16]<<8;
@@ -826,8 +892,8 @@ static void DmaCopy(INT32 len)
 	}
 	// remember addr
 	RamVReg->addr = a;
-	RamVReg->reg[0x13] = RamVReg->reg[0x14] = 0; // Dino Dini's Soccer (E) (by Haze)
-	rendstatus |= 0x10;
+	UpdateDMARegs();
+	RamVReg->rendstatus |= PDRAW_DIRTY_SPRITES;
 }
 
 static void DmaFill(INT32 data)
@@ -843,7 +909,7 @@ static void DmaFill(INT32 data)
 	// from Charles MacDonald's genvdp.txt:
 	// Write lower byte to address specified
 	RamVReg->status |= 2; // dma busy
-	dma_xfers += len;
+	dma_xfers += (papriummode) ? 1 : len;
 	vr[a] = (UINT8) data;
 	a = (UINT16)(a+inc);
 
@@ -859,14 +925,13 @@ static void DmaFill(INT32 data)
 	// remember addr
 	RamVReg->addr = a;
 	// update length
-	RamVReg->reg[0x13] = RamVReg->reg[0x14] = 0; // Dino Dini's Soccer (E) (by Haze)
-
-	rendstatus |= 0x10;
+	UpdateDMARegs();
+	RamVReg->rendstatus |= PDRAW_DIRTY_SPRITES;
 }
 
 static void CommandChange()
 {
-	//struct PicoVideo *pvid=&Pico.video;
+	//struct MegadrivePicoVideo *pvid=&Pico.video;
 	UINT32 cmd = RamVReg->command;
 	UINT32 addr = 0;
 
@@ -888,7 +953,12 @@ static void CommandChange()
 	if (cmd & 0x80) {
 		// Command DMA
 		if ((RamVReg->reg[1] & 0x10) == 0) return; // DMA not enabled
+
 		INT32 len = GetDmaLength();
+		UINT32 source  = RamVReg->reg[0x15];
+		source |= RamVReg->reg[0x16] << 8;
+		source |= RamVReg->reg[0x17] << 16;
+
 		switch ( RamVReg->reg[0x17]>>6 ) {
 		case 0x00:
 		case 0x01:
@@ -901,6 +971,12 @@ static void CommandChange()
 		default:
 			;//bprintf(PRINT_NORMAL, _T("Video Command DMA Unknown %02x len %d\n"), RamVReg->reg[0x17]>>6, len);
 		}
+		source += len;
+#if 0
+		RamVReg->reg[0x13] = RamVReg->reg[0x14] = 0;
+		RamVReg->reg[0x15] = source;
+		RamVReg->reg[0x16] = source >> 8;
+#endif
 	}
 }
 
@@ -977,6 +1053,10 @@ static const UINT8 hcounts_32[] = {
 	0x08,0x08,0x08,0x09,0x09,0x09,0x0a,0x0a,0x0a,0x0b,0x0b,0x0b,0x0c,0x0c,0x0c,0x0d,
 };
 
+struct h_ { UINT16 hres; UINT8 hint; UINT8 start; UINT8 end; };
+
+static const h_ hints[2] = { {256, 0x85, 0x94, 0xe9}, {320, 0xa5, 0xb7, 0xe5} };
+
 static UINT16 __fastcall MegadriveVideoReadWord(UINT32 sekAddress)
 {
 	if (sekAddress > 0xC0001F)
@@ -985,19 +1065,20 @@ static UINT16 __fastcall MegadriveVideoReadWord(UINT32 sekAddress)
 	UINT16 res = 0;
 
 	switch (sekAddress & 0x1c) {
-	case 0x00:	// data
-		switch (RamVReg->type) {
-			case 0: res = BURN_ENDIAN_SWAP_INT16(RamVid [(RamVReg->addr >> 1) & 0x7fff]); break;
-			case 4: res = BURN_ENDIAN_SWAP_INT16(RamSVid[(RamVReg->addr >> 1) & 0x003f]); break;
-			case 8: res = BURN_ENDIAN_SWAP_INT16(RamPal [(RamVReg->addr >> 1) & 0x003f]); break;
-		}
+		case 0x00:	// data
+			switch (RamVReg->type) {
+				case 0: res = BURN_ENDIAN_SWAP_INT16(RamVid [(RamVReg->addr >> 1) & 0x7fff]); break;
+				case 4: res = BURN_ENDIAN_SWAP_INT16(RamSVid[(RamVReg->addr >> 1) & 0x003f]); break;
+				case 8: res = BURN_ENDIAN_SWAP_INT16(RamPal [(RamVReg->addr >> 1) & 0x003f]); break;
+			}
 		RamVReg->addr += RamVReg->reg[0xf];
 		break;
 
 	case 0x04:	// command
 		{
 			UINT16 d = RamVReg->status; //xxxxxxxxxxx
-			if (SekCyclesLine() >= (488-88))
+
+			if (SekCyclesLine() >= (488-(0xd8)))
 				d|=0x0004; // H-Blank (Sonic3 vs)
 
 			d |= ((RamVReg->reg[1]&0x40)^0x40) >> 3;  // set V-Blank if display is disabled
@@ -1013,14 +1094,22 @@ static UINT16 __fastcall MegadriveVideoReadWord(UINT32 sekAddress)
 		{
 			UINT32 d;
 
-			d = (SekCyclesLine()) & 0x1ff; // FIXME
+			d = SekCyclesLine();
+
+			if (lg_latched && (lg_latch >> 8) != Scanline) lg_latched = 0;
+			if (lg_latched) {
+				return lg_latch;
+			}
+
+			if (RamVReg->reg[0] & 2) return RamVReg->hv_latch; // sunset riders
 
 			if (RamVReg->reg[12]&1)
 				d = hcounts_40[d];
 			else d = hcounts_32[d];
 
 			//elprintf(EL_HVCNT, "hv: %02x %02x (%i) @ %06x", d, Pico.video.v_counter, SekCyclesDone(), SekPc);
-			return d | (RamVReg->v_counter << 8);
+			//bprintf(0, _T("hvcnt %x  @ sl %d\n"), (d | (RamVReg->v_counter << 8)), Scanline);
+			return (d | (RamVReg->v_counter << 8));
 		}
 		break;
 
@@ -1060,15 +1149,14 @@ static void __fastcall MegadriveVideoWriteWord(UINT32 sekAddress, UINT16 wordVal
 			// FIFO
 			// preliminary FIFO emulation for Chaos Engine, The (E)
 			if (!(RamVReg->status&8) && (RamVReg->reg[1]&0x40)) // active display?
-			{
-				RamVReg->status&=~0x200; // FIFO no longer empty
-				RamVReg->lwrite_cnt++;
-				if (RamVReg->lwrite_cnt >= 4) RamVReg->status|=0x100; // FIFO full
-				if (RamVReg->lwrite_cnt >  4) {
-					//SekRunAdjust(0-80);
-					//SekIdle(80);
-					SekCyclesBurnRun(32);
-				}
+				if (Scanline <= lines_vis)
+				{
+					int use = RamVReg->type == 1 ? 2 : 1;
+					RamVReg->lwrite_cnt -= use;
+					if (RamVReg->lwrite_cnt < 0) {
+						m68k_ICount = 0;
+					}
+
 				//elprintf(EL_ASVDP, "VDP data write: %04x [%06x] {%i} #%i @ %06x", d, Pico.video.addr,
 				//		 Pico.video.type, pvid->lwrite_cnt, SekPc);
 			}
@@ -1083,7 +1171,7 @@ static void __fastcall MegadriveVideoWriteWord(UINT32 sekAddress, UINT16 wordVal
 					wordValue = (wordValue<<8)|(wordValue>>8);
 				}
 				RamVid[(RamVReg->addr >> 1) & 0x7fff] = BURN_ENDIAN_SWAP_INT16(wordValue);
-            	rendstatus |= 0x10;
+				RamVReg->rendstatus |= PDRAW_DIRTY_SPRITES;
             	break;
 			case 3:
 				//Pico.m.dirtyPal = 1;
@@ -1091,7 +1179,7 @@ static void __fastcall MegadriveVideoWriteWord(UINT32 sekAddress, UINT16 wordVal
 				CalcCol((RamVReg->addr >> 1) & 0x003f, wordValue);
 				break;
 			case 5:
-				RamSVid[(RamVReg->addr >> 1) & 0x003f] = BURN_ENDIAN_SWAP_INT16(wordValue);
+				RamSVid[(RamVReg->addr >> 1) & 0x003f] = BURN_ENDIAN_SWAP_INT16(wordValue & 0x7ff);
 				break;
 			case 0x81: {
 				UINT32 a = RamVReg->addr | (RamVReg->addr_u << 16);
@@ -1129,9 +1217,26 @@ static void __fastcall MegadriveVideoWriteWord(UINT32 sekAddress, UINT16 wordVal
 				UINT8 oldreg = RamVReg->reg[num];
 				RamVReg->reg[num] = wordValue & 0xff;
 
+//				if (num < 2) bprintf(0, _T("sl %d, reg[%02x]  %02x\n"),Scanline, num, wordValue & 0xff);
+
 				// update IRQ level (Lemmings, Wiz 'n' Liz intro, ... )
 				// may break if done improperly:
 				// International Superstar Soccer Deluxe (crash), Street Racer (logos), Burning Force (gfx), Fatal Rewind (hang), Sesame Street Counting Cafe
+				if (num == 0) {
+					if ( (oldreg^RamVReg->reg[num]) & 2) {
+						UINT32 d;
+
+						d = (SekCyclesLine()) & 0x1ff;
+
+						if (RamVReg->reg[12]&1)
+							d = hcounts_40[d];
+						else d = hcounts_32[d];
+
+						//elprintf(EL_HVCNT, "latch hv: %02x %02x (%i) @ %06x", d, Pico.video.v_counter, SekCyclesDone(), SekPc);
+						RamVReg->hv_latch = d | (RamVReg->v_counter << 8);
+						//bprintf(0, _T("Latch hvc %x  @ SL: %d\n"), RamVReg->hv_latch, Scanline);
+					}
+				}
 				if(num < 2 && !SekShouldInterrupt()) {
 
 					INT32 irq = 0;
@@ -1149,15 +1254,7 @@ static void __fastcall MegadriveVideoWriteWord(UINT32 sekAddress, UINT16 wordVal
 					}
 				}
 
-				if (num == 5) if (RamVReg->reg[num]^oldreg) rendstatus |= 1;//PDRAW_SPRITES_MOVED;
-
-				if (num == 11) {
-					const UINT8 h_msks[4] = { 0x00, 0x07, 0xf8, 0xff };
-					RamVReg->h_mask = h_msks[RamVReg->reg[11] & 3];
-				}
-
-
-//				else if(num == 0xc) Pico.m.dirtyPal = 2; // renderers should update their palettes if sh/hi mode is changed
+				if (num == 5) if (RamVReg->reg[num]^oldreg) RamVReg->rendstatus |= PDRAW_SPRITES_MOVED;
 			} else {
 				// High word of command:
 				RamVReg->command &= 0x0000ffff;
@@ -1193,6 +1290,28 @@ static INT32 PadRead(INT32 i)
 	pad = ~(JoyPad->pad[i]);					// Get inverse of pad MXYZ SACB RLDU
 	TH = ((FourWayPlayMode) ? JoyPad->fourway[i & 0x03] : RamIO[i+1]) & 0x40;
 
+	if (has_gun != 0 && i == 1) { // lightgun on second port
+		UINT8 data_reg = RamIO[i + 1];
+		UINT8 ctrl_reg = RamIO[i + 4] | 0x80;
+		UINT8 out = data_reg & ctrl_reg;
+		out |= 0x3f & ~ctrl_reg;
+		switch (has_gun) {
+			case GUN_MENACER:
+				pad = JoyPad->pad[1];
+				value = ((pad >> 4) & 0x09) | ((pad >> 3) & 0x4) | ((pad >> 5) & 0x2) | 0x40;
+				return (value & ~ctrl_reg) | (data_reg & ctrl_reg);
+			case GUN_JUSTIFIER:
+				value = 0x30;
+				if (!(RamIO[i + 1] & out & 0x50)) {
+					pad = ~JoyPad->pad[1 + ((RamIO[i + 1] >> 5) & 1)];
+					value |= ((pad >> 6) & 0x03);
+				}
+				value |= out & 0x40;
+				//bprintf(0, _T("justi: %x   %x\n"), (RamIO[i + 1] ),value);
+				return (value & ~ctrl_reg) | (data_reg & ctrl_reg);
+		}
+	}
+
 	if (!bForce3Button) {					    // 6 button gamepad enabled
 		INT32 phase = JoyPad->padTHPhase[i];
 
@@ -1217,7 +1336,7 @@ end:
 	if (!FourWayPlayMode)
 		value |= RamIO[i+1] & RamIO[i+4];
 
-	return value; // will mirror later
+	return (RamIO[i+1] & 0x80) | value;
 }
 
 static void PadWrite(INT32 port, UINT8 data, UINT8 *ior)
@@ -1335,9 +1454,11 @@ static UINT8 __fastcall MegadriveIOReadByte(UINT32 sekAddress)
 			case 0:	// Get Hardware
 				return Hardware;
 			case 1: // Pad 1
-				return (RamIO[1] & 0x80) | PadRead(0);
+				return PadRead(0);
+			 //   return (RamIO[1] & 0x80) | PadRead(0);
 			case 2: // Pad 2
-				return (RamIO[2] & 0x80) | PadRead(1);
+				return PadRead(1);
+			 //   return (RamIO[2] & 0x80) | PadRead(1);
 	        default:
 				//bprintf(PRINT_NORMAL, _T("IO Attempt to read byte value of location %x\n"), sekAddress);
 				return RamIO[offset];
@@ -1460,11 +1581,22 @@ inline static INT32 MegadriveSynchroniseStreamPAL(INT32 nSoundRate)
 // ---------------------------------------------------------------
 
 static INT32 res_check(); // forward
+static void vx_reset();
 static void __fastcall Ssf2BankWriteByte(UINT32 sekAddress, UINT8 byteValue); // forward
+
+static INT32 last_hardware = -1;
 
 static INT32 MegadriveResetDo()
 {
 	memset (RamStart, 0, RamEnd - RamStart);
+
+	if (papriummode) {
+		paprium_reset(); // before SekReset()!
+	}
+
+	if (sot4wmode) {
+		vx_reset();
+	}
 
 	SekOpen(0);
 	SekReset();
@@ -1477,6 +1609,10 @@ static INT32 MegadriveResetDo()
 
 	BurnMD2612Reset();
 
+	if (RamMisc->SRamHasSerialEEPROM) {
+		i2c_reset();
+	}
+
 #if 0
     BurnDump("Megadrive.bin", RomMain, 0x200000);
     //FILE * f = fopen("Megadrive.bin", "wb+");
@@ -1486,38 +1622,43 @@ static INT32 MegadriveResetDo()
 
 	MegadriveCheckHardware();
 
-	if (Hardware & 0x40) {
+	if (last_hardware != Hardware) {
+		bprintf(0, _T("**  Megadrive Region/Hardware change, %dhz\n"), (Hardware & 0x40) ? 50 : 60);
+		if (Hardware & 0x40) {
 
-		BurnSetRefreshRate(50.0);
-		Reinitialise();
+			BurnSetRefreshRate(50.0);
+			Reinitialise();
 
-		BurnMD2612Exit();
-		BurnMD2612Init(1, 1, MegadriveSynchroniseStreamPAL, 1);
-		BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_1, 0.75, BURN_SND_ROUTE_LEFT);
-		BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_2, 0.75, BURN_SND_ROUTE_RIGHT);
+			BurnMD2612Exit();
+			BurnMD2612Init(1, 1, MegadriveSynchroniseStreamPAL, 1);
+			BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_1, 0.75, BURN_SND_ROUTE_LEFT);
+			BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_2, 0.75, BURN_SND_ROUTE_RIGHT);
 
-		BurnMD2612Reset();
+			BurnMD2612Reset();
 
-		SN76496Exit();
-		SN76496Init(0, OSC_PAL / 15, 0);
-		SN76496SetBuffered(SekCyclesDoneFrameF, OSC_PAL / 7);
-		SN76496SetRoute(0, 0.50, BURN_SND_ROUTE_BOTH);
-	} else {
-		BurnSetRefreshRate(60.0);
-		Reinitialise();
+			SN76496Exit();
+			SN76496Init(0, OSC_PAL / 15, 0);
+			SN76496SetBuffered(SekCyclesDoneFrameF, OSC_PAL / 7);
+			SN76496SetRoute(0, 0.50, BURN_SND_ROUTE_BOTH);
+		} else {
+			BurnSetRefreshRate(60.0);
+			Reinitialise();
 
-		BurnMD2612Exit();
-		BurnMD2612Init(1, 0, MegadriveSynchroniseStream, 1);
-		BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_1, 0.75, BURN_SND_ROUTE_LEFT);
-		BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_2, 0.75, BURN_SND_ROUTE_RIGHT);
+			BurnMD2612Exit();
+			BurnMD2612Init(1, 0, MegadriveSynchroniseStream, 1);
+			BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_1, 0.75, BURN_SND_ROUTE_LEFT);
+			BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_2, 0.75, BURN_SND_ROUTE_RIGHT);
 
-		BurnMD2612Reset();
+			BurnMD2612Reset();
 
-		SN76496Exit();
-		SN76496Init(0, OSC_NTSC / 15, 0);
-		SN76496SetBuffered(SekCyclesDoneFrameF, OSC_NTSC / 7);
-		SN76496SetRoute(0, 0.50, BURN_SND_ROUTE_BOTH);
+			SN76496Exit();
+			SN76496Init(0, OSC_NTSC / 15, 0);
+			SN76496SetBuffered(SekCyclesDoneFrameF, OSC_NTSC / 7);
+			SN76496SetRoute(0, 0.50, BURN_SND_ROUTE_BOTH);
+		}
 	}
+
+	last_hardware = Hardware;
 
 	// other reset
 	//memset(RamMisc, 0, sizeof(struct PicoMisc)); // do not clear because Mappers/SRam are set up in here when the driver inits
@@ -1533,10 +1674,7 @@ static INT32 MegadriveResetDo()
 		RamMisc->SRamReadOnly = 0;
 	}
 
-	RamMisc->I2CClk = 0;
-	RamMisc->I2CMem = 0;
-
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SSF2) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SSF2) {
 		for (INT32 i = 0; i < 7; i++) {
 			Ssf2BankWriteByte(0xa130f3 + (i*2), i + 1);
 		}
@@ -1544,14 +1682,15 @@ static INT32 MegadriveResetDo()
 
 	memset(JoyPad, 0, sizeof(struct MegadriveJoyPad));
 	teamplayer_reset();
+	clear_opposite.reset();
 
 	// default VDP register values (based on Fusion)
-	memset(RamVReg, 0, sizeof(struct PicoVideo));
+	memset(RamVReg, 0, sizeof(struct MegadrivePicoVideo));
 	RamVReg->reg[0x00] = 0x04;
 	RamVReg->reg[0x01] = 0x04;
 	RamVReg->reg[0x0c] = 0x81;
 	RamVReg->reg[0x0f] = 0x02;
-	RamVReg->status = 0x3408 | ((MegadriveDIP[0] & 0x40) >> 6); // 'always set' bits | vblank | collision | pal
+	RamVReg->status = 0x3408 | ((Hardware & 0x40) >> 6); // 'always set' bits | vblank | collision | pal
 	RamVReg->rotate = 0;
 
 	RamMisc->Bank68k = 0;
@@ -1565,7 +1704,7 @@ static INT32 MegadriveResetDo()
 	}
 
 	Scanline = 0;
-	rendstatus = 0;
+	RamVReg->rendstatus = 0;
 	bMegadriveRecalcPalette = 1;
 	interlacemode2 = 0;
 
@@ -1641,7 +1780,7 @@ static UINT8 __fastcall MegadriveZ80ProgRead(UINT16 a)
 		return MegadriveVideoReadByte(a&0xff);
 	}
 
-	bprintf(PRINT_NORMAL, _T("Z80 Unmapped Read %04x\n"), a);
+//	bprintf(PRINT_NORMAL, _T("Z80 Unmapped Read %04x\n"), a);
 
 	return 0xff;
 }
@@ -1827,11 +1966,11 @@ static UINT16 __fastcall LK3ReadWord(UINT32 address)
 {
 	if (address < 0x100000) { // banked rom access (15 - 1 because indexing UINT16 array instead of byte)
 		UINT16 *Rom = (UINT16*)RomMain;
-		return Rom[((address >> 1) | (RamMisc->L3Bank << (15 - 1))) & (RomSize - 1)];
+		return BURN_ENDIAN_SWAP_INT16(Rom[((address >> 1) | (RamMisc->L3Bank << (15 - 1))) & (RomSize - 1)]);
 	}
 	if (address < 0x400000) { // normal rom access
 		UINT16 *Rom = (UINT16*)RomMain;
-		return Rom[(address >> 1) & (RomSize - 1)];
+		return BURN_ENDIAN_SWAP_INT16(Rom[(address >> 1) & (RomSize - 1)]);
 	}
 
 	if (address >= 0x600000 && address <= 0x6fffff) {
@@ -2367,13 +2506,31 @@ static void __fastcall Sup19in1BankWriteWord(UINT32 sekAddress, UINT16 /*wordVal
 
 static void __fastcall Mc12in1BankWriteByte(UINT32 sekAddress, UINT8 /*byteValue*/)
 {
-	INT32 Offset = (sekAddress - 0xa13000) >> 1;
-	memcpy(RomMain + 0x000000, OriginalRom + ((Offset & 0x3f) << 17), 0x100000);
+	RamMisc->MapperBank[0] = ((sekAddress - 0xa13000) >> 1) & 0x3f;
 }
 
 static void __fastcall Mc12in1BankWriteWord(UINT32 sekAddress, UINT16 wordValue)
 {
 	bprintf(PRINT_NORMAL, _T("Mc12in1Bank write word value %04x to location %08x\n"), wordValue, sekAddress);
+}
+
+static UINT8 __fastcall Mc12in1ReadByteRom(UINT32 sekAddress)
+{
+	if (sekAddress < 0x200000) {
+		return RomMain[((RamMisc->MapperBank[0] * 0x20000) + sekAddress)^1];
+	} else {
+		return 0xff;
+	}
+}
+
+static UINT16 __fastcall Mc12in1ReadWordRom(UINT32 sekAddress)
+{
+	if (sekAddress < 0x200000) {
+		UINT16 *Rom = (UINT16*)RomMain;
+		return BURN_ENDIAN_SWAP_INT16(Rom[((RamMisc->MapperBank[0] * 0x20000) + sekAddress) >> 1]);
+	} else {
+		return 0xffff;
+	}
 }
 
 static UINT8 __fastcall TopfigReadByte(UINT32 sekAddress)
@@ -2456,9 +2613,387 @@ static void __fastcall TopfigWriteWord(UINT32 sekAddress, UINT16 wordValue)
 	bprintf(PRINT_NORMAL, _T("Topfig write word value %04x to location %08x\n"), wordValue, sekAddress);
 }
 
+// dink's flashrom simulator (flash eeprom) from nes.cpp
+static UINT8 flashrom_cmd;
+static UINT16 flashrom_busy;
+enum { AMIC = 0, MXIC = 1, MC_SST = 2, S29GL = 3 };
+#define flashrom_chiptype S29GL
+
+// S29GL settings: 16bit databus, custom cfi data
+
+static UINT8 flashrom_read(UINT32 address)
+{
+	if (flashrom_cmd == 0x90) { // flash chip identification
+		//bprintf(0, _T("flashrom chip ID\n"));
+		if (flashrom_chiptype == AMIC) {
+			switch (address & 0x03) {
+				case 0x00: return 0x37; // manufacturer ID
+				case 0x01: return 0x86; // device ID
+				case 0x03: return 0x7f; // Continuation ID
+			}
+		} else if (flashrom_chiptype == MXIC) {
+			switch (address & 0x03) {
+				case 0x00: return 0xc2; // manufacturer ID
+				case 0x01: return 0xa4; // device ID
+			}
+		} else if (flashrom_chiptype == MC_SST) {
+			switch (address & 0x03) {
+				case 0x00: return 0xbf; // manufacturer ID
+				case 0x01: return 0xb7; // device ID
+			}
+		} else if (flashrom_chiptype == S29GL) {
+			switch (address & 0x03) {
+				case 0x00: return 0x00; // manufacturer ID
+				case 0x01: return 0x01; // device ID
+			}
+		}
+	}
+
+	if (flashrom_cmd == 0x98 && (address >= 0x21 && address < 0x80)) {
+		//bprintf(0, _T("flash read CFI.... %x\n"), address);
+
+		const UINT8 cfi_data[2][0x40] = {
+			{ // sot4w
+				0x51, 0x52, 0x59, 0x02, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x27, 0x36, 0x00, 0x00, 0x07,
+				0x07, 0x0a, 0x00, 0x03, 0x05, 0x04, 0x00, 0x17, 0x02, 0x00, 0x05, 0x00, 0x02, 0x07, 0x00, 0x20,
+				0x00, 0x7e, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+			},
+			{
+				0x51, 0x52, 0x59, 0x02, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x27, 0x36, 0x00, 0x00, 0x07,
+				0x07, 0x0A, 0x00, 0x03, 0x05, 0x04, 0x00, 0x17, 0x02, 0x00, 0x05, 0x00, 0x02, 0x7e, 0x00, 0x00,
+				0x01, 0x07, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+			}
+		};
+		return cfi_data[colocodxmode][(address - 0x21) >> 1];
+	}
+
+	if (flashrom_busy > 0) { // flash chip program or "erasing sector or chip" mode (it takes time..)
+		flashrom_busy--;
+
+		UINT8 status = (flashrom_busy & 0x01) << 6; // toggle bit I
+		switch (flashrom_cmd) {
+			case 0x82: // embedded erase sector/chip
+				status |= (flashrom_busy & 0x01) << 2; // toggle bit II
+				status |= 1 << 3; // "erasing" status bit
+				if (flashrom_busy < 2) {
+					//MXIC MX29F040.pdf, bottom pg. 7
+					//"SET-UP AUTOMATIC CHIP/SECTOR ERASE" (last paragraph)
+					//...and terminates when the data on Q7 is "1" and
+					//the data on Q6 stops toggling for two consecutive read
+					//cycles, at which time the device returns to the Read mode
+					status = (1 << 7); // Courier doesn't like when the other status bits are set.
+				}
+				break;
+			case 0xa0: // embedded program
+				status |= 0xff;/*~mapper_prg_read_int(address) & 0x80;*/
+				break;
+		}
+		bprintf(0, _T("erase/pgm status  %x (cmd %x)\n"), status, flashrom_cmd);
+		if (flashrom_busy == 0) {
+			flashrom_cmd = 0; // done! (req: Courier doesn't write 0xf0 (return to read array))
+		}
+		return status;
+	}
+
+	return RomMain[address ^ 1];
+}
+
+static void flashrom_write(UINT16 address, UINT16 data)
+{
+	// bprintf(0, _T("flashrom_write( %x,  %x )\n"), address, data);
+	if (data == 0xf0) {
+		// read array / reset
+		flashrom_cmd = 0;
+		flashrom_busy = 0;
+		return;
+	}
+
+	switch (flashrom_cmd) {
+		case 0x00:
+		case 0x80:
+			if ((address & 0xfff) == 0xaab && data == 0xaa)
+				flashrom_cmd++;
+			if ((address & 0xfff) == 0xab && data == 0x98) {
+				flashrom_cmd = 0x98; // read cfi jibba-jabba
+			}
+			if ((address & 0xfff) == 0xab && data == 0x90) {
+				flashrom_cmd = 0x90; // read autoselect
+			}
+			break;
+		case 0x88: //secured sector id jib
+			if ((address & 0xfff) == 0xaab && data == 0xaa)
+				flashrom_cmd = 1;
+			break;
+		case 0x90:
+			if (data == 0x00) {
+				flashrom_cmd = 0;
+				//bprintf(0, _T("ending secure serial\n"));
+			}
+			break;
+		case 0x01:
+		case 0x81:
+			if (((address & 0xfff) == 0xaab ||
+				 (address & 0xfff) == 0x555) && data == 0x55)
+				flashrom_cmd++;  // unlocked!
+
+			break;
+		case 0x02:
+			if ((address & 0xfff) == 0xaab) {
+				//bprintf(0, _T("-----------------flash command set: %x\n"), data);
+				flashrom_cmd = data;
+			}
+			break;
+		case 0x82: {
+			switch (data) {
+				case 0x10:
+					bprintf(0, _T("flashrom - full flash erase not impl. (will break game!)\n"));
+					flashrom_busy = 0xffff;
+					break;
+				case 0x30:
+					bprintf(0, _T("flashrom - sector erase.  addr %x \n"), address);
+
+					if (flashrom_chiptype == S29GL) {
+						address &= 0xfffe;
+						for (int i = 0; i < 0x1000; i += 2) {
+							UINT16 *Ram = (UINT16*)SRam;
+							Ram[(address + i) >> 1] = 0xffff;
+						}
+						flashrom_busy = 0; // this chip is fast(?)
+						flashrom_cmd = 0;
+					} else
+					if (flashrom_chiptype == MC_SST) {
+						for (INT32 i = 0; i < 0x1000; i++) {
+						  //  Cart.PRGRom[PRGMap[(address & ~0x8000) / 0x2000] + (address & 0x1000) + i] = data;
+						}
+						flashrom_busy = 0xfff;
+					} else {
+						for (INT32 i = 0; i < 0x10000; i++) {
+						 //   Cart.PRGRom[(PRGMap[(address & ~0x8000) / 0x2000] & 0x7f0000) + i] = 0xff;
+						}
+						flashrom_busy = 0xffff;
+					}
+					break;
+			}
+			break;
+		}
+		case 0xa0:
+			//bprintf(0, _T("----------------flash write word %x  ->  %x\n"), address, data);
+			UINT16 *Ram = (UINT16*)SRam;
+			Ram[(address) >> 1] = BURN_ENDIAN_SWAP_INT16(data);
+
+			flashrom_busy = (flashrom_chiptype == S29GL) ? 0 : 8;
+			flashrom_cmd = 0;
+			break;
+	}
+}
+
+static void __fastcall sot4w_writeword(UINT32 address, UINT16 data)
+{
+	flashrom_write(address, data);
+}
+
+static void __fastcall sot4w_writebyte(UINT32 address, UINT8 data)
+{
+	flashrom_write(address, data);
+}
+
+static UINT16 __fastcall sot4w_readword(UINT32 address)
+{
+	UINT16 rc = 0;
+	if (flashrom_cmd == 0x88) {
+		static UINT16 table_[0x20] = {
+			0x2923, 0xbe84, 0xe16c, 0xd6ae, 0x5290, 0x49f1, 0xf1bb, 0xe9eb,
+			0xb3a6, 0xdb3c, 0x870c, 0x3e99, 0x245e, 0x0d1c, 0x06b7, 0x47de,
+			0xb312, 0x4dc8, 0x43bb, 0x8ba6, 0x1f03, 0x5a7d, 0x0938, 0x251f,
+			0x5dd4, 0xcbfc, 0x96f5, 0x453b, 0x0000, 0x0000, 0x0000, 0x0000
+		};
+		rc = table_[(address&0x3f) >> 1];
+		//bprintf(0, _T("flash secured sector.rw %x  %x   PC: %x\n"), address, rc, SekGetPC(-1));
+		return rc;
+	}
+
+	UINT16 *Ram = (UINT16*)RomMain;
+	rc = BURN_ENDIAN_SWAP_INT16(Ram[(address & 0x7fffff) >> 1]);
+	return rc;
+}
+
+static UINT8 __fastcall sot4w_readbyte(UINT32 address)
+{
+	UINT8 rc = flashrom_read(address);
+	return rc;
+}
+
+// yx5200/vx5200 mp3 player chip
+static UINT8 vx_cmd[10] = { 0, };
+static UINT8 vx_cmdnum = 0;
+static UINT8 vx_serialnum = 0;
+static INT32 vx_track; // 0 - 0xbb7
+static UINT8 vx_volume; // 0 - 0x1f
+
+static void vx_scan(INT32 nAction, INT32 *pnMin)
+{
+	BurnSampleScan(nAction, pnMin);
+
+	SCAN_VAR(vx_cmd);
+	SCAN_VAR(vx_cmdnum);
+	SCAN_VAR(vx_serialnum);
+	SCAN_VAR(vx_track);
+	SCAN_VAR(vx_volume);
+}
+
+static int vx_checksum()
+{
+	int firstpass = (vx_cmd[0] == 0x7e && vx_cmd[9] == 0xef);
+	int cx = ((vx_cmd[7] << 8) + (vx_cmd[8] << 0) - 1) & 0xffff;
+	int cx_calc = 0;
+	for (int i = 1; i < 7; i++) {
+		cx_calc += vx_cmd[i];
+	}
+	cx_calc = (~cx_calc) & 0xffff;
+	if (cx != cx_calc) bprintf(0, _T("vx: bad packet! cx %x   cx_calc %x\n"), cx, cx_calc);
+	return (cx == cx_calc && firstpass);
+}
+
+static void vx_switch_track()
+{
+	if (vx_track == -1) {
+		bprintf(0, _T("vx: song stop.\n"));
+		BurnSampleChannelStop(0);
+	} else {
+		bprintf(0, _T("vx: song play %d.\n"), vx_track);
+		BurnSampleChannelPlay(0, vx_track - 1, -1);
+	}
+}
+
+static void vx_set_volume()
+{
+	double vol = (double)vx_volume * 0.50 / 0x1f;
+	BurnSampleSetRouteFadeAllSamples(BURN_SND_SAMPLE_ROUTE_1, vol, BURN_SND_ROUTE_BOTH);
+	BurnSampleSetRouteFadeAllSamples(BURN_SND_SAMPLE_ROUTE_2, vol, BURN_SND_ROUTE_BOTH);
+}
+
+static void vx_init()
+{
+	BurnSampleInit(1 | 0x8000); // setting nostore.
+}
+
+static void vx_exit()
+{
+	BurnSampleExit();
+}
+
+static void vx_render(INT16 *snd, INT32 samples)
+{
+	BurnSampleRender(snd, samples);
+}
+
+static void vx_reset()
+{
+	BurnSampleReset();
+
+	vx_cmdnum = 0;
+	vx_serialnum = 0;
+	vx_track = -1;
+	vx_volume = 0;
+	vx_switch_track();
+	vx_set_volume();
+}
+
+static void vx_command(UINT8 command, UINT16 param)
+{
+	switch (command) {
+		case 0x01: if (vx_track < 0xbb7) { vx_track++; vx_switch_track(); } break;
+		case 0x02: if (vx_track > 0) { vx_track--; vx_switch_track(); } break;
+		case 0x08: // play (looped)
+		case 0x03: vx_track = param; vx_switch_track(); break; // play (also loops!)
+		case 0x04: if (vx_volume < 0x1f) vx_volume++; vx_set_volume(); break;
+		case 0x05: if (vx_volume > 0) vx_volume--; vx_set_volume(); break;
+		case 0x06: vx_volume = param & 0x1f; vx_set_volume(); break;
+		case 0x0e: BurnSampleChannelPause(0, true); break; // pause
+		case 0x0d: BurnSampleChannelPause(0, false); break; // resume
+		case 0x0a: // sleep
+		case 0x0c: // reset
+		case 0x16: vx_track = -1; vx_switch_track(); break; // stop (same as reset)
+
+		default: bprintf(0, _T("vx5200: unhandled command / param:  %x  %x\n"), command, param);
+	}
+}
+
+static void __fastcall sot4w_mp3_writebyte(UINT32 address, UINT8 data)
+{
+	if (address != 0xa13000) return;
+
+	data &= 1;
+	switch (vx_serialnum) {
+		case 0:
+			if (data == 0) vx_serialnum++; // let's go
+			break;
+		case 9:
+			if (data == 1) {
+				vx_cmdnum++;
+				if (vx_cmdnum == 10) {
+					bprintf(0, _T("vx_5200: (in) %x %x %x %x %x %x %x %x %x %x\n"), vx_cmd[0], vx_cmd[1], vx_cmd[2], vx_cmd[3], vx_cmd[4], vx_cmd[5], vx_cmd[6], vx_cmd[7], vx_cmd[8], vx_cmd[9] );
+					vx_cmdnum = 0;
+					if (vx_checksum()) {
+						vx_command(vx_cmd[3], (vx_cmd[5] << 8) + (vx_cmd[6] << 0));
+					}
+				}
+			} else {
+				bprintf(0, _T("vx_5200: bad stop bit!\n"));
+			}
+			vx_serialnum = 0;
+			break; // end of byte
+		case 1:
+			vx_cmd[vx_cmdnum] = 0; // clear on the first bit
+			// no breaks!
+		default:
+			vx_cmd[vx_cmdnum] |= data << (vx_serialnum-1);
+			vx_serialnum++;
+			break;
+	}
+}
+
 static void SetupCustomCartridgeMappers()
 {
-	if (((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_CM_JCART) || ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_CM_JCART_SEPROM)) {
+	if (colocodxmode) {
+		bprintf(0, _T("colocodx mode!\n"));
+		SekOpen(0);
+		SekMapHandler(7, 0x000000, 0x00ffff, MAP_READ | MAP_WRITE);
+		SekSetReadByteHandler(7, sot4w_readbyte);
+		SekSetReadWordHandler(7, sot4w_readword);
+		SekSetWriteByteHandler(7, sot4w_writebyte);
+		SekSetWriteWordHandler(7, sot4w_writeword);
+
+		SRam = &RomMain[0x7f0000];
+		SekMapHandler(8, 0x7f0000, 0x7fffff, MAP_READ | MAP_WRITE);
+		SekSetReadByteHandler(8, sot4w_readbyte);
+		SekSetReadWordHandler(8, sot4w_readword);
+		SekSetWriteByteHandler(8, sot4w_writebyte);
+		SekSetWriteWordHandler(8, sot4w_writeword);
+		SekClose();
+	}
+
+	if (sot4wmode) {
+		SekOpen(0);
+		SekMapHandler(7, 0x000000, 0x00ffff, MAP_READ | MAP_WRITE);
+		SekSetReadByteHandler(7, sot4w_readbyte);
+		SekSetWriteByteHandler(7, sot4w_writebyte);
+
+		SRam = &RomMain[0x3f0000];
+		SekMapHandler(8, 0x3f0000, 0x3fffff, MAP_READ | MAP_WRITE);
+		SekSetReadByteHandler(8, sot4w_readbyte);
+		SekSetReadWordHandler(8, sot4w_readword);
+		SekSetWriteByteHandler(8, sot4w_writebyte);
+		SekSetWriteWordHandler(8, sot4w_writeword);
+
+		SekMapHandler(9, 0xa13000, 0xa133ff, MAP_WRITE);
+		SekSetWriteByteHandler(9, sot4w_mp3_writebyte);
+		SekClose();
+	}
+
+	if (((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_CM_JCART) || ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_CM_JCART_SEPROM)) {
 		SekOpen(0);
 		SekMapHandler(7, 0x38fffe, 0x38ffff, MAP_READ | MAP_WRITE);
 		SekSetReadByteHandler(7, JCartCtrlReadByte);
@@ -2468,7 +3003,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SSF2) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SSF2) {
 		OriginalRom = (UINT8*)BurnMalloc(MAX_CARTRIDGE_SIZE);
 		memcpy(OriginalRom, RomMain, MAX_CARTRIDGE_SIZE);
 
@@ -2478,7 +3013,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SKINGKONG) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SKINGKONG) {
 		OriginalRom = (UINT8*)BurnMalloc(MAX_CARTRIDGE_SIZE);
 		memcpy(OriginalRom, RomMain, MAX_CARTRIDGE_SIZE);
 		memcpy(RomMain + 0x200000, OriginalRom, 0x200000);
@@ -2486,7 +3021,7 @@ static void SetupCustomCartridgeMappers()
 		BurnFree(OriginalRom);
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SDK99) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SDK99) {
 		OriginalRom = (UINT8*)BurnMalloc(MAX_CARTRIDGE_SIZE);
 		memcpy(OriginalRom, RomMain, MAX_CARTRIDGE_SIZE);
 		memcpy(RomMain + 0x300000, OriginalRom, 0x100000);
@@ -2494,11 +3029,11 @@ static void SetupCustomCartridgeMappers()
 		BurnFree(OriginalRom);
 	}
 
-	if (((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_LIONK3) ||
-	    ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SKINGKONG) ||
-		((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_POKEMON2) ||
-		((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SDK99) ||
-	    ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_MULAN)) {
+	if (((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_LIONK3) ||
+	    ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SKINGKONG) ||
+		((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_POKEMON2) ||
+		((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SDK99) ||
+	    ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_MULAN)) {
 
 		bprintf(0, _T("Lion King 3-style protection/mapper\n"));
 		RamMisc->L3Reg[0] = RamMisc->L3Reg[1] = RamMisc->L3Reg[2] = 0;
@@ -2518,7 +3053,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_REDCL_EN) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_REDCL_EN) {
 		if (RomSize == 0x200005) {
 			bprintf(0, _T("Redcliff - decrypting rom\n"));
 			OriginalRom = (UINT8*)BurnMalloc(0x200005);
@@ -2540,7 +3075,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_RADICA) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_RADICA) {
 		OriginalRom = (UINT8*)BurnMalloc(RomSize);
 		memcpy(OriginalRom, RomMain, RomSize);
 
@@ -2555,8 +3090,8 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_KOF99 ||
-		(BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_POKEMON) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_KOF99 ||
+		(BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_POKEMON) {
 		SekOpen(0);
 		SekMapHandler(7, 0xa13000, 0xa1303f, MAP_READ);
 		SekSetReadByteHandler(7, Kof99A13000ReadByte);
@@ -2564,7 +3099,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SOULBLAD) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SOULBLAD) {
 		SekOpen(0);
 		SekMapHandler(7, 0x400002, 0x400007, MAP_READ);
 		SekSetReadByteHandler(7, SoulbladReadByte);
@@ -2572,7 +3107,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_MJLOVER) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_MJLOVER) {
 		SekOpen(0);
 		SekMapHandler(7, 0x400000, 0x400001, MAP_READ);
 		SekSetReadByteHandler(7, MjloverProt1ReadByte);
@@ -2583,7 +3118,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SQUIRRELK) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SQUIRRELK) {
 		SekOpen(0);
 		SekMapHandler(7, 0x400000, 0x400007, MAP_READ | MAP_WRITE);
 		SekSetReadByteHandler(7, SquirrelKingExtraReadByte);
@@ -2594,7 +3129,7 @@ static void SetupCustomCartridgeMappers()
 		bNoDebug = 1; // Games make a lot of unmapped word-writes
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_CHAOJIMJ) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_CHAOJIMJ) {
 		SekOpen(0);
 		SekMapHandler(7, 0x400000, 0x400007, MAP_READ);
 		SekSetReadByteHandler(7, ChaoJiMjReadByte);
@@ -2602,7 +3137,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SMOUSE) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SMOUSE) {
 		SekOpen(0);
 		SekMapHandler(7, 0x400000, 0x400007, MAP_READ);
 		SekSetReadByteHandler(7, SmouseProtReadByte);
@@ -2610,7 +3145,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SMB) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SMB) {
 		SekOpen(0);
 		SekMapHandler(7, 0xa13000, 0xa13001, MAP_READ);
 		SekSetReadByteHandler(7, SmbProtReadByte);
@@ -2618,7 +3153,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SMB2) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SMB2) {
 		SekOpen(0);
 		SekMapHandler(7, 0xa13000, 0xa13001, MAP_READ);
 		SekSetReadByteHandler(7, Smb2ProtReadByte);
@@ -2626,7 +3161,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_KAIJU) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_KAIJU) {
 		OriginalRom = (UINT8*)BurnMalloc(RomSize);
 		memcpy(OriginalRom, RomMain, RomSize);
 
@@ -2641,7 +3176,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_CHINFIGHT3) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_CHINFIGHT3) {
 		OriginalRom = (UINT8*)BurnMalloc(RomSize);
 		memcpy(OriginalRom, RomMain, RomSize);
 
@@ -2659,7 +3194,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_LIONK2) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_LIONK2) {
 		RamMisc->Lionk2ProtData = 0;
 		RamMisc->Lionk2ProtData2 = 0;
 
@@ -2672,7 +3207,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_BUGSLIFE) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_BUGSLIFE) {
 		SekOpen(0);
 		SekMapHandler(7, 0xa13000, 0xa13001, MAP_READ);
 		SekSetReadByteHandler(7, BuglExtraReadByte);
@@ -2680,7 +3215,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_ELFWOR) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_ELFWOR) {
 		SekOpen(0);
 		SekMapHandler(7, 0x400000, 0x400007, MAP_READ);
 		SekSetReadByteHandler(7, Elfwor400000ReadByte);
@@ -2688,7 +3223,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_ROCKMANX3) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_ROCKMANX3) {
 		SekOpen(0);
 		SekMapHandler(7, 0xa13000, 0xa13001, MAP_READ);
 		SekSetReadByteHandler(7, RockmanX3ExtraReadByte);
@@ -2696,7 +3231,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SBUBBOB) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SBUBBOB) {
 		SekOpen(0);
 		SekMapHandler(7, 0x400000, 0x400003, MAP_READ);
 		SekSetReadByteHandler(7, SbubExtraReadByte);
@@ -2704,7 +3239,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_KOF98) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_KOF98) {
 		SekOpen(0);
 		SekMapHandler(7, 0x480000, 0x4fffff, MAP_READ);
 		SekSetReadByteHandler(7, Kof98ReadByte);
@@ -2712,7 +3247,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_REALTEC) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_REALTEC) {
 		RamMisc->RealtecBankAddr = 0;
 		RamMisc->RealtecBankSize = 0;
 
@@ -2732,7 +3267,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_MC_SUP19IN1) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_MC_SUP19IN1) {
 		OriginalRom = (UINT8*)BurnMalloc(RomSize);
 		memcpy(OriginalRom, RomMain, RomSize);
 
@@ -2745,7 +3280,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_MC_SUP15IN1) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_MC_SUP15IN1) {
 		OriginalRom = (UINT8*)BurnMalloc(RomSize);
 		memcpy(OriginalRom, RomMain, RomSize);
 
@@ -2758,20 +3293,18 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_MC_12IN1) {
-		OriginalRom = (UINT8*)BurnMalloc(RomSize * 2); // add a little buffer on the end so memcpy @ the last bank doesn't crash
-		memcpy(OriginalRom, RomMain, RomSize);
-
-		memcpy(RomMain + 0x000000, OriginalRom + 0x000000, 0x200000);
-
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_MC_12IN1) {
 		SekOpen(0);
 		SekMapHandler(7, 0xa13000, 0xa1303f, MAP_WRITE);
 		SekSetWriteByteHandler(7, Mc12in1BankWriteByte);
 		SekSetWriteWordHandler(7, Mc12in1BankWriteWord);
+		SekMapHandler(8, 0x000000, 0x1fffff, MAP_READ | MAP_FETCH);
+		SekSetReadByteHandler(8, Mc12in1ReadByteRom);
+		SekSetReadWordHandler(8, Mc12in1ReadWordRom);
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_TOPFIGHTER) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_TOPFIGHTER) {
 		OriginalRom = (UINT8*)BurnMalloc(RomSize);
 		memcpy(OriginalRom, RomMain, RomSize);
 
@@ -2790,7 +3323,7 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_16ZHANG) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_16ZHANG) {
 		bprintf(0, _T("md 16zhang mapper\n"));
 		SekOpen(0);
 		SekMapHandler(7, 0x400000, 0x400004 | 0x3ff, MAP_READ);
@@ -2799,7 +3332,21 @@ static void SetupCustomCartridgeMappers()
 		SekClose();
 	}
 
-	switch ((BurnDrvGetHardwareCode() & 0xc0)) {
+	has_gun = 0;
+	if ((BurnDrvGetHardwareCode() & 0x0f00) == HARDWARE_SEGA_MEGADRIVE_LIGHTGUN_MENACER) {
+		bprintf(0, _T("With: Menacer lightgun\n"));
+		has_gun = GUN_MENACER;
+	}
+	if ((BurnDrvGetHardwareCode() & 0x0f00) == HARDWARE_SEGA_MEGADRIVE_LIGHTGUN_JUSTIFIER) {
+		bprintf(0, _T("With: Justifier lightguns\n"));
+		has_gun = GUN_JUSTIFIER;
+	}
+
+	if (has_gun != 0) {
+		BurnGunInit((has_gun == GUN_JUSTIFIER) ? 2 : 1, true);
+	}
+
+	switch ((BurnDrvGetHardwareCode() & 0x0c00)) {
 		case HARDWARE_SEGA_MEGADRIVE_FOURWAYPLAY:
 			FourWayPlayMode = 1;
 			break;
@@ -2839,10 +3386,10 @@ static UINT16 __fastcall MegadriveSRAMReadWord(UINT32 sekAddress)
 {
 	if (RamMisc->SRamActive) {
 		UINT16 *Ram = (UINT16*)SRam;
-		return Ram[(sekAddress - RamMisc->SRamStart) >> 1];
+		return BURN_ENDIAN_SWAP_INT16(Ram[(sekAddress - RamMisc->SRamStart) >> 1]);
 	} else {
 		UINT16 *Rom = (UINT16*)RomMain;
-		return Rom[sekAddress >> 1];
+		return BURN_ENDIAN_SWAP_INT16(Rom[sekAddress >> 1]);
 	}
 }
 
@@ -2861,7 +3408,7 @@ static void __fastcall MegadriveSRAMWriteWord(UINT32 sekAddress, UINT16 wordValu
 	if (RamMisc->SRamActive) {
 		if (!RamMisc->SRamReadOnly) {
 			UINT16 *Ram = (UINT16*)SRam;
-			Ram[(sekAddress - RamMisc->SRamStart) >> 1] = wordValue;
+			Ram[(sekAddress - RamMisc->SRamStart) >> 1] = BURN_ENDIAN_SWAP_INT16(wordValue);
 			return;
 		}
 	}
@@ -2872,10 +3419,6 @@ static void InstallSRAMHandlers(bool MaskAddr)
 	UINT32 Mask = MaskAddr ? 0x3fffff : 0xffffff;
 
 	memset(SRam, 0xff, MAX_SRAM_SIZE);
-
-	// this breaks "md_thor".  sram is mapped in and out, so this is totally wrong.
-	// leaving this in "just incase / for reference" incase I come across a game that needs it.
-	//memcpy((UINT8*)MegadriveBackupRam, SRam, RamMisc->SRamEnd - RamMisc->SRamStart + 1);
 
 	SekOpen(0);
 	SekMapHandler(6, RamMisc->SRamStart & Mask, RamMisc->SRamEnd & Mask, MAP_READ | MAP_WRITE);
@@ -2888,6 +3431,7 @@ static void InstallSRAMHandlers(bool MaskAddr)
 	RamMisc->SRamHandlersInstalled = 1;
 }
 
+#if 0
 static UINT8 __fastcall Megadrive6658ARegReadByte(UINT32 sekAddress)
 {
 	if (sekAddress & 1) return RamMisc->SRamActive;
@@ -2925,11 +3469,12 @@ static void __fastcall Megadrive6658ARegWriteWord(UINT32 sekAddress, UINT16 word
 {
 	bprintf(PRINT_NORMAL, _T("6658A Reg write word value %04x to location %08x\n"), wordValue, sekAddress);
 }
+#endif
 
 static UINT8 __fastcall x200000EEPROMReadByte(UINT32 sekAddress)
 {
 	if (sekAddress >= 0x200000 && sekAddress <= 0x200001) {
-		return EEPROM_read8(sekAddress);
+		return i2c_read_bus8(sekAddress);
 	}
 
 	if (sekAddress < 0x300000) {
@@ -2942,12 +3487,12 @@ static UINT8 __fastcall x200000EEPROMReadByte(UINT32 sekAddress)
 static UINT16 __fastcall x200000EEPROMReadWord(UINT32 sekAddress)
 {
 	if (sekAddress >= 0x200000 && sekAddress <= 0x200001) {
-		return EEPROM_read();
+		return i2c_read_bus16(sekAddress);
 	}
 
 	if (sekAddress < 0x300000) {
 		UINT16 *Rom = (UINT16*)RomMain;
-		return Rom[sekAddress >> 1];
+		return BURN_ENDIAN_SWAP_INT16(Rom[sekAddress >> 1]);
 	} else {
 		return 0xffff;
 	}
@@ -2956,14 +3501,14 @@ static UINT16 __fastcall x200000EEPROMReadWord(UINT32 sekAddress)
 static void __fastcall x200000EEPROMWriteByte(UINT32 sekAddress, UINT8 byteValue)
 {
 	if (sekAddress >= 0x200000 && sekAddress <= 0x200001) {
-		EEPROM_write8(sekAddress, byteValue);
+		i2c_write_bus8(sekAddress, byteValue);
 	}
 }
 
 static void __fastcall x200000EEPROMWriteWord(UINT32 sekAddress, UINT16 wordValue)
 {
 	if (sekAddress >= 0x200000 && sekAddress <= 0x200001) {
-		EEPROM_write16(wordValue);
+		i2c_write_bus16(wordValue);
 		return;
 	}
 }
@@ -2971,7 +3516,7 @@ static void __fastcall x200000EEPROMWriteWord(UINT32 sekAddress, UINT16 wordValu
 static UINT8 __fastcall CodemastersEEPROMReadByte(UINT32 sekAddress)
 {
 	if (sekAddress == 0x380001) {
-		return EEPROM_read8(sekAddress);
+		return i2c_read_bus8(sekAddress);
 	}
 
 	return 0xff;
@@ -2980,7 +3525,7 @@ static UINT8 __fastcall CodemastersEEPROMReadByte(UINT32 sekAddress)
 static UINT16 __fastcall CodemastersEEPROMReadWord(UINT32 sekAddress)
 {
 	if (sekAddress == 0x380001) {
-		return EEPROM_read();
+		return i2c_read_bus16(sekAddress);
 	}
 
 	return 0xffff;
@@ -2989,14 +3534,14 @@ static UINT16 __fastcall CodemastersEEPROMReadWord(UINT32 sekAddress)
 static void __fastcall CodemastersEEPROMWriteByte(UINT32 sekAddress, UINT8 byteValue)
 {
 	if (sekAddress >= 0x300000 && sekAddress <= 0x300001) {
-		EEPROM_write8(sekAddress, byteValue);
+		i2c_write_bus8(sekAddress, byteValue);
 	}
 }
 
 static void __fastcall CodemastersEEPROMWriteWord(UINT32 sekAddress, UINT16 wordValue)
 {
 	if (sekAddress >= 0x300000 && sekAddress <= 0x300001) {
-		EEPROM_write16(wordValue);
+		i2c_write_bus16(wordValue);
 		return;
 	}
 }
@@ -3004,11 +3549,15 @@ static void __fastcall CodemastersEEPROMWriteWord(UINT32 sekAddress, UINT16 word
 static void __fastcall MegadriveSRAMToggleWriteByte(UINT32 sekAddress, UINT8 byteValue)
 {
 	if (sekAddress == 0xa130f1) {
+		UINT32 SRamRegPrev = RamMisc->SRamReg;
 		RamMisc->SRamReg &= ~(SR_MAPPED | SR_READONLY);
 		RamMisc->SRamReg |= byteValue;
 		RamMisc->SRamActive = RamMisc->SRamReg & SR_MAPPED;
 		RamMisc->SRamReadOnly = RamMisc->SRamReg & SR_READONLY;
-		bprintf(0, _T("SRam Status: %S%S\n"), RamMisc->SRamActive ? "Active " : "Disabled ", RamMisc->SRamReadOnly ? "ReadOnly" : "Read/Write");
+
+		if (RamMisc->SRamReg != SRamRegPrev) {
+			bprintf(0, _T("SRam Status: %S%S\n"), RamMisc->SRamActive ? "Active " : "Disabled ", RamMisc->SRamReadOnly ? "ReadOnly" : "Read/Write");
+		}
 	}
 }
 
@@ -3030,19 +3579,22 @@ static void MegadriveSetupSRAM()
 	RamMisc->SRamReadOnly = 0;
 	RamMisc->SRamHasSerialEEPROM = 0;
 	RamMisc->SRamReg = 0;
-	MegadriveBackupRam = NULL;
 
-	if ((BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_00400) || (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_00800) || (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_01000) || (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_04000) || (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_10000)) {
+	if (papriummode || sot4wmode || colocodxmode) {
+		RamMisc->SRamDetected = 1;
+		return;  // sram handled by paprium.h, flash eeprom (sot4w, colocodx)
+	}
+
+	if (/*(BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_00400) || (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_00800) || (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_01000) ||*/ (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_04000) || (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_10000)) {
 		RamMisc->SRamStart = 0x200000;
-		if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_00400) RamMisc->SRamEnd = 0x2003ff;
-		if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_00800) RamMisc->SRamEnd = 0x2007ff;
-		if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_01000) RamMisc->SRamEnd = 0x200fff;
+//		if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_00400) RamMisc->SRamEnd = 0x2003ff;
+//		if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_00800) RamMisc->SRamEnd = 0x2007ff;
+//		if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_01000) RamMisc->SRamEnd = 0x200fff;
 		if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_04000) RamMisc->SRamEnd = 0x203fff;
 		if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_SRAM_10000) RamMisc->SRamEnd = 0x20ffff;
 
 		bprintf(PRINT_IMPORTANT, _T("SRAM Settings: start %06x - end %06x\n"), RamMisc->SRamStart, RamMisc->SRamEnd);
 		RamMisc->SRamDetected = 1;
-		MegadriveBackupRam = (UINT16*)RomMain + RamMisc->SRamStart;
 
 		SekOpen(0);
 		SekMapHandler(5, 0xa130f0, 0xa130f1, MAP_WRITE);
@@ -3058,23 +3610,21 @@ static void MegadriveSetupSRAM()
 
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_BEGGAR) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_BEGGAR) {
 		RamMisc->SRamStart = 0x400000;
 		RamMisc->SRamEnd = 0x40ffff;
 
 		RamMisc->SRamDetected = 1;
-		MegadriveBackupRam = (UINT16*)RomMain + RamMisc->SRamStart;
 
 		RamMisc->SRamActive = 1;
 		InstallSRAMHandlers(false);
 	}
-
+#if 0
 	if (BurnDrvGetHardwareCode() & HARDWARE_SEGA_MEGADRIVE_FRAM_00400) {
 		RamMisc->SRamStart = 0x200000;
 		RamMisc->SRamEnd = 0x2003ff;
 
 		RamMisc->SRamDetected = 1;
-		MegadriveBackupRam = (UINT16*)RomMain + RamMisc->SRamStart;
 
 		SekOpen(0);
 		SekMapHandler(5, 0xa130f0, 0xa130f1, MAP_READ | MAP_WRITE);
@@ -3086,11 +3636,12 @@ static void MegadriveSetupSRAM()
 
 		InstallSRAMHandlers(false);
 	}
-
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_SEGA_EEPROM) {
+#endif
+	// mask @ 0x3f because teamplayer/4wayplay uses 0x40/0x80/0xc0
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_SEGA_EEPROM) {
 		RamMisc->SRamHasSerialEEPROM = 1;
 		bprintf(PRINT_IMPORTANT, _T("Serial EEPROM, generic Sega.\n"));
-		EEPROM_init(0, 1, 0, 0, SRam);
+		i2c_init(I2C_X24C01, 0, 1, 0);
 		SekOpen(0);
 		SekMapHandler(5, 0x200000, 0x200001, MAP_READ | MAP_WRITE);
 		SekSetReadByteHandler(5, x200000EEPROMReadByte);
@@ -3100,10 +3651,10 @@ static void MegadriveSetupSRAM()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_NBA_JAM) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_NBA_JAM) {
 		RamMisc->SRamHasSerialEEPROM = 1;
 		bprintf(PRINT_IMPORTANT, _T("Serial EEPROM, NBAJam.\n"));
-		EEPROM_init(2, 1, 0, 1, SRam);
+		i2c_init(I2C_X24C02, 0, 1, 1);
 		SekOpen(0);
 		SekMapHandler(5, 0x200000, 0x200001, MAP_READ | MAP_WRITE);
 		SekSetReadByteHandler(5, x200000EEPROMReadByte);
@@ -3113,10 +3664,10 @@ static void MegadriveSetupSRAM()
 		SekClose();
 	}
 
-	if (((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_NBA_JAM_TE) || ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_NFL_QB_96) || ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_C_SLAM)) {
+	if (((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_NBA_JAM_TE) || ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_NFL_QB_96) || ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_C_SLAM)) {
 		RamMisc->SRamHasSerialEEPROM = 1;
 		bprintf(PRINT_IMPORTANT, _T("Serial EEPROM, NBAJamTE.\n"));
-		EEPROM_init(2, 8, 0, 0, SRam);
+		i2c_init(I2C_24C04, 0, 8, 0); // verified (dink)
 		SekOpen(0);
 		SekMapHandler(5, 0x200000, 0x200001, MAP_READ | MAP_WRITE);
 		SekSetReadByteHandler(5, x200000EEPROMReadByte);
@@ -3126,10 +3677,10 @@ static void MegadriveSetupSRAM()
 		SekClose();
 	}
 
-	if ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_EA_NHLPA) {
+	if ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_EA_NHLPA) {
 		RamMisc->SRamHasSerialEEPROM = 1;
 		bprintf(PRINT_IMPORTANT, _T("Serial EEPROM, NHLPA/Rings of Power.\n"));
-		EEPROM_init(1, 6, 7, 7, SRam);
+		i2c_init(I2C_24C01, 7, 6, 7);
 		SekOpen(0);
 		SekMapHandler(5, 0x200000, 0x200001, MAP_READ | MAP_WRITE);
 		SekSetReadByteHandler(5, x200000EEPROMReadByte);
@@ -3139,10 +3690,10 @@ static void MegadriveSetupSRAM()
 		SekClose();
 	}
 
-	if (((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_CODE_MASTERS) || ((BurnDrvGetHardwareCode() & 0xff) == HARDWARE_SEGA_MEGADRIVE_PCB_CM_JCART_SEPROM)) {
+	if (((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_CODE_MASTERS) || ((BurnDrvGetHardwareCode() & 0x3f) == HARDWARE_SEGA_MEGADRIVE_PCB_CM_JCART_SEPROM)) {
 		RamMisc->SRamHasSerialEEPROM = 1;
 		bprintf(PRINT_IMPORTANT, _T("Serial EEPROM, Codemasters.\n"));
-		EEPROM_init(2, 9, 8, 7, SRam);
+		i2c_init(I2C_24C16, 8, 9, 7);
 		SekOpen(0);
 		SekMapHandler(5, 0x300000, 0x300001, MAP_WRITE);
 		SekSetWriteByteHandler(5, CodemastersEEPROMWriteByte);
@@ -3188,9 +3739,6 @@ static void MegadriveSetupSRAM()
 
 		if (!(RamMisc->SRamEnd & 1)) RamMisc->SRamEnd += 1;
 
-		// calculate backup RAM location
-		MegadriveBackupRam = (UINT16*) (RomMain + (RamMisc->SRamStart & 0x3fffff));
-
 		if (RamMisc->SRamDetected) {
 			bprintf(PRINT_IMPORTANT, _T("SRAM detected in header: start %06x - end %06x\n"), RamMisc->SRamStart, RamMisc->SRamEnd);
 		}
@@ -3219,11 +3767,60 @@ static INT32 __fastcall MegadriveTAScallback(void)
 }
 
 
+void MegadriveLightGunOffsets(INT32 x, INT32 y, bool reticle)
+{
+	if (has_gun) {
+		lg_x_offset = x;
+		lg_y_offset = y;
+		lg_has_reticle = reticle;
+
+		// re-init with reticle setting
+		BurnGunExit();
+		BurnGunInit((has_gun == GUN_JUSTIFIER) ? 2 : 1, reticle);
+	}
+}
+
 INT32 MegadriveInitNoDebug()
 {
 	INT32 rc = MegadriveInit();
 
 	bNoDebug = 1;
+
+	return rc;
+}
+
+INT32 MegadriveInitPaprium()
+{
+	papriummode = 1;
+
+	INT32 rc = MegadriveInit();
+
+	return rc;
+}
+
+INT32 MegadriveInitPsolar()
+{
+	psolarmode = 1;
+
+	INT32 rc = MegadriveInit();
+
+	return rc;
+}
+
+INT32 MegadriveInitSot4w()
+{
+	sot4wmode = 1;
+
+	INT32 rc = MegadriveInit();
+
+	return rc;
+}
+
+INT32 MegadriveInitColocodx()
+{
+	colocodxmode = 1;
+
+	INT32 rc = MegadriveInit();
 
 	return rc;
 }
@@ -3236,7 +3833,7 @@ INT32 MegadriveInit()
 	// Fido Dido (Prototype) goes into a weird debug mode in bonus stage #2
 	// if 0x645046 is 0x00 - making the game unplayable.
 
-	memset(RomMain, 0xff, MAX_CARTRIDGE_SIZE);
+	memset(RomMain, MegadriveUnmappedRom, MAX_CARTRIDGE_SIZE);
 
 	MegadriveLoadRoms(0);
 	if (MegadriveLoadRoms(1)) return 1;
@@ -3300,7 +3897,6 @@ INT32 MegadriveInit()
 	BurnSetRefreshRate(60.0);
 
 	bNoDebug = 0;
-	DrvSECAM = 0;
 	BurnMD2612Init(1, 0, MegadriveSynchroniseStream, 1);
 	BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_1, 0.75, BURN_SND_ROUTE_LEFT);
 	BurnMD2612SetRoute(0, BURN_SND_MD2612_MD2612_ROUTE_2, 0.75, BURN_SND_ROUTE_RIGHT);
@@ -3315,6 +3911,16 @@ INT32 MegadriveInit()
 	if (MegadriveCallback) MegadriveCallback();
 
 	pBurnDrvPalette = (UINT32*)MegadriveCurPal;
+
+	if (papriummode) {
+		paprium_init();
+	}
+
+	if (sot4wmode) {
+		vx_init();
+	}
+
+	last_hardware = -1;
 
 	MegadriveResetDo();
 
@@ -3333,11 +3939,37 @@ INT32 MegadriveInit()
 
 INT32 MegadriveExit()
 {
+	MegadriveUnmappedRom = 0xff;
+
 	SekExit();
 	ZetExit();
 
 	BurnMD2612Exit();
 	SN76496Exit();
+
+	if (RamMisc->SRamHasSerialEEPROM) {
+		i2c_exit();
+	}
+
+	if (papriummode) {
+		paprium_exit();
+	}
+
+	if (sot4wmode) {
+		vx_exit();
+		sot4wmode = 0;
+	}
+
+	if (has_gun != 0) {
+		BurnGunExit();
+
+		has_gun = 0;
+		lg_latch = 0;
+		lg_latched = 0;
+		lg_x_offset = 0;
+		lg_y_offset = 0;
+		lg_has_reticle = true;
+	}
 
 	BurnFreeMemIndex();
 
@@ -3347,7 +3979,6 @@ INT32 MegadriveExit()
 	}
 
 	MegadriveCallback = NULL;
-	RomNoByteswap = 0;
 	MegadriveReset = 0;
 	RomSize = 0;
 	RomNum = 0;
@@ -3356,7 +3987,6 @@ INT32 MegadriveExit()
 	Z80HasBus = 0;
 	MegadriveZ80Reset = 0;
 	Hardware = 0;
-	DrvSECAM = 0;
 	HighCol = NULL;
 	bNoDebug = 0;
 	bForce3Button = 0;
@@ -3364,6 +3994,7 @@ INT32 MegadriveExit()
 	FourWayPlayMode = 0;
 
 	psolarmode = 0;
+	colocodxmode = 0;
 
 	return 0;
 }
@@ -3372,708 +4003,721 @@ INT32 MegadriveExit()
 // Megadrive Draw
 //---------------------------------------------------------------
 
-static INT32 TileNorm(INT32 sx,INT32 addr,INT32 pal)
-{
-	UINT8 *pd = HighCol+sx;
-	UINT32 pack=0;
-	UINT32 t=0;
-
-	pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr)); // Get 8 pixels
-	if (pack) {
-		t=pack&0x0000f000; if (t) pd[0]=(UINT8)(pal|(t>>12));
-		t=pack&0x00000f00; if (t) pd[1]=(UINT8)(pal|(t>> 8));
-		t=pack&0x000000f0; if (t) pd[2]=(UINT8)(pal|(t>> 4));
-		t=pack&0x0000000f; if (t) pd[3]=(UINT8)(pal|(t    ));
-		t=pack&0xf0000000; if (t) pd[4]=(UINT8)(pal|(t>>28));
-		t=pack&0x0f000000; if (t) pd[5]=(UINT8)(pal|(t>>24));
-		t=pack&0x00f00000; if (t) pd[6]=(UINT8)(pal|(t>>20));
-		t=pack&0x000f0000; if (t) pd[7]=(UINT8)(pal|(t>>16));
-		return 0;
-	}
-	return 1; // Tile blank
+#define TileNormMaker_(pix_func)                             \
+{                                                            \
+  UINT32 t;                                            \
+                                                             \
+  t = (pack&0x0000f000)>>12; pix_func(0);                    \
+  t = (pack&0x00000f00)>> 8; pix_func(1);                    \
+  t = (pack&0x000000f0)>> 4; pix_func(2);                    \
+  t = (pack&0x0000000f)    ; pix_func(3);                    \
+  t = (pack&0xf0000000)>>28; pix_func(4);                    \
+  t = (pack&0x0f000000)>>24; pix_func(5);                    \
+  t = (pack&0x00f00000)>>20; pix_func(6);                    \
+  t = (pack&0x000f0000)>>16; pix_func(7);                    \
 }
 
-static INT32 TileFlip(INT32 sx,INT32 addr,INT32 pal)
-{
-	UINT8 *pd = HighCol+sx;
-	UINT32 pack=0;
-	UINT32 t=0;
-
-	pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr)); // Get 8 pixels
-	if (pack) {
-		t=pack&0x000f0000; if (t) pd[0]=(UINT8)(pal|(t>>16));
-		t=pack&0x00f00000; if (t) pd[1]=(UINT8)(pal|(t>>20));
-		t=pack&0x0f000000; if (t) pd[2]=(UINT8)(pal|(t>>24));
-		t=pack&0xf0000000; if (t) pd[3]=(UINT8)(pal|(t>>28));
-		t=pack&0x0000000f; if (t) pd[4]=(UINT8)(pal|(t    ));
-		t=pack&0x000000f0; if (t) pd[5]=(UINT8)(pal|(t>> 4));
-		t=pack&0x00000f00; if (t) pd[6]=(UINT8)(pal|(t>> 8));
-		t=pack&0x0000f000; if (t) pd[7]=(UINT8)(pal|(t>>12));
-		return 0;
-	}
-	return 1; // Tile blank
+#define TileFlipMaker_(pix_func)                             \
+{                                                            \
+  UINT32 t;                                            \
+                                                             \
+  t = (pack&0x000f0000)>>16; pix_func(0);                    \
+  t = (pack&0x00f00000)>>20; pix_func(1);                    \
+  t = (pack&0x0f000000)>>24; pix_func(2);                    \
+  t = (pack&0xf0000000)>>28; pix_func(3);                    \
+  t = (pack&0x0000000f)    ; pix_func(4);                    \
+  t = (pack&0x000000f0)>> 4; pix_func(5);                    \
+  t = (pack&0x00000f00)>> 8; pix_func(6);                    \
+  t = (pack&0x0000f000)>>12; pix_func(7);                    \
 }
 
-static INT32 TileNormRlim(INT32 sx,INT32 addr,INT32 pal,INT32 rlim)
-{
-	UINT8 *pd = HighCol+sx;
-	UINT32 pack=0;
-	UINT32 t=0;
+#define TileNormMaker(funcname, pix_func) \
+static void funcname(UINT8 *pd, UINT32 pack, INT32 pal) \
+TileNormMaker_(pix_func)
 
-	pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr)); // Get 8 pixels
-	if (pack) {
-		switch (rlim) {
-			case 7: t=pack&0x00f00000; if (t) pd[6]=(UINT8)(pal|(t>>20)); // no breaks!
-			case 6: t=pack&0x0f000000; if (t) pd[5]=(UINT8)(pal|(t>>24));
-			case 5: t=pack&0xf0000000; if (t) pd[4]=(UINT8)(pal|(t>>28));
-			case 4: t=pack&0x0000000f; if (t) pd[3]=(UINT8)(pal|(t    ));
-			case 3: t=pack&0x000000f0; if (t) pd[2]=(UINT8)(pal|(t>> 4));
-			case 2: t=pack&0x00000f00; if (t) pd[1]=(UINT8)(pal|(t>> 8));
-			case 1: t=pack&0x0000f000; if (t) pd[0]=(UINT8)(pal|(t>>12));
-		}
-		return 0;
-	}
-	return 1;
-}
+#define TileFlipMaker(funcname, pix_func) \
+static void funcname(UINT8 *pd, UINT32 pack, INT32 pal) \
+TileFlipMaker_(pix_func)
 
-static INT32 TileFlipRlim(INT32 sx,INT32 addr,INT32 pal,INT32 rlim)
-{
-	UINT8 *pd = HighCol+sx;
-	UINT32 pack=0;
-	UINT32 t=0;
+#define TileNormMakerAS(funcname, pix_func) \
+static void funcname(UINT8 *pd, UINT8 *mb, UINT32 pack, INT32 pal) \
+TileNormMaker_(pix_func)
 
-	pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr)); // Get 8 pixels
-	if (pack) {
-		switch (rlim) {
-			case 7: t=pack&0x00000f00; if (t) pd[6]=(UINT8)(pal|(t>> 8)); // no breaks!
-			case 6: t=pack&0x000000f0; if (t) pd[5]=(UINT8)(pal|(t>> 4));
-			case 5: t=pack&0x0000000f; if (t) pd[4]=(UINT8)(pal|(t    ));
-			case 4: t=pack&0xf0000000; if (t) pd[3]=(UINT8)(pal|(t>>28));
-			case 3: t=pack&0x0f000000; if (t) pd[2]=(UINT8)(pal|(t>>24));
-			case 2: t=pack&0x00f00000; if (t) pd[1]=(UINT8)(pal|(t>>20));
-			case 1: t=pack&0x000f0000; if (t) pd[0]=(UINT8)(pal|(t>>16));
-		}
-		return 0;
-	}
-	return 1;
-}
+#define TileFlipMakerAS(funcname, pix_func) \
+static void funcname(UINT8 *pd, UINT8 *mb, UINT32 pack, INT32 pal) \
+TileFlipMaker_(pix_func)
 
-// tile renderers for hacky operator sprite support
-#define sh_pix(x) \
-  if(!t); \
-  else if(t==0xe) pd[x]=(UINT8)((pd[x]&0x3f)|0x80); /* hilight */ \
-  else if(t==0xf) pd[x]=(UINT8)((pd[x]&0x3f)|0xc0); /* shadow  */ \
-  else pd[x]=(UINT8)(pal|t);
+#define pix_just_write(x) \
+  if (t) pd[x]=pal|t
 
-static INT32 TileNormSH(INT32 sx,INT32 addr,INT32 pal)
-{
-	UINT32 pack=0; UINT32 t=0;
-	UINT8 *pd = HighCol+sx;
+TileNormMaker(TileNorm,pix_just_write)
+TileFlipMaker(TileFlip,pix_just_write)
 
-	pack=BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid+addr)); // Get 8 pixels
-	if (pack) {
-		t=(pack&0x0000f000)>>12; sh_pix(0);
-		t=(pack&0x00000f00)>> 8; sh_pix(1);
-		t=(pack&0x000000f0)>> 4; sh_pix(2);
-		t=(pack&0x0000000f)    ; sh_pix(3);
-		t=(pack&0xf0000000)>>28; sh_pix(4);
-		t=(pack&0x0f000000)>>24; sh_pix(5);
-		t=(pack&0x00f00000)>>20; sh_pix(6);
-		t=(pack&0x000f0000)>>16; sh_pix(7);
-		return 0;
-	}
-	return 1; // Tile blank
-}
+// draw a sprite pixel, process operator colors
+#define pix_sh(x) \
+  if (!t); \
+  else if (t>=0xe) pd[x]=(pd[x]&0x3f)|(t<<6); /* c0 shadow, 80 hilight */ \
+  else pd[x]=pal|t
 
-static INT32 TileFlipSH(INT32 sx,INT32 addr,INT32 pal)
-{
-	UINT32 pack=0; UINT32 t=0;
-	UINT8 *pd = HighCol+sx;
+TileNormMaker(TileNormSH, pix_sh)
+TileFlipMaker(TileFlipSH, pix_sh)
 
-	pack=BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid+addr)); // Get 8 pixels
-	if (pack) {
-		t=(pack&0x000f0000)>>16; sh_pix(0);
-		t=(pack&0x00f00000)>>20; sh_pix(1);
-		t=(pack&0x0f000000)>>24; sh_pix(2);
-		t=(pack&0xf0000000)>>28; sh_pix(3);
-		t=(pack&0x0000000f)    ; sh_pix(4);
-		t=(pack&0x000000f0)>> 4; sh_pix(5);
-		t=(pack&0x00000f00)>> 8; sh_pix(6);
-		t=(pack&0x0000f000)>>12; sh_pix(7);
-		return 0;
-	}
-	return 1; // Tile blank
-}
+// draw a sprite pixel, mark operator colors
+#define pix_sh_markop(x) \
+  if (!t); \
+  else if (t>=0xe) pd[x]|=0x80; \
+  else pd[x]=pal|t
 
-static INT32 TileNormZ(INT32 sx,INT32 addr,INT32 pal,INT32 zval)
-{
-	UINT32 pack=0;
-	UINT32 t=0;
-	UINT8 *pd = HighCol+sx;
-	INT8 *zb = HighSprZ+sx;
-	INT32 collision = 0, zb_s;
+TileNormMaker(TileNormSH_markop, pix_sh_markop)
+TileFlipMaker(TileFlipSH_markop, pix_sh_markop)
 
-	pack=BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid+addr)); // Get 8 pixels
-	if (pack) {
-		t=pack&0x0000f000; if(t) { zb_s=zb[0]; if(zb_s) collision=1; if(zval>zb_s) { pd[0]=(UINT8)(pal|(t>>12)); zb[0]=(INT8)zval; } }
-		t=pack&0x00000f00; if(t) { zb_s=zb[1]; if(zb_s) collision=1; if(zval>zb_s) { pd[1]=(UINT8)(pal|(t>> 8)); zb[1]=(INT8)zval; } }
-		t=pack&0x000000f0; if(t) { zb_s=zb[2]; if(zb_s) collision=1; if(zval>zb_s) { pd[2]=(UINT8)(pal|(t>> 4)); zb[2]=(INT8)zval; } }
-		t=pack&0x0000000f; if(t) { zb_s=zb[3]; if(zb_s) collision=1; if(zval>zb_s) { pd[3]=(UINT8)(pal|(t    )); zb[3]=(INT8)zval; } }
-		t=pack&0xf0000000; if(t) { zb_s=zb[4]; if(zb_s) collision=1; if(zval>zb_s) { pd[4]=(UINT8)(pal|(t>>28)); zb[4]=(INT8)zval; } }
-		t=pack&0x0f000000; if(t) { zb_s=zb[5]; if(zb_s) collision=1; if(zval>zb_s) { pd[5]=(UINT8)(pal|(t>>24)); zb[5]=(INT8)zval; } }
-		t=pack&0x00f00000; if(t) { zb_s=zb[6]; if(zb_s) collision=1; if(zval>zb_s) { pd[6]=(UINT8)(pal|(t>>20)); zb[6]=(INT8)zval; } }
-		t=pack&0x000f0000; if(t) { zb_s=zb[7]; if(zb_s) collision=1; if(zval>zb_s) { pd[7]=(UINT8)(pal|(t>>16)); zb[7]=(INT8)zval; } }
-		if(collision) RamVReg->status |= 0x20;
-		return 0;
-	}
-	return 1; // Tile blank
-}
+// process operator pixels only, apply only on low pri tiles and other op pixels
+#define pix_sh_onlyop(x) \
+  if (t>=0xe && (pd[x]&0xc0)) \
+    pd[x]=(pd[x]&0x3f)|(t<<6); /* c0 shadow, 80 hilight */ \
 
-static INT32 TileFlipZ(INT32 sx,INT32 addr,INT32 pal,INT32 zval)
-{
-	UINT32 pack=0;
-	UINT32 t=0;
-	UINT8 *pd = HighCol+sx;
-	INT8 *zb = HighSprZ+sx;
-	INT32 collision = 0, zb_s;
+TileNormMaker(TileNormSH_onlyop_lp, pix_sh_onlyop)
+TileFlipMaker(TileFlipSH_onlyop_lp, pix_sh_onlyop)
 
-	pack=BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid+addr)); // Get 8 pixels
-	if (pack) {
-		t=pack&0x000f0000; if(t) { zb_s=zb[0]&0x1f; if(zb_s) collision=1; if(zval>zb_s) { pd[0]=(UINT8)(pal|(t>>16)); zb[0]=(INT8)zval; } }
-		t=pack&0x00f00000; if(t) { zb_s=zb[1]&0x1f; if(zb_s) collision=1; if(zval>zb_s) { pd[1]=(UINT8)(pal|(t>>20)); zb[1]=(INT8)zval; } }
-		t=pack&0x0f000000; if(t) { zb_s=zb[2]&0x1f; if(zb_s) collision=1; if(zval>zb_s) { pd[2]=(UINT8)(pal|(t>>24)); zb[2]=(INT8)zval; } }
-		t=pack&0xf0000000; if(t) { zb_s=zb[3]&0x1f; if(zb_s) collision=1; if(zval>zb_s) { pd[3]=(UINT8)(pal|(t>>28)); zb[3]=(INT8)zval; } }
-		t=pack&0x0000000f; if(t) { zb_s=zb[4]&0x1f; if(zb_s) collision=1; if(zval>zb_s) { pd[4]=(UINT8)(pal|(t    )); zb[4]=(INT8)zval; } }
-		t=pack&0x000000f0; if(t) { zb_s=zb[5]&0x1f; if(zb_s) collision=1; if(zval>zb_s) { pd[5]=(UINT8)(pal|(t>> 4)); zb[5]=(INT8)zval; } }
-		t=pack&0x00000f00; if(t) { zb_s=zb[6]&0x1f; if(zb_s) collision=1; if(zval>zb_s) { pd[6]=(UINT8)(pal|(t>> 8)); zb[6]=(INT8)zval; } }
-		t=pack&0x0000f000; if(t) { zb_s=zb[7]&0x1f; if(zb_s) collision=1; if(zval>zb_s) { pd[7]=(UINT8)(pal|(t>>12)); zb[7]=(INT8)zval; } }
-		if(collision) RamVReg->status |= 0x20;
-		return 0;
- 	}
-	return 1; // Tile blank
-}
+// draw a sprite pixel (AS)
+#define pix_as(x) \
+  if (t & mb[x]) mb[x] = 0, pd[x] = pal | t
 
+TileNormMakerAS(TileNormAS, pix_as)
+TileFlipMakerAS(TileFlipAS, pix_as)
 
-#define sh_pixZ(x) \
-  if(t) { \
-    if(zb[x]) collision=1; \
-    if(zval>zb[x]) { \
-      if     (t==0xe) { pd[x]=(UINT8)((pd[x]&0x3f)|0x80); /* hilight */ } \
-      else if(t==0xf) { pd[x]=(UINT8)((pd[x]&0x3f)|0xc0); /* shadow  */ } \
-      else            { zb[x]=(INT8)zval; pd[x]=(UINT8)(pal|t); } \
-    } \
+// draw a sprite pixel, process operator colors (AS)
+#define pix_sh_as(x) \
+  if (t & mb[x]) { \
+    mb[x] = 0; \
+    if (t>=0xe) pd[x]=(pd[x]&0x3f)|(t<<6); /* c0 shadow, 80 hilight */ \
+    else pd[x] = pal | t; \
   }
 
-static INT32 TileNormZSH(INT32 sx,INT32 addr,INT32 pal,INT32 zval)
-{
-	UINT32 pack=0;
-	UINT32 t=0;
-	UINT8 *pd = HighCol+sx;
-	INT8 *zb = HighSprZ+sx;
-	INT32 collision = 0;
+TileNormMakerAS(TileNormSH_AS, pix_sh_as)
+TileFlipMakerAS(TileFlipSH_AS, pix_sh_as)
 
-	pack=BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid+addr)); // Get 8 pixels
-	if (pack) {
-		t=(pack&0x0000f000)>>12; sh_pixZ(0);
-		t=(pack&0x00000f00)>> 8; sh_pixZ(1);
-		t=(pack&0x000000f0)>> 4; sh_pixZ(2);
-		t=(pack&0x0000000f)    ; sh_pixZ(3);
-		t=(pack&0xf0000000)>>28; sh_pixZ(4);
-		t=(pack&0x0f000000)>>24; sh_pixZ(5);
-		t=(pack&0x00f00000)>>20; sh_pixZ(6);
-		t=(pack&0x000f0000)>>16; sh_pixZ(7);
-		if(collision) RamVReg->status |= 0x20;
-		return 0;
-	}
-	return 1; // Tile blank
+#define pix_sh_as_onlyop(x) \
+  if (t & mb[x]) { \
+    mb[x] = 0; \
+    pix_sh_onlyop(x); \
+  }
+
+TileNormMakerAS(TileNormSH_AS_onlyop_lp, pix_sh_as_onlyop)
+TileFlipMakerAS(TileFlipSH_AS_onlyop_lp, pix_sh_as_onlyop)
+
+// mark pixel as sprite pixel (AS)
+#define pix_sh_as_onlymark(x) \
+  if (t) mb[x] = 0
+
+TileNormMakerAS(TileNormAS_onlymark, pix_sh_as_onlymark)
+TileFlipMakerAS(TileFlipAS_onlymark, pix_sh_as_onlymark)
+
+// forced both layer draw (through debug reg)
+#define pix_and(x) \
+  pd[x] = (pd[x] & 0xc0) | (pd[x] & (pal | t))
+
+TileNormMaker(TileNorm_and, pix_and)
+TileFlipMaker(TileFlip_and, pix_and)
+
+// --------------------------------------------
+
+static void DrawStrip(struct MegadriveTileStrip *ts, INT32 lflags, INT32 cellskip)
+{
+  UINT8 *pd = HighCol;
+  INT32 tilex,dx,ty,code=0,addr=0,cells;
+  INT32 oldcode=-1,blank=-1; // The tile we know is blank
+  INT32 pal=0,sh;
+
+//  if (~nBurnLayer & 1) return;
+
+  // Draw tiles across screen:
+  sh = (lflags & LF_SH) << 5; // 0x40
+  tilex=((-ts->hscroll)>>3)+cellskip;
+  ty=(ts->line&7)<<1; // Y-Offset into tile
+  dx=((ts->hscroll-1)&7)+1;
+  cells = ts->cells - cellskip;
+  if(dx != 8) cells++; // have hscroll, need to draw 1 cell more
+  dx+=cellskip<<3;
+
+  for (; cells > 0; dx+=8, tilex++, cells--)
+  {
+    UINT32 pack;
+
+    code = BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab + (tilex & ts->xmask)]);
+    if (code == blank)
+      continue;
+	if ((code >> 15) | (lflags & LF_FORCE)) { // high priority tile
+      INT32 cval = code | (dx<<16) | (ty<<25);
+      if(code&0x1000) cval^=7<<26;
+      *ts->hc++ = cval; // cache it
+      continue;
+    }
+
+    if (code!=oldcode) {
+      oldcode = code;
+      // Get tile address/2:
+      addr=(code&0x7ff)<<4;
+      addr+=ty;
+      if (code&0x1000) addr^=0xe; // Y-flip
+
+      pal=((code>>9)&0x30)|sh;
+    }
+
+    pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr));
+    if (!pack) {
+      blank = code;
+      continue;
+    }
+
+//	if (~nBurnLayer & 4) return;
+
+    if (code & 0x0800) TileFlip(pd + dx, pack, pal);
+    else               TileNorm(pd + dx, pack, pal);
+  }
+
+  // terminate the cache list
+  *ts->hc = 0;
+  // if oldcode wasn't changed, it means all layer is hi priority
+  if (oldcode == -1) RamVReg->rendstatus |= PDRAW_PLANE_HI_PRIO;
 }
 
-static INT32 TileFlipZSH(INT32 sx,INT32 addr,INT32 pal,INT32 zval)
+static void DrawStripVSRam(struct MegadriveTileStrip *ts, INT32 plane_sh, INT32 cellskip)
 {
-	UINT32 pack=0;
-	UINT32 t=0;
-	UINT8 *pd = HighCol+sx;
-	INT8 *zb = HighSprZ+sx;
-	INT32 collision = 0;
+  UINT8 *pd = HighCol;
+  UINT32 *hc = ts->hc;
+  INT32 tilex, dx, ty = 0, addr = 0, cell = 0, nametabadd = 0;
+  INT32 oldcode = -1, blank = -1; // The tile we know is blank
+  UINT32 pal = 0, scan = Scanline, sh, plane;
 
-	pack=BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid+addr)); // Get 8 pixels
-	if (pack) {
-		t=(pack&0x000f0000)>>16; sh_pixZ(0);
-		t=(pack&0x00f00000)>>20; sh_pixZ(1);
-		t=(pack&0x0f000000)>>24; sh_pixZ(2);
-		t=(pack&0xf0000000)>>28; sh_pixZ(3);
-		t=(pack&0x0000000f)    ; sh_pixZ(4);
-		t=(pack&0x000000f0)>> 4; sh_pixZ(5);
-		t=(pack&0x00000f00)>> 8; sh_pixZ(6);
-		t=(pack&0x0000f000)>>12; sh_pixZ(7);
-		if(collision) RamVReg->status |= 0x20;
-		return 0;
-	}
-	return 1; // Tile blank
+  // Draw tiles across screen:
+  sh = (plane_sh & LF_SH) << 6; // shadow
+  plane = (plane_sh & LF_PLANE); // plane to draw
+  tilex=(-ts->hscroll)>>3;
+  dx=((ts->hscroll-1)&7)+1;
+  if (ts->hscroll & 0x0f) {
+    int adj = ((ts->hscroll ^ dx) >> 3) & 1;
+    cell -= adj + 1;
+    ts->cells -= adj;
+    RamSVid[0x3e] = RamSVid[0x3f] = BURN_ENDIAN_SWAP_INT16(plane_sh >> 16);
+  }
+  cell+=cellskip;
+  tilex+=cellskip;
+  dx+=cellskip<<3;
+
+//  int force = (plane_sh&LF_FORCE) << 13;
+  if ((cell&1)==1)
+  {
+    INT32 line,vscroll;
+    vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane + (cell&0x3e)]);
+
+    // Find the line in the name table
+    line=(vscroll+scan)&ts->line&0xffff; // ts->line is really ymask ..
+    nametabadd=(line>>3)<<(ts->line>>24);    // .. and shift[width]
+    ty=(line&7)<<1; // Y-Offset into tile
+  }
+  for (; cell < ts->cells; dx+=8,tilex++,cell++)
+  {
+    UINT32 code, pack;
+
+    if ((cell&1)==0)
+    {
+      INT32 line,vscroll;
+      vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane + (cell&0x3e)]);
+
+      // Find the line in the name table
+      line=(vscroll+scan)&ts->line&0xffff; // ts->line is really ymask ..
+      nametabadd=(line>>3)<<(ts->line>>24);    // .. and shift[width]
+      ty=(line&7)<<1; // Y-Offset into tile
+    }
+
+    code= BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab + nametabadd + (tilex & ts->xmask)]);
+//    code &= ~force; // forced always draw everything
+    code |= ty<<16; // add ty since that can change pixel row for every 2nd tile
+
+    if (code == blank && !((code & 0x8000) && sh))
+      continue;
+
+    if (code!=oldcode) {
+      oldcode = code;
+      // Get tile address/2:
+      addr = (code&0x7ff)<<4;
+
+      pal = ((code>>9)&0x30) | sh; // shadow
+    }
+
+    pack = (code & 0x1000 ? ty^0xe : ty); // Y-flip
+    pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr+pack));
+    if (!pack)
+      blank = code;
+
+    if (code & 0x8000) { // (un-forced) high priority tile
+      int cval = (UINT16)code | (dx<<16) | (ty<<25);
+      if (code & 0x1000) cval ^= 0x7<<26;
+      *hc++ = cval;//, *hc++ = pack; // cache it
+    } else if (code != blank) {
+      if (code & 0x0800) TileFlip(pd + dx, pack, pal);
+      else               TileNorm(pd + dx, pack, pal);
+    }
+  }
+
+  // terminate the cache list
+  *hc = 0;
+
+  if (oldcode == -1) RamVReg->rendstatus |= PDRAW_PLANE_HI_PRIO;
+}
+static void DrawStripInterlace(struct MegadriveTileStrip *ts, INT32 plane_sh)
+{
+  UINT8 *pd = HighCol;
+  INT32 tilex=0,dx=0,ty=0,code=0,addr=0,cells;
+  INT32 oldcode=-1,blank=-1; // The tile we know is blank
+  INT32 pal=0, sh;
+
+//  if (~nBurnLayer & 1) return;
+
+  // Draw tiles across screen:
+  sh = (plane_sh & LF_SH) << 6; // shadow
+  tilex=(-ts->hscroll)>>3;
+  ty=(ts->line&15)<<1; // Y-Offset into tile
+  dx=((ts->hscroll-1)&7)+1;
+  cells = ts->cells;
+  if(dx != 8) cells++; // have hscroll, need to draw 1 cell more
+
+  for (; cells; dx+=8,tilex++,cells--)
+  {
+    UINT32 pack;
+
+    code = BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab + (tilex & ts->xmask)]);
+    if (code==blank) continue;
+    if (code>>15) { // high priority tile
+      INT32 cval = (code&0xfc00) | (dx<<16) | (ty<<25);
+      cval|=(code&0x3ff)<<1;
+      if(code&0x1000) cval^=0xf<<26;
+      *ts->hc++ = cval; // cache it
+      continue;
+    }
+
+    if (code!=oldcode) {
+      oldcode = code;
+      // Get tile address/2:
+      addr=(code&0x7ff)<<5;
+      if (code&0x1000) addr+=30-ty; else addr+=ty; // Y-flip
+
+//      pal=Pico.cram+((code>>9)&0x30);
+      pal=((code>>9)&0x30) | sh;
+    }
+
+    pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr));
+    if (!pack) {
+      blank = code;
+      continue;
+    }
+
+    if (code & 0x0800) TileFlip(pd + dx, pack, pal);
+    else               TileNorm(pd + dx, pack, pal);
+  }
+
+  // terminate the cache list
+  *ts->hc = 0;
+}
+// --------------------------------------------
+
+
+static void DrawLayer(INT32 plane_sh, UINT32 *hcache, INT32 cellskip, INT32 maxcells)
+{
+  const char shift[4]={5,6,5,7}; // 32,64 or 128 sized tilemaps (2 is invalid)
+  struct MegadriveTileStrip ts;
+  INT32 width, height, ymask;
+  INT32 vscroll, htab;
+
+  ts.hc=hcache;
+  ts.cells=maxcells;
+
+  // Work out the MegadriveTileStrip to draw
+
+  // Work out the name table size: 32 64 or 128 tiles (0-3)
+  width=RamVReg->reg[16];
+  height=(width>>4)&3; width&=3;
+
+  ts.xmask=(1<<shift[width])-1; // X Mask in tiles (0x1f-0x7f)
+  ymask=(height<<8)|0xff;       // Y Mask in pixels
+  switch (width) {
+    case 1: ymask &= 0x1ff; break;
+    case 2: ymask =  0x007; break;
+    case 3: ymask =  0x0ff; break;
+  }
+
+  // Find name table:
+  if (plane_sh&LF_PLANE) ts.nametab=(RamVReg->reg[4]&0x07)<<12; // B
+  else                   ts.nametab=(RamVReg->reg[2]&0x38)<< 9; // A
+
+  htab=RamVReg->reg[13]<<9; // Horizontal scroll table address
+  switch (RamVReg->reg[11]&3) {
+    case 1: htab += (Scanline<<1) &  0x0f; break;
+    case 2: htab += (Scanline<<1) & ~0x0f; break; // Offset by tile
+    case 3: htab += (Scanline<<1);         break; // Offset by line
+  }
+  htab+=plane_sh&LF_PLANE; // A or B
+
+  // Get horizontal scroll value, will be masked later
+  ts.hscroll = BURN_ENDIAN_SWAP_INT16(RamVid[htab & 0x7fff]);
+
+  if((RamVReg->reg[12]&6) == 6) {
+    // interlace mode 2
+    vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane_sh & 1]); // Get vertical scroll value
+
+    // Find the line in the name table
+    ts.line=(vscroll+(Scanline<<1)+RamVReg->field)&((ymask<<1)|1);
+    ts.nametab+=(ts.line>>4)<<shift[width];
+
+    if (nBurnLayer & 1) DrawStripInterlace(&ts, plane_sh);
+  } else if( RamVReg->reg[11]&4) {
+    // shit, we have 2-cell column based vscroll
+    // luckily this doesn't happen too often
+    ts.line=ymask|(shift[width]<<24); // save some stuff instead of line
+    if (nBurnLayer & 2) DrawStripVSRam(&ts, plane_sh, cellskip);
+  } else {
+    vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane_sh & 1]); // Get vertical scroll value
+
+    // Find the line in the name table
+    ts.line=(vscroll+Scanline)&ymask;
+    ts.nametab+=(ts.line>>3)<<shift[width];
+
+    if (nBurnLayer & 4) DrawStrip(&ts, plane_sh, cellskip);
+  }
 }
 
-static void DrawStrip(struct TileStrip *ts, INT32 sh, INT32 cellskip)
-{
-	INT32 tilex=0,dx=0,ty=0,code=0,addr=0,cells;
-	INT32 oldcode=-1,blank=-1; // The tile we know is blank
-	INT32 pal=0;
+// --------------------------------------------
 
-	// Draw tiles across screen:
-	tilex = ((-ts->hscroll)>>3) + cellskip;
-	ty = (ts->line&7)<<1; // Y-Offset into tile
-	dx = ((ts->hscroll-1)&7)+1;
-	cells = ts->cells - cellskip;
-	if(dx != 8) cells++; // have hscroll, need to draw 1 cell more
-	dx += cellskip<<3;
-
-	for (; cells; dx+=8,tilex++,cells--) {
-		INT32 zero=0;
-
-		code=BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab + (tilex&ts->xmask)]);
-		if (code==blank) continue;
-		if (code>>15) { // high priority tile
-			INT32 cval = code | (dx<<16) | (ty<<25);
-			if(code&0x1000) cval^=7<<26;
-			*ts->hc++ = cval; // cache it
-			continue;
-		}
-
-		if (code!=oldcode) {
-			oldcode = code;
-			// Get tile address/2:
-			addr=(code&0x7ff)<<4;
-			addr+=ty;
-			if (code&0x1000) addr^=0xe; // Y-flip
-			pal=((code>>9)&0x30)|(sh<<6);
-		}
-
-		if (code&0x0800) zero=TileFlip(dx,addr,pal);
-		else             zero=TileNorm(dx,addr,pal);
-
-		if (zero) blank=code; // We know this tile is blank now
-	}
-
-	// terminate the cache list
-	*ts->hc = 0;
-}
-
-static void DrawStripVSRam(struct TileStrip *ts, INT32 plane, INT32 sh, INT32 cellskip)
-{
-	INT32 tilex=0,dx=0,ty=0,code=0,addr=0,cell=0,nametabadd=0;
-	INT32 oldcode=-1,blank=-1; // The tile we know is blank
-	INT32 pal=0,scan=Scanline;
-
-	// Draw tiles across screen:
-	tilex=(-ts->hscroll)>>3;
-	dx=((ts->hscroll-1)&7)+1;
-	if(dx != 8) {
-		INT32 vscroll, line;
-		cell--; // have hscroll, start with negative cell
-		// also calculate intial VS stuff
-		vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane]);
-
-		// Find the line in the name table
-		line = (vscroll+scan)&ts->line&0xffff;		// ts->line is really ymask ..
-		nametabadd = (line>>3)<<(ts->line>>24);		// .. and shift[width]
-		ty = (line&7)<<1;							// Y-Offset into tile
-	}
-
-	cell += cellskip;
-	tilex += cellskip;
-	dx += cellskip<<3;
-
-	for (; cell < ts->cells; dx+=8,tilex++,cell++) {
-		INT32 zero=0;
-
-		if((cell&1)==0) {
-			INT32 line,vscroll;
-			vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane+(cell&~1)]);
-
-			// Find the line in the name table
-			line = (vscroll+scan)&ts->line&0xffff;	// ts->line is really ymask ..
-			nametabadd = (line>>3)<<(ts->line>>24);	// .. and shift[width]
-			ty = (line&7)<<1; 						// Y-Offset into tile
-		}
-
-		code = BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab + nametabadd + (tilex&ts->xmask)]);
-		if (code==blank) continue;
-		if (code>>15) { // high priority tile
-			INT32 cval = code | (dx<<16) | (ty<<25);
-			if(code&0x1000) cval^=7<<26;
-			*ts->hc++ = cval; // cache it
-			continue;
-		}
-
-		if (code!=oldcode) {
-			oldcode = code;
-			// Get tile address/2:
-			addr=(code&0x7ff)<<4;
-			if (code&0x1000) addr+=14-ty; else addr+=ty; // Y-flip
-			pal=((code>>9)&0x30)|(sh<<6);
-		}
-
-		if (code&0x0800) zero=TileFlip(dx,addr,pal);
-		else             zero=TileNorm(dx,addr,pal);
-
-		if (zero) blank=code; // We know this tile is blank now
-	}
-
-	// terminate the cache list
-	*ts->hc = 0;
-}
-
-static void DrawStripInterlace(struct TileStrip *ts)
-{
-	INT32 tilex=0,dx=0,ty=0,code=0,addr=0,cells;
-	INT32 oldcode=-1,blank=-1; // The tile we know is blank
-	INT32 pal=0;
-
-	// Draw tiles across screen:
-	tilex=(-ts->hscroll)>>3;
-	ty=(ts->line&15)<<1; // Y-Offset into tile
-	dx=((ts->hscroll-1)&7)+1;
-	cells = ts->cells;
-	if(dx != 8) cells++; // have hscroll, need to draw 1 cell more
-
-	for (; cells; dx+=8,tilex++,cells--) {
-		INT32 zero=0;
-
-		code=BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab+(tilex&ts->xmask)]);
-		if (code==blank) continue;
-		if (code>>15) { // high priority tile
-			INT32 cval = (code&0xfc00) | (dx<<16) | (ty<<25);
-			cval |= (code&0x3ff)<<1;
-			if(code&0x1000) cval^=0xf<<26;
-			*ts->hc++ = cval; // cache it
-			continue;
-		}
-
-		if (code!=oldcode) {
-			oldcode = code;
-			// Get tile address/2:
-			addr=(code&0x7ff)<<5;
-			if (code&0x1000) addr+=30-ty; else addr+=ty; // Y-flip
-			pal=((code>>9)&0x30);
-		}
-
-		if (code&0x0800) zero=TileFlip(dx,addr,pal);
-		else             zero=TileNorm(dx,addr,pal);
-
-		if (zero) blank=code; // We know this tile is blank now
-	}
-
-	// terminate the cache list
-	*ts->hc = 0;
-}
-
-static void DrawLayer(INT32 plane, INT32 *hcache, INT32 cellskip, INT32 maxcells, INT32 sh)
-{
-	const INT8 shift[4]={5,6,5,7}; // 32,64 or 128 sized tilemaps (2 is invalid)
-	struct TileStrip ts;
-	INT32 width, height, ymask;
-	INT32 vscroll, htab;
-
-	ts.hc = hcache;
-	ts.cells = maxcells;
-
-	// Work out the TileStrip to draw
-
-	// Work out the name table size: 32 64 or 128 tiles (0-3)
-	width  = RamVReg->reg[16];
-	height = (width>>4)&3;
-	width &= 3;
-
-	ts.xmask=(1<<shift[width])-1; // X Mask in tiles (0x1f-0x7f)
-	ymask=(height<<8)|0xff;       // Y Mask in pixels
-	//if(width == 1)   ymask&=0x1ff;
-	//else if(width>1) ymask =0x0ff;
-	switch (width) {
-		case 1: ymask &= 0x1ff; break;
-		case 2: ymask =  0x007; break;
-		case 3: ymask =  0x0ff; break;
-	}
-
-	// Find name table:
-	if (plane==0) ts.nametab=(RamVReg->reg[2] & 0x38)<< 9; // A
-	else          ts.nametab=(RamVReg->reg[4] & 0x07)<<12; // B
-
-	htab = RamVReg->reg[13] << 9; // Horizontal scroll table address
-	htab += (Scanline & RamVReg->h_mask) << 1;
-	htab += plane; // A or B
-
-	// Get horizontal scroll value, will be masked later
-	ts.hscroll = BURN_ENDIAN_SWAP_INT16(RamVid[htab & 0x7fff]) & 0x3ff;
-
-	if((RamVReg->reg[12]&6) == 6) {
-		// interlace mode 2
-		vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane]); // Get vertical scroll value
-
-		// Find the line in the name table
-		ts.line=(vscroll+(Scanline<<1)+RamVReg->field)&((ymask<<1)|1);
-		ts.nametab+=(ts.line>>4)<<shift[width];
-
-		if (nBurnLayer & 1) DrawStripInterlace(&ts);
-	} else if( RamVReg->reg[11]&4) {
-		// we have 2-cell column based vscroll
-		// luckily this doesn't happen too often
-		ts.line = ymask | (shift[width]<<24); // save some stuff instead of line
-		if (nBurnLayer & 2) DrawStripVSRam(&ts, plane, sh, cellskip);
-	} else {
-		vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane]); // Get vertical scroll value
-
-		// Find the line in the name table
-		ts.line = (vscroll+Scanline)&ymask;
-		ts.nametab += (ts.line>>3)<<shift[width];
-
-		if (nBurnLayer & 4) DrawStrip(&ts, sh, cellskip);
-	}
-}
-
+// tstart & tend are tile pair numbers
 static void DrawWindow(INT32 tstart, INT32 tend, INT32 prio, INT32 sh)
 {
-	INT32 tilex=0, ty=0, nametab, code=0;
-	INT32 blank = -1; // The tile we know is blank
+  UINT8 *pd = HighCol;
+  INT32 tilex,ty,nametab,code=0;
+  INT32 blank=-1; // The tile we know is blank
 
-	if (!(nSpriteEnable&16) && prio == 0) return;
-	if (!(nSpriteEnable&32) && prio == 1) return;
+  if (~nSpriteEnable & 0x10 && prio == 0) return;
+  if (~nSpriteEnable & 0x20 && prio == 1) return;
 
-	// Find name table line:
-	if (RamVReg->reg[12] & 1) {
-		nametab  = (RamVReg->reg[3] & 0x3c)<<9;
-		nametab += (Scanline>>3)<<6;	// 40-cell mode
-	} else {
-		nametab  = (RamVReg->reg[3] & 0x3e)<<9;
-		nametab += (Scanline>>3)<<5;	// 32-cell mode
-	}
+  // Find name table line:
+  if (RamVReg->reg[12]&1)
+  {
+    nametab=(RamVReg->reg[3]&0x3c)<<9; // 40-cell mode
+    nametab+=(Scanline>>3)<<6;
+  }
+  else
+  {
+    nametab=(RamVReg->reg[3]&0x3e)<<9; // 32-cell mode
+    nametab+=(Scanline>>3)<<5;
+  }
 
-	tilex = tstart<<1;
-	tend <<= 1;
+  tilex=tstart<<1;
 
-	ty = (Scanline & 7)<<1; // Y-Offset into tile
+  if (prio && !(RamVReg->rendstatus & PDRAW_WND_DIFF_PRIO)) {
+	  return; // derptest
+    // check the first tile code
+    code = BURN_ENDIAN_SWAP_INT16(RamVid[nametab + tilex]);
+    // if the whole window uses same priority (what is often the case), we may be able to skip this field
+    if ((code>>15) != prio) return;
+  }
 
-	if(!(rendstatus & 2)) {
-		// check the first tile code
-		code = BURN_ENDIAN_SWAP_INT16(RamVid[nametab + tilex]);
-		// if the whole window uses same priority (what is often the case), we may be able to skip this field
-		if((code>>15) != prio) return;
-	}
+  tend<<=1;
+  ty=(Scanline&7)<<1; // Y-Offset into tile
 
-	// Draw tiles across screen:
-	for (; tilex <= tend; tilex++) {
-		INT32 addr=0, zero=0, pal;
+  // Draw tiles across screen:
+  if (!sh)
+  {
+    for (; tilex < tend; tilex++)
+    {
+      UINT32 pack;
+      INT32 dx, addr;
+      INT32 pal;
 
-		code = BURN_ENDIAN_SWAP_INT16(RamVid[nametab + tilex]);
-		//if(code==blank) continue; // this breaks issdx/dinho98 / causes in-game dark tile "overlay" bug
-		if((code>>15) != prio) {
-			rendstatus |= 2;
-			continue;
-		}
+      code = BURN_ENDIAN_SWAP_INT16(RamVid[nametab + tilex]);
+//      if (code==blank) continue;
+      if ((code>>15) != prio) {
+        RamVReg->rendstatus |= PDRAW_WND_DIFF_PRIO;
+        continue;
+      }
 
-		pal=((code>>9)&0x30);
+      // Get tile address/2:
+      addr=(code&0x7ff)<<4;
+      if (code&0x1000) addr+=14-ty; else addr+=ty; // Y-flip
 
-		if(sh) {
-			INT32 tmp, *zb = (INT32 *)(HighCol+8+(tilex<<3));
-			if(prio) {
-				tmp = *zb;
-				if(!(tmp&0x00000080)) tmp&=~0x000000c0;
-				if(!(tmp&0x00008000)) tmp&=~0x0000c000;
-				if(!(tmp&0x00800000)) tmp&=~0x00c00000;
-				if(!(tmp&0x80000000)) tmp&=~0xc0000000;
-				*zb++=tmp; tmp = *zb;
-				if(!(tmp&0x00000080)) tmp&=~0x000000c0;
-				if(!(tmp&0x00008000)) tmp&=~0x0000c000;
-				if(!(tmp&0x00800000)) tmp&=~0x00c00000;
-				if(!(tmp&0x80000000)) tmp&=~0xc0000000;
-				*zb++=tmp;
-			} else {
-				pal |= 0x40;
-			}
-		}
+      pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr));
+      if (!pack) {
+        blank = code;
+        continue;
+      }
 
-		// Get tile address/2:
-		addr = (code&0x7ff)<<4;
-		if (code&0x1000) addr += 14-ty; else addr += ty; // Y-flip
+      pal = ((code >> 9) & 0x30);
+      dx = 8 + (tilex << 3);
 
-		if (code&0x0800) zero = TileFlip(8+(tilex<<3),addr,pal);
-		else             zero = TileNorm(8+(tilex<<3),addr,pal);
+      if (code & 0x0800) TileFlip(pd + dx, pack, pal);
+      else               TileNorm(pd + dx, pack, pal);
+    }
+  }
+  else
+  {
+    for (; tilex < tend; tilex++)
+    {
+      UINT32 pack;
+      INT32 dx, addr;
+      INT32 pal;
 
-		if (zero) blank = code; // We know this tile is blank now
-	}
-	// terminate the cache list
-	//*hcache = 0;
+      code = BURN_ENDIAN_SWAP_INT16(RamVid[nametab + tilex]);
+//      if(code==blank) continue;
+      if((code>>15) != prio) {
+        RamVReg->rendstatus |= PDRAW_WND_DIFF_PRIO;
+        continue;
+      }
+
+      pal=((code>>9)&0x30);
+
+      if (prio) {
+        INT32 *zb = (INT32 *)(HighCol+8+(tilex<<3));
+        *zb++ &= 0xbfbfbfbf;
+        *zb   &= 0xbfbfbfbf;
+      } else {
+        pal |= 0x40;
+      }
+
+      // Get tile address/2:
+      addr=(code&0x7ff)<<4;
+      if (code&0x1000) addr+=14-ty; else addr+=ty; // Y-flip
+
+      pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr));
+      if (!pack) {
+        blank = code;
+        continue;
+      }
+
+      dx = 8 + (tilex << 3);
+
+      if (code & 0x0800) TileFlip(pd + dx, pack, pal);
+      else               TileNorm(pd + dx, pack, pal);
+    }
+  }
 }
 
-static void DrawTilesFromCache(INT32 *hc, INT32 sh, INT32 rlim)
+// --------------------------------------------
+
+static void DrawTilesFromCacheShPrep(void)
 {
-	INT32 code, addr, zero, dx;
-	INT32 pal;
-	INT16 blank=-1; // The tile we know is blank
+  // as some layer has covered whole line with hi priority tiles,
+  // we can process whole line and then act as if sh/hi mode was off,
+  // but leave lo pri op sprite markers alone
+  int c = 320/4, *zb = (INT32 *)(HighCol+8);
+  RamVReg->rendstatus |= PDRAW_SHHI_DONE;
+  while (c--)
+  {
+    *zb++ &= 0xbfbfbfbf;
+  }
+}
 
-	// *ts->hc++ = code | (dx<<16) | (ty<<25); // cache it
+static void DrawTilesFromCache(UINT32 *hc, INT32 sh, INT32 rlim)
+{
+  UINT8 *pd = HighCol;
+  INT32 code, addr, dx;
+  UINT32 pack;
+  INT32 pal;
 
-	while((code = *hc++)) {
-		if(!sh && (INT16)code == blank) continue;
+  // *ts->hc++ = code | (dx<<16) | (ty<<25); // cache it
 
-		// Get tile address/2:
-		addr=(code&0x7ff)<<4;
-		addr+=(UINT32)code>>25; // y offset into tile
-		dx=(code>>16)&0x1ff;
-		if(sh) {
-			UINT8 *zb = HighCol+dx;
-			if(!(*zb&0x80)) *zb&=0x3f;
-			zb++;
-			if(!(*zb&0x80)) *zb&=0x3f;
-			zb++;
-			if(!(*zb&0x80)) *zb&=0x3f;
-			zb++;
-			if(!(*zb&0x80)) *zb&=0x3f;
-			zb++;
-			if(!(*zb&0x80)) *zb&=0x3f;
-			zb++;
-			if(!(*zb&0x80)) *zb&=0x3f;
-			zb++;
-			if(!(*zb&0x80)) *zb&=0x3f;
-			zb++;
-			if(!(*zb&0x80)) *zb&=0x3f;
-			zb++;
-		}
+//  if (~nBurnLayer & 1) return;
 
-		pal=((code>>9)&0x30);
+  if (sh && (RamVReg->rendstatus & (PDRAW_SHHI_DONE|PDRAW_PLANE_HI_PRIO)))
+  {
+    if (!(RamVReg->rendstatus & PDRAW_SHHI_DONE))
+      DrawTilesFromCacheShPrep();
+    sh = 0;
+  }
 
-		if (rlim - dx < 0) {
-			if (code&0x0800) zero=TileFlipRlim(dx,addr,pal,rlim-dx+8);
-			else             zero=TileNormRlim(dx,addr,pal,rlim-dx+8);
-		} else {
-			if (code&0x0800) zero=TileFlip(dx,addr,pal);
-			else             zero=TileNorm(dx,addr,pal);
-		}
+  if (!sh)
+  {
+    if (~nSpriteEnable & 0x40) return;
+    INT16 blank=-1; // The tile we know is blank
+    while ((code=*hc++)) {
+      if (!(code & 0x8000)) // || (INT16)code == blank)
+        continue;
+      // Get tile address/2:
+      addr = (code & 0x7ff) << 4;
+      addr += code >> 25; // y offset into tile
 
-		if(zero) blank=(INT16)code;
-	}
+      pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr));
+      if (!pack) {
+        blank = (INT16)code;
+        continue;
+      }
+
+      dx = (code >> 16) & 0x1ff;
+      pal = ((code >> 9) & 0x30);
+      if (rlim-dx < 0)
+        goto last_cut_tile;
+
+      if (code & 0x0800) TileFlip(pd + dx, pack, pal);
+      else               TileNorm(pd + dx, pack, pal);
+    }
+  }
+  else
+  {
+	if (~nSpriteEnable & 0x80) return;
+    while ((code=*hc++)) {
+      UINT8 *zb;
+
+      // Get tile address/2:
+      addr=(code&0x7ff)<<4;
+      addr+=(UINT32)code>>25; // y offset into tile
+      dx = (code >> 16) & 0x1ff;
+      zb = HighCol+dx;
+      *zb++ &= 0xbf; *zb++ &= 0xbf; *zb++ &= 0xbf; *zb++ &= 0xbf;
+      *zb++ &= 0xbf; *zb++ &= 0xbf; *zb++ &= 0xbf; *zb++ &= 0xbf;
+
+      pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr));
+      if (!pack)
+        continue;
+
+      pal = ((code >> 9) & 0x30);
+      if (rlim - dx < 0)
+        goto last_cut_tile;
+
+      if (code & 0x0800) TileFlip(pd + dx, pack, pal);
+      else               TileNorm(pd + dx, pack, pal);
+    }
+  }
+  return;
+
+last_cut_tile:
+  // for vertical window cutoff
+  {
+    UINT32 t;
+
+    pd += dx;
+    if (code&0x0800)
+    {
+      switch (rlim-dx+8)
+      {
+        case 7: t=pack&0x00000f00; if (t) pd[6]=(UINT8)(pal|(t>> 8)); // "break" is left out intentionally
+        case 6: t=pack&0x000000f0; if (t) pd[5]=(UINT8)(pal|(t>> 4));
+        case 5: t=pack&0x0000000f; if (t) pd[4]=(UINT8)(pal|(t    ));
+        case 4: t=pack&0xf0000000; if (t) pd[3]=(UINT8)(pal|(t>>28));
+        case 3: t=pack&0x0f000000; if (t) pd[2]=(UINT8)(pal|(t>>24));
+        case 2: t=pack&0x00f00000; if (t) pd[1]=(UINT8)(pal|(t>>20));
+        case 1: t=pack&0x000f0000; if (t) pd[0]=(UINT8)(pal|(t>>16));
+        default: break;
+      }
+    }
+    else
+    {
+      switch (rlim-dx+8)
+      {
+        case 7: t=pack&0x00f00000; if (t) pd[6]=(UINT8)(pal|(t>>20));
+        case 6: t=pack&0x0f000000; if (t) pd[5]=(UINT8)(pal|(t>>24));
+        case 5: t=pack&0xf0000000; if (t) pd[4]=(UINT8)(pal|(t>>28));
+        case 4: t=pack&0x0000000f; if (t) pd[3]=(UINT8)(pal|(t    ));
+        case 3: t=pack&0x000000f0; if (t) pd[2]=(UINT8)(pal|(t>> 4));
+        case 2: t=pack&0x00000f00; if (t) pd[1]=(UINT8)(pal|(t>> 8));
+        case 1: t=pack&0x0000f000; if (t) pd[0]=(UINT8)(pal|(t>>12));
+        default: break;
+      }
+    }
+  }
 }
 
 // Index + 0  :    hhhhvvvv ab--hhvv yyyyyyyy yyyyyyyy // a: offscreen h, b: offs. v, h: horiz. size
 // Index + 4  :    xxxxxxxx xxxxxxxx pccvhnnn nnnnnnnn // x: x coord + 8
 
-static void DrawSprite(INT32 *sprite, INT32 **hc, INT32 sh)
+static void DrawSprite(INT32 *sprite, INT32 sh)
 {
-	INT32 width=0,height=0;
-	INT32 row=0,code=0;
-	INT32 pal;
-	INT32 tile=0,delta=0;
-	INT32 sx, sy;
-	INT32 (*fTileFunc)(INT32 sx,INT32 addr,INT32 pal);
+  void (*fTileFunc)(UINT8 *pd, UINT32 pack, INT32 pal);
+  UINT8 *pd = HighCol;
+  INT32 width=0,height=0;
+  INT32 row=0,code=0;
+  INT32 pal;
+  INT32 tile=0,delta=0;
+  INT32 sx, sy;
 
-	// parse the sprite data
-	sy=sprite[0];
-	code=sprite[1];
-	sx=code>>16;		// X
-	width=sy>>28;
-	height=(sy>>24)&7;	// Width and height in tiles
-	sy=(sy<<16)>>16;	// Y
+  if (~nSpriteEnable & 0x01) return;
 
-	row=Scanline-sy;	// Row of the sprite we are on
+  // parse the sprite data
+  sy=sprite[0];
+  code=sprite[1];
+  sx=code>>16; // X
+  width=sy>>28;
+  height=(sy>>24)&7; // Width and height in tiles
+  sy=(sy<<16)>>16; // Y
 
-	if (code&0x1000) row=(height<<3)-1-row; // Flip Y
+  row=Scanline-sy; // Row of the sprite we are on
 
-	tile=code&0x7ff;	// Tile number
-	tile+=row>>3;		// Tile number increases going down
-	delta=height;		// Delta to increase tile by going right
-	if (code&0x0800) { tile+=delta*(width-1); delta=-delta; } // Flip X
+  if (code&0x1000) row=(height<<3)-1-row; // Flip Y
 
-	tile<<=4; tile+=(row&7)<<1; // Tile address
+  tile=code + (row>>3); // Tile number increases going down
+  delta=height; // Delta to increase tile by going right
+  if (code&0x0800) { tile+=delta*(width-1); delta=-delta; } // Flip X
 
-	if(code&0x8000) { // high priority - cache it
-		*(*hc)++ = (tile<<16)|((code&0x0800)<<5)|((sx<<6)&0x0000ffc0)|((code>>9)&0x30)|((sprite[0]>>16)&0xf);
-	} else {
-		delta<<=4; // Delta of address
-		pal=((code>>9)&0x30)|(sh<<6);
+  tile &= 0x7ff; tile<<=4; tile+=(row&7)<<1; // Tile address
+  delta<<=4; // Delta of address
 
-		if(sh && (code&0x6000) == 0x6000) {
-			if(code&0x0800) fTileFunc=TileFlipSH;
-			else            fTileFunc=TileNormSH;
-		} else {
-			if(code&0x0800) fTileFunc=TileFlip;
-			else            fTileFunc=TileNorm;
-		}
+  pal=(code>>9)&0x30;
+  pal|=(sh<<6);
 
-		for (; width; width--,sx+=8,tile+=delta) {
-			if(sx<=0)   continue;
-			if(sx>=328) break; // Offscreen
+  if (sh && (code&0x6000) == 0x6000) {
+    if(code&0x0800) fTileFunc=TileFlipSH_markop;
+    else            fTileFunc=TileNormSH_markop;
+  } else {
+    if(code&0x0800) fTileFunc=TileFlip;
+    else            fTileFunc=TileNorm;
+  }
 
-			tile&=0x7fff; // Clip tile address
-			fTileFunc(sx,tile,pal);
-		}
-	}
+  for (; width; width--,sx+=8,tile+=delta)
+  {
+    UINT32 pack;
+
+    if(sx<=0)   continue;
+    if(sx>=328) break; // Offscreen
+
+    pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + (tile & 0x7fff)));
+    fTileFunc(pd + sx, pack, pal);
+  }
 }
 
-// Index + 0  :    hhhhvvvv s---hhvv yyyyyyyy yyyyyyyy // s: skip flag, h: horiz. size
-// Index + 4  :    xxxxxxxx xxxxxxxx pccvhnnn nnnnnnnn // x: x coord + 8
-
-static void DrawSpriteZ(INT32 pack, INT32 pack2, INT32 shpri, INT32 sprio)
+static void DrawTilesFromCacheForced(const UINT32 *hc)
 {
-	INT32 width=0,height=0;
-	INT32 row=0;
-	INT32 pal;
-	INT32 tile=0,delta=0;
-	INT32 sx, sy;
-	INT32 (*fTileFunc)(INT32 sx,INT32 addr,INT32 pal,INT32 zval);
+  UINT8 *pd = HighCol;
+  INT32 code, addr, dx;
+  UINT32 pack;
+  INT32 pal;
 
-	// parse the sprite data
-	sx    =  pack2>>16;			// X
-	sy    = (pack <<16)>>16;	// Y
-	width =  pack >>28;
-	height= (pack >>24)&7;		// Width and height in tiles
+  // *ts->hc++ = code | (dx<<16) | (ty<<25);
+  while ((code = *hc++)) {
+    // Get tile address/2:
+    addr = (code & 0x7ff) << 4;
+    addr += (code >> 25) & 0x0e; // y offset into tile
 
-	row = Scanline-sy; 			// Row of the sprite we are on
+    dx = (code >> 16) & 0x1ff;
+    pal = ((code >> 9) & 0x30);
+    pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + addr));
 
-	if (pack2&0x1000) row=(height<<3)-1-row; // Flip Y
-
-	tile = pack2&0x7ff; 		// Tile number
-	tile+= row>>3;				// Tile number increases going down
-	delta=height;				// Delta to increase tile by going right
-	if (pack2&0x0800) { 		// Flip X
-		tile += delta*(width-1);
-		delta = -delta;
-	}
-
-	tile<<=4;
-	tile+=(row&7)<<1; // Tile address
-	delta<<=4; // Delta of address
-	pal=((pack2>>9)&0x30);
-	if((shpri&1)&&!(shpri&2)) pal|=0x40;
-
-	shpri&=1;
-	if((pack2&0x6000) != 0x6000) shpri = 0;
-	shpri |= (pack2&0x0800)>>10;
-	switch(shpri) {
-	default:
-	case 0: fTileFunc=TileNormZ;   break;
-	case 1: fTileFunc=TileNormZSH; break;
-	case 2: fTileFunc=TileFlipZ;   break;
-	case 3: fTileFunc=TileFlipZSH; break;
-	}
-
-	for (; width; width--,sx+=8,tile+=delta) {
-		if(sx<=0)   continue;
-		if(sx>=328) break; // Offscreen
-
-		tile&=0x7fff; // Clip tile address
-		fTileFunc(sx,tile,pal,sprio);
-	}
+    if (code & 0x0800) TileFlip_and(pd + dx, pack, pal);
+    else               TileNorm_and(pd + dx, pack, pal);
+  }
 }
+
 
 
 static void DrawSpriteInterlace(UINT32 *sprite)
 {
+	UINT8 *pd = HighCol;
 	INT32 width=0,height=0;
 	INT32 row=0,code=0;
 	INT32 pal;
 	INT32 tile=0,delta=0;
 	INT32 sx, sy;
 
+	if (~nSpriteEnable & 0x02) return;
+
 	// parse the sprite data
-	sy=sprite[0];
+	sy=BURN_ENDIAN_SWAP_INT32(sprite[0]);
 	height=sy>>24;
 	sy=(sy&0x3ff)-0x100; // Y
 	width=(height>>2)&3; height&=3;
@@ -4081,7 +4725,7 @@ static void DrawSpriteInterlace(UINT32 *sprite)
 
 	row=((Scanline<<1)+RamVReg->field)-sy; // Row of the sprite we are on
 
-	code=sprite[1];
+	code=BURN_ENDIAN_SWAP_INT32(sprite[1]);
 	sx=((code>>16)&0x1ff)-0x78; // X
 
 	if (code&0x1000) row^=(8<<height)-1; // Flip Y
@@ -4096,23 +4740,26 @@ static void DrawSpriteInterlace(UINT32 *sprite)
 	delta<<=5; // Delta of address
 	pal=((code>>9)&0x30); // Get palette pointer
 
-	for (; width; width--,sx+=8,tile+=delta) {
+	for (; width; width--,sx+=8,tile+=delta)
+	{
+		UINT32 pack;
+
 		if(sx<=0)   continue;
 		if(sx>=328) break; // Offscreen
 
-		tile&=0x7fff; // Clip tile address
-		if (code&0x0800) TileFlip(sx,tile,pal);
-		else             TileNorm(sx,tile,pal);
+		pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + (tile & 0x7fff)));
+		if (code & 0x0800) TileFlip(pd + sx, pack, pal);
+		else               TileNorm(pd + sx, pack, pal);
 	}
 }
 
 
-static void DrawAllSpritesInterlace(INT32 pri, INT32 maxwidth)
+static void DrawAllSpritesInterlace(INT32 pri, INT32 sh)
 {
-	INT32 i,u,table,link=0,sline=((Scanline<<1)+RamVReg->field);
+	INT32 i,u,table,link=0,sline=(Scanline<<1)+RamVReg->field;
 	UINT32 *sprites[80]; // Sprite index
 
-	table = RamVReg->reg[5]&0x7f;
+	table=RamVReg->reg[5]&0x7f;
 	if (RamVReg->reg[12]&1) table&=0x7e; // Lowest bit 0 in 40-cell mode
 	table<<=8; // Get sprite table address/2
 
@@ -4135,12 +4782,12 @@ static void DrawAllSpritesInterlace(INT32 pri, INT32 maxwidth)
 		// check if sprite is not hidden offscreen
 		sx = (sx>>16)&0x1ff;
 		sx -= 0x78; // Get X coordinate + 8
-		if(sx <= -8*3 || sx >= maxwidth) goto nextsprite;
+		if(sx <= -8*3 || sx >= 328) goto nextsprite;
 
 		// sprite is good, save it's pointer
 		sprites[i++]=sprite;
 
-		nextsprite:
+	nextsprite:
 		// Find next sprite
 		link=(code>>16)&0x7f;
 		if(!link) break; // End of sprites
@@ -4151,294 +4798,484 @@ static void DrawAllSpritesInterlace(INT32 pri, INT32 maxwidth)
 		DrawSpriteInterlace(sprites[i]);
 }
 
-static void DrawSpritesFromCache(INT32 *hc, INT32 sh)
+
+/*
+ * s/h drawing: lo_layers|40, lo_sprites|40 && mark_op,
+ *        hi_layers&=~40, hi_sprites
+ *
+ * Index + 0  :    hhhhvvvv ----hhvv yyyyyyyy yyyyyyyy // v, h: vert./horiz. size
+ * Index + 4  :    xxxxxxxx xxxxxxxx pccvhnnn nnnnnnnn // x: x coord + 8
+ */
+static void DrawSpritesSHi(UINT8 *sprited)
 {
-	INT32 code, tile, sx, delta, width;
-	INT32 pal;
-	INT32 (*fTileFunc)(INT32 sx,INT32 addr,INT32 pal);
+  void (*fTileFunc)(UINT8 *pd, UINT32 pack, INT32 pal);
+  UINT8 *pd = HighCol;
+  UINT8 *p;
+  INT32 cnt;
 
-	// *(*hc)++ = (tile<<16)|((code&0x0800)<<5)|((sx<<6)&0x0000ffc0)|((code>>9)&0x30)|((sprite[0]>>24)&0xf);
+  if (~nSpriteEnable & 0x04) return;
 
-	while((code=*hc++)) {
-		pal=(code&0x30);
-		delta=code&0xf;
-		width=delta>>2; delta&=3;
-		width++; delta++; // Width and height in tiles
-		if (code&0x10000) delta=-delta; // Flip X
-		delta<<=4;
-		tile=((UINT32)code>>17)<<1;
-		sx=(code<<16)>>22; // sx can be negative (start offscreen), so sign extend
+  cnt = sprited[0] & 0x7f;
+  if (cnt == 0) return;
 
-		if(sh && pal == 0x30) { //
-			if(code&0x10000) fTileFunc=TileFlipSH;
-			else             fTileFunc=TileNormSH;
-		} else {
-			if(code&0x10000) fTileFunc=TileFlip;
-			else             fTileFunc=TileNorm;
-		}
+  p = &sprited[3];
 
-		for (; width; width--,sx+=8,tile+=delta) {
-			if(sx<=0)   continue;
-			if(sx>=328) break; // Offscreen
+  // Go through sprites backwards:
+  for (cnt--; cnt >= 0; cnt--)
+  {
+    INT32 *sprite, code, pal, tile, sx, sy;
+    INT32 offs, delta, width, height, row;
 
-			tile&=0x7fff; // Clip tile address
-			fTileFunc(sx,tile,pal);
-		}
-	}
+    offs = (p[cnt] & 0x7f) * 2;
+    sprite = HighPreSpr + offs;
+    code = sprite[1];
+    pal = (code>>9)&0x30;
+
+    if (pal == 0x30)
+    {
+      if (code & 0x8000) // hi priority
+      {
+        if (code&0x800) fTileFunc=TileFlipSH;
+        else            fTileFunc=TileNormSH;
+      } else {
+        if (code&0x800) fTileFunc=TileFlipSH_onlyop_lp;
+        else            fTileFunc=TileNormSH_onlyop_lp;
+      }
+    } else {
+      if (!(code & 0x8000)) continue; // non-operator low sprite, already drawn
+      if (code&0x800) fTileFunc=TileFlip;
+      else            fTileFunc=TileNorm;
+    }
+
+    // parse remaining sprite data
+    sy=sprite[0];
+    sx=code>>16; // X
+    width=sy>>28;
+    height=(sy>>24)&7; // Width and height in tiles
+    sy=(sy<<16)>>16; // Y
+
+    row=Scanline-sy; // Row of the sprite we are on
+
+    if (code&0x1000) row=(height<<3)-1-row; // Flip Y
+
+    tile=code + (row>>3); // Tile number increases going down
+    delta=height; // Delta to increase tile by going right
+    if (code&0x0800) { tile+=delta*(width-1); delta=-delta; } // Flip X
+
+    tile &= 0x7ff; tile<<=4; tile+=(row&7)<<1; // Tile address
+    delta<<=4; // Delta of address
+
+    for (; width; width--,sx+=8,tile+=delta)
+    {
+      UINT32 pack;
+
+      if(sx<=0)   continue;
+      if(sx>=328) break; // Offscreen
+
+      pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + (tile & 0x7fff)));
+      fTileFunc(pd + sx, pack, pal);
+    }
+  }
 }
+
+static void DrawSpritesHiAS(UINT8 *sprited, INT32 sh)
+{
+  void (*fTileFunc)(UINT8 *pd, UINT8 *mb,
+                    UINT32 pack, INT32 pal);
+  UINT8 *pd = HighCol;
+  UINT8 mb[8+320+8];
+  UINT8 *p;
+  INT32 entry, cnt;
+
+  if (~nSpriteEnable & 0x08) return;
+
+  cnt = sprited[0] & 0x7f;
+  if (cnt == 0) return;
+
+  memset(mb, 0xff, sizeof(mb));
+  p = &sprited[3];
+
+  // Go through sprites:
+  for (entry = 0; entry < cnt; entry++)
+  {
+    INT32 *sprite, code, pal, tile, sx, sy;
+    INT32 offs, delta, width, height, row;
+
+    offs = (p[entry] & 0x7f) * 2;
+    sprite = HighPreSpr + offs;
+    code = sprite[1];
+    pal = (code>>9)&0x30;
+
+    if (sh && pal == 0x30)
+    {
+      if (code & 0x8000) // hi priority
+      {
+        if (code&0x800) fTileFunc = TileFlipSH_AS;
+        else            fTileFunc = TileNormSH_AS;
+      } else {
+        if (code&0x800) fTileFunc = TileFlipSH_AS_onlyop_lp;
+        else            fTileFunc = TileNormSH_AS_onlyop_lp;
+      }
+    } else {
+      if (code & 0x8000) // hi priority
+      {
+        if (code&0x800) fTileFunc = TileFlipAS;
+        else            fTileFunc = TileNormAS;
+      } else {
+        if (code&0x800) fTileFunc = TileFlipAS_onlymark;
+        else            fTileFunc = TileNormAS_onlymark;
+      }
+    }
+
+    // parse remaining sprite data
+    sy=sprite[0];
+    sx=code>>16; // X
+    width=sy>>28;
+    height=(sy>>24)&7; // Width and height in tiles
+    sy=(sy<<16)>>16; // Y
+
+    row=Scanline-sy; // Row of the sprite we are on
+
+    if (code&0x1000) row=(height<<3)-1-row; // Flip Y
+
+    tile=code + (row>>3); // Tile number increases going down
+    delta=height; // Delta to increase tile by going right
+    if (code&0x0800) { tile+=delta*(width-1); delta=-delta; } // Flip X
+
+    tile &= 0x7ff; tile<<=4; tile+=(row&7)<<1; // Tile address
+    delta<<=4; // Delta of address
+
+    for (; width; width--,sx+=8,tile+=delta)
+    {
+      UINT32 pack;
+
+      if(sx<=0)   continue;
+      if(sx>=328) break; // Offscreen
+
+      pack = BURN_ENDIAN_SWAP_INT32(*(UINT32 *)(RamVid + (tile & 0x7fff)));
+      fTileFunc(pd + sx, mb + sx, pack, pal);
+    }
+  }
+}
+
 
 // Index + 0  :    ----hhvv -lllllll -------y yyyyyyyy
 // Index + 4  :    -------x xxxxxxxx pccvhnnn nnnnnnnn
 // v
-// Index + 0  :    hhhhvvvv ab--hhvv yyyyyyyy yyyyyyyy // a: offscreen h, b: offs. v, h: horiz. size
+// Index + 0  :    hhhhvvvv ----hhvv yyyyyyyy yyyyyyyy // v, h: vert./horiz. size
 // Index + 4  :    xxxxxxxx xxxxxxxx pccvhnnn nnnnnnnn // x: x coord + 8
 
 static void PrepareSprites(INT32 full)
 {
-	INT32 u=0,link=0,sblocks=0;
-	INT32 table=0;
-	INT32 *pd = HighPreSpr;
+  INT32 u,link=0,sh;
+  INT32 table=0;
+  INT32 *pd = HighPreSpr;
+  INT32 max_lines = 224, max_sprites = 80, max_width = 328;
+  INT32 max_line_sprites = 20; // 20 sprites, 40 tiles
 
-	table=RamVReg->reg[5]&0x7f;
-	if (RamVReg->reg[12]&1) table&=0x7e; // Lowest bit 0 in 40-cell mode
-	table<<=8; // Get sprite table address/2
+  if (!(RamVReg->reg[12]&1))
+    max_sprites = 64, max_line_sprites = 16, max_width = 264;
+  if (0) //PicoIn.opt & POPT_DIS_SPRITE_LIM)
+    max_line_sprites = MAX_LINE_SPRITES;
 
-	if (!full) {
-		INT32 pack;
-		// updates: tilecode, sx
-		for (u=0; u < 80 && (pack = *pd); u++, pd+=2) {
-			UINT32 *sprite;
-			INT32 code, code2, sx, sy, skip=0;
+  if (RamVReg->reg[1]&8) max_lines = 240;
+  sh = RamVReg->reg[0xC]&8; // shadow/hilight?
 
-			sprite=(UINT32 *)(RamVid+((table+(link<<2))&0x7ffc)); // Find sprite
+  table=RamVReg->reg[5]&0x7f;
+  if (RamVReg->reg[12]&1) table&=0x7e; // Lowest bit 0 in 40-cell mode
+  table<<=8; // Get sprite table address/2
 
-			// parse sprite info
-			code  = BURN_ENDIAN_SWAP_INT32(sprite[0]);
-			code2 = BURN_ENDIAN_SWAP_INT32(sprite[1]);
-			code2 &= ~0xfe000000;
-			code2 -=  0x00780000; // Get X coordinate + 8 in upper 16 bits
-			sx = code2>>16;
+  if (!full)
+  {
+    INT32 pack;
+    // updates: tilecode, sx
+    for (u=0; u < max_sprites && (pack = *pd); u++, pd+=2)
+    {
+      UINT32 *sprite;
+      INT32 code2, sx, sy, height;
 
-			if((sx <= 8-((pack>>28)<<3) && sx >= -0x76) || sx >= 328) skip=1<<23;
-			else if ((sy = (pack<<16)>>16) < 240 && sy > -32) {
-				INT32 sbl = (2<<(pack>>28))-1;
-				sblocks |= sbl<<(sy>>3);
-			}
+      sprite=(UINT32 *)(RamVid+((table+(link<<2))&0x7ffc)); // Find sprite
 
-			*pd = (pack&~(1<<23))|skip;
-			*(pd+1) = code2;
+      // parse sprite info
+      code2 = BURN_ENDIAN_SWAP_INT32(sprite[1]);
+      sx = (code2>>16)&0x1ff;
+      sx -= 0x78; // Get X coordinate + 8
+      sy = (pack << 16) >> 16;
+      height = (pack >> 24) & 0xf;
 
-			// Find next sprite
-			link=(code>>16)&0x7f;
-			if(!link) break; // End of sprites
-		}
-		SpriteBlocks |= sblocks;
-	} else {
-		for (; u < 80; u++) {
-			UINT32 *sprite;
-			INT32 code, code2, sx, sy, hv, height, width, skip=0, sx_min;
+      if (sy < max_lines &&
+	  sy + (height<<3) > Scanline && // sprite onscreen (y)?
+          (sx > -24 || sx < max_width))                   // onscreen x
+      {
+        INT32 y = (sy >= Scanline) ? sy : Scanline;
+        INT32 entry = ((pd - HighPreSpr) / 2) | ((code2>>8)&0x80);
+        for (; y < sy + (height<<3) && y < max_lines; y++)
+        {
+          INT32 i, cnt;
+          cnt = HighLnSpr[y][0] & 0x7f;
+          if (cnt >= max_line_sprites) continue;              // sprite limit?
 
-			sprite=(UINT32 *)(RamVid+((table+(link<<2))&0x7ffc)); // Find sprite
+          for (i = 0; i < cnt; i++)
+            if (((HighLnSpr[y][3+i] ^ entry) & 0x7f) == 0) goto found;
 
-			// parse sprite info
-			code = BURN_ENDIAN_SWAP_INT32(sprite[0]);
-			sy = (code&0x1ff)-0x80;
-			hv = (code>>24)&0xf;
-			height = (hv&3)+1;
+          // this sprite was previously missing
+          HighLnSpr[y][3+cnt] = entry;
+          HighLnSpr[y][0] = cnt + 1;
+found:;
+          if (entry & 0x80)
+               HighLnSpr[y][1] |= SPRL_HAVE_HI;
+          else HighLnSpr[y][1] |= SPRL_HAVE_LO;
+        }
+      }
 
-			if(sy > 240 || sy + (height<<3) <= 0) skip|=1<<22;
+      code2 &= ~0xfe000000;
+      code2 -=  0x00780000; // Get X coordinate + 8 in upper 16 bits
+      pd[1] = code2;
 
-			width  = (hv>>2)+1;
-			code2 = BURN_ENDIAN_SWAP_INT32(sprite[1]);
-			sx = (code2>>16)&0x1ff;
-			sx -= 0x78; // Get X coordinate + 8
-			sx_min = 8-(width<<3);
+      // Find next sprite
+      link=(BURN_ENDIAN_SWAP_INT32(sprite[0])>>16)&0x7f;
+      if (!link) break; // End of sprites
+    }
+  }
+  else
+  {
+    for (u = 0; u < max_lines; u++)
+	  *((INT32 *)&HighLnSpr[u][0]) = 0;
 
-			if((sx <= sx_min && sx >= -0x76) || sx >= 328) skip|=1<<23;
-			else if (sx > sx_min && !skip) {
-				INT32 sbl = (2<<height)-1;
-				INT32 shi = sy>>3;
-				if(shi < 0) shi=0; // negative sy
-				sblocks |= sbl<<shi;
-			}
+    for (u = 0; u < max_sprites; u++)
+    {
+      UINT32 *sprite;
+      INT32 code, code2, sx, sy, hv, height, width;
 
-			*pd++ = (width<<28)|(height<<24)|skip|(hv<<16)|((UINT16)sy);
-			*pd++ = (sx<<16)|((UINT16)code2);
+      sprite=(UINT32 *)(RamVid+((table+(link<<2))&0x7ffc)); // Find sprite
 
-			// Find next sprite
-			link=(code>>16)&0x7f;
-			if(!link) break; // End of sprites
-		}
-		SpriteBlocks = sblocks;
-		*pd = 0; // terminate
-	}
+      // parse sprite info
+      code = BURN_ENDIAN_SWAP_INT32(sprite[0]);
+      sy = (code&0x1ff)-0x80;
+      hv = (code>>24)&0xf;
+      height = (hv&3)+1;
+
+      width  = (hv>>2)+1;
+      code2 = BURN_ENDIAN_SWAP_INT32(sprite[1]);
+      sx = (code2>>16)&0x1ff;
+      sx -= 0x78; // Get X coordinate + 8
+
+      if (sy < max_lines && sy + (height<<3) > Scanline) // sprite onscreen (y)?
+      {
+        INT32 entry, y, sx_min, onscr_x, maybe_op = 0;
+
+        sx_min = 8-(width<<3);
+        onscr_x = sx_min < sx && sx < max_width;
+        if (sh && (code2 & 0x6000) == 0x6000)
+          maybe_op = SPRL_MAY_HAVE_OP;
+
+        entry = ((pd - HighPreSpr) / 2) | ((code2>>8)&0x80);
+        y = (sy >= Scanline) ? sy : Scanline;
+        for (; y < sy + (height<<3) && y < max_lines; y++)
+        {
+		  UINT8 *p = &HighLnSpr[y][0];
+          INT32 cnt = p[0];
+          if (cnt >= max_line_sprites) continue;              // sprite limit?
+
+          if (p[2] >= max_line_sprites*2) {        // tile limit?
+            p[0] |= 0x80;
+            continue;
+          }
+          p[2] += width;
+
+		  if (sx == -0x78) {
+			  //if (sy == -1) continue;
+
+			  //bprintf(0, _T("masked @  %d,%d (x,y)\twidth,height  %x,%x\tcnt/pri %x %x\tScanline  %d\ty  %d\n"), sx, sy, width,height, cnt,(entry & 0x80), Scanline, y);
+
+			  if (cnt > 0)
+				  p[0] |= 0x80; // masked, no more sprites for this line
+			  continue;
+          }
+          // must keep the first sprite even if it's offscreen, for masking
+          if (cnt > 0 && !onscr_x) continue; // offscreen x
+
+          p[3+cnt] = entry;
+          p[0] = cnt + 1;
+          p[1] |= (entry & 0x80) ? SPRL_HAVE_HI : SPRL_HAVE_LO;
+          p[1] |= maybe_op; // there might be op sprites on this line
+          if (cnt > 0 && (code2 & 0x8000) && !(p[3+cnt-1]&0x80))
+            p[1] |= SPRL_LO_ABOVE_HI;
+        }
+      }
+
+      *pd++ = (width<<28)|(height<<24)|(hv<<16)|((UINT16)sy);
+      *pd++ = (sx<<16)|((UINT16)code2);
+
+      // Find next sprite
+      link=(code>>16)&0x7f;
+      if (!link) break; // End of sprites
+    }
+    *pd = 0;
+
+#if 0
+    for (u = 0; u < max_lines; u++)
+    {
+      INT32 y;
+      printf("c%03i: %2i, %2i: ", u, HighLnSpr[u][0] & 0x7f, HighLnSpr[u][2]);
+      for (y = 0; y < HighLnSpr[u][0] & 0x7f; y++)
+        printf(" %i", HighLnSpr[u][y+3]);
+      printf("\n");
+    }
+#endif
+  }
 }
 
-static void DrawAllSprites(INT32 *hcache, INT32 maxwidth, INT32 prio, INT32 sh)
+static void DrawAllSprites(UINT8 *sprited, INT32 prio, INT32 sh)
 {
-	INT32 i,u,n;
-	INT32 sx1seen=0; // sprite with x coord 1 or 0 seen
-	INT32 ntiles = 0; // tile counter for sprite limit emulation
-	INT32 *sprites[40]; // Sprites to draw in fast mode
-	INT32 *ps, pack, rs = rendstatus, scan=Scanline;
+  UINT8 *p;
+  INT32 cnt;
 
-	if(rs&8) {
-		DrawAllSpritesInterlace(prio, maxwidth);
-		return;
-	}
-	if(rs&0x11) {
-		//dprintf("PrepareSprites(%i) [%i]", (rs>>4)&1, scan);
-		PrepareSprites(rs&0x10);
-		rendstatus=rs&~0x11;
-	}
-	if (!(SpriteBlocks & (1<<(scan>>3)))) return;
+  cnt = sprited[0] & 0x7f;
+  if (cnt == 0) return;
 
-	if(((rs&4)||sh)&&prio==0)
-		memset(HighSprZ, 0, 328);
-	if(!(rs&4)&&prio) {
-		if(hcache[0]) DrawSpritesFromCache(hcache, sh);
-		return;
-	}
+  p = &sprited[3];
 
-	ps = HighPreSpr;
-
-	// Index + 0  :    hhhhvvvv ab--hhvv yyyyyyyy yyyyyyyy // a: offscreen h, b: offs. v, h: horiz. size
-	// Index + 4  :    xxxxxxxx xxxxxxxx pccvhnnn nnnnnnnn // x: x coord + 8
-
-	for(i=u=n=0; (pack = *ps) && n < 20; ps+=2, u++) {
-		INT32 sx, sy, row, pack2;
-
-		if(pack & 0x00400000) continue;
-
-		// get sprite info
-		pack2 = *(ps+1);
-		sx =  pack2>>16;
-		sy = (pack <<16)>>16;
-		row = scan-sy;
-
-		//dprintf("x: %i y: %i %ix%i", sx, sy, (pack>>28)<<3, (pack>>21)&0x38);
-
-		if(sx == -0x77) sx1seen |= 1; // for masking mode 2
-
-		// check if it is on this line
-		if(row < 0 || row >= ((pack>>21)&0x38)) continue; // no
-		n++; // number of sprites on this line (both visible and hidden, max is 20) [broken]
-
-		// sprite limit
-		ntiles += pack>>28;
-		if(ntiles > 40) break;
-
-		if(pack & 0x00800000) continue;
-
-		// masking sprite?
-		if(sx == -0x78) {
-			if(!(sx1seen&1) || sx1seen==3) {
-				break; // this sprite is not drawn and remaining sprites are masked
-			}
-			if((sx1seen>>8) == 0) sx1seen=(i+1)<<8;
-			continue;
-		}
-		else if(sx == -0x77) {
-			// masking mode2 (Outrun, Galaxy Force II, Shadow of the beast)
-			if(sx1seen>>8) {
-				i=(sx1seen>>8)-1;
-				break;
-			} // seen both 0 and 1
-			sx1seen |= 2;
-			continue;
-		}
-
-		// accurate sprites
-		//dprintf("P:%i",((sx>>15)&1));
-		if(rs&4) {
-			// might need to skip this sprite
-			if((pack2&0x8000) ^ (prio<<15)) continue;
-			DrawSpriteZ(pack,pack2,sh|(prio<<1),(INT8)(0x1f-n));
-			continue;
-		}
-
-		// sprite is good, save it's pointer
-		sprites[i++]=ps;
-	}
-
-	// Go through sprites backwards:
-	if(!(rs&4)) {
-		for (i--; i>=0; i--)
-			DrawSprite(sprites[i],&hcache,sh);
-
-		// terminate cache list
-		*hcache = 0;
-	}
+  // Go through sprites backwards:
+  for (cnt--; cnt >= 0; cnt--)
+  {
+    INT32 offs;
+    if ((p[cnt] >> 7) != prio) continue;
+    offs = (p[cnt]&0x7f) * 2;
+    DrawSprite(HighPreSpr + offs, sh);
+  }
 }
 
+
+// --------------------------------------------
 
 static void BackFill(INT32 reg7, INT32 sh)
 {
 	// Start with a blank scanline (background colour):
-	UINT32 *pd = (UINT32 *)(HighCol+8);
-	UINT32 *end= (UINT32 *)(HighCol+8+320);
-	UINT32 back = reg7 & 0x3f;
-	back |= sh<<6;
+	UINT16 *pd = (UINT16 *)(HighCol+8);
+	UINT16 *end= (UINT16 *)(HighCol+8+320);
+	UINT16 back = (reg7 & 0x3f) | (sh<<6);
 	back |= back<<8;
-	back |= back<<16;
-	do { pd[0]=pd[1]=pd[2]=pd[3]=back; pd+=4; } while (pd < end);
+	do { pd[0]=pd[1]=back; pd+=2; } while (pd < end);
 }
 
 
 static INT32 DrawDisplay(INT32 sh)
 {
-	INT32 maxw, maxcells;
-	INT32 win=0, edge=0, hvwind=0;
+  UINT8 *sprited = &HighLnSpr[Scanline][0];
+  INT32 win=0, edge=0, hvwind=0, lflags;
+  INT32 maxw, maxcells;
 
-	if(RamVReg->reg[12] & 1) {
-		maxw = 328; maxcells = 40;
-	} else {
-		maxw = 264; maxcells = 32;
-	}
+  if (RamVReg->rendstatus & (PDRAW_SPRITES_MOVED|PDRAW_DIRTY_SPRITES)) {
+    // elprintf(EL_STATUS, "PrepareSprites(%i)", (est->rendstatus>>4)&1);
+    PrepareSprites(RamVReg->rendstatus & PDRAW_DIRTY_SPRITES);
+    RamVReg->rendstatus &= ~(PDRAW_SPRITES_MOVED|PDRAW_DIRTY_SPRITES);
+  }
 
-	// Find out if the window is on this line:
-	win = RamVReg->reg[0x12];
-	edge = (win & 0x1f)<<3;
+  RamVReg->rendstatus &= ~(PDRAW_SHHI_DONE|PDRAW_PLANE_HI_PRIO);
 
-  	if (win&0x80) { if (Scanline>=edge) hvwind=1; }
-	else          { if (Scanline< edge) hvwind=1; }
+  if (RamVReg->reg[12]&1) {
+    maxw = 328; maxcells = 40;
+  } else {
+    maxw = 264; maxcells = 32;
+  }
 
-	if(!hvwind) { // we might have a vertical window here
-		win = RamVReg->reg[0x11];
-		edge = win&0x1f;
-		if(win&0x80) {
-			if(!edge) hvwind=1;
-			else if(edge < (maxcells>>1)) hvwind=2;
-		} else {
-			if(!edge);
-			else if(edge < (maxcells>>1)) hvwind=2;
-			else hvwind=1;
-		}
-	}
+  // Find out if the window is on this line:
+  win=RamVReg->reg[0x12];
+  edge=(win&0x1f)<<3;
 
-	DrawLayer(1, HighCacheB, 0, maxcells, sh);
-	if(hvwind == 1)
-		DrawWindow(0, maxcells>>1, 0, sh); // HighCacheAW
-	else if(hvwind == 2) {
-		// ahh, we have vertical window
-		DrawLayer(0, HighCacheA, (win&0x80) ? 0 : edge<<1, (win&0x80) ? edge<<1 : maxcells, sh);
-		DrawWindow((win&0x80) ? edge : 0, (win&0x80) ? maxcells>>1 : edge, 0, sh); // HighCacheW
-	} else
-		DrawLayer(0, HighCacheA, 0, maxcells, sh);
-	if (nSpriteEnable & 1) DrawAllSprites(HighCacheS, maxw, 0, sh);
+  if (win&0x80) { if (Scanline>=edge) hvwind=1; }
+  else          { if (Scanline< edge) hvwind=1; }
 
-	if(HighCacheB[0])
-		DrawTilesFromCache(HighCacheB, sh, maxw);
-	if(hvwind == 1)
-		DrawWindow(0, maxcells>>1, 1, sh);
-	else if(hvwind == 2) {
-		if(HighCacheA[0]) DrawTilesFromCache(HighCacheA, sh, (win&0x80) ? edge<<4 : maxw);
-		DrawWindow((win&0x80) ? edge : 0, (win&0x80) ? maxcells>>1 : edge, 1, sh);
-	} else
-		if(HighCacheA[0]) DrawTilesFromCache(HighCacheA, sh, maxw);
-	if (nSpriteEnable & 2) DrawAllSprites(HighCacheS, maxw, 1, sh);
+  if (!hvwind) // we might have a vertical window here
+  {
+    win=RamVReg->reg[0x11];
+    edge=win&0x1f;
+    if (win&0x80) {
+      if (!edge) hvwind=1;
+      else if(edge < (maxcells>>1)) hvwind=2;
+    } else {
+      if (!edge);
+      else if(edge < (maxcells>>1)) hvwind=2;
+      else hvwind=1;
+    }
+  }
 
-	return 0;
+//  if (hvwind) bprintf(0, _T("we have window! %x\n"), hvwind);
+
+  /* - layer B low - */
+  if (!(RamVReg->debug_p & PVD_KILL_B)) {
+    lflags = LF_PLANE_B | (sh << 1);
+    if (RamVReg->debug_p & PVD_FORCE_B)
+      lflags |= LF_FORCE;
+    DrawLayer(lflags, HighCacheB, 0, maxcells);
+  }
+  /* - layer A low - */
+  lflags = 0 | (sh << 1);
+  if (RamVReg->debug_p & PVD_FORCE_A)
+    lflags |= LF_FORCE;
+  if (RamVReg->debug_p & PVD_KILL_A)
+    ;
+  else if (hvwind == 1)
+    DrawWindow(0, maxcells>>1, 0, sh);
+  else if (hvwind == 2) {
+    DrawLayer(lflags, HighCacheA, (win&0x80) ?    0 : edge<<1, (win&0x80) ?     edge<<1 : maxcells);
+    DrawWindow(                   (win&0x80) ? edge :       0, (win&0x80) ? maxcells>>1 : edge, 0, sh);
+  }
+  else
+    DrawLayer(lflags, HighCacheA, 0, maxcells);
+  /* - sprites low - */
+  if (RamVReg->debug_p & PVD_KILL_S_LO)
+    ;
+  else if (RamVReg->rendstatus & PDRAW_INTERLACE)
+    DrawAllSpritesInterlace(0, sh);
+  else if (sprited[1] & SPRL_HAVE_LO)
+    DrawAllSprites(sprited, 0, sh);
+
+  /* - layer B hi - */
+  if (!(RamVReg->debug_p & PVD_KILL_B) && HighCacheB[0])
+    DrawTilesFromCache(HighCacheB, sh, maxw);
+  /* - layer A hi - */
+  if (RamVReg->debug_p & PVD_KILL_A)
+    ;
+  else if (hvwind == 1)
+    DrawWindow(0, maxcells>>1, 1, sh);
+  else if (hvwind == 2) {
+    if (HighCacheA[0])
+      DrawTilesFromCache(HighCacheA, sh, (win&0x80) ? edge<<4 : maxw);
+    DrawWindow((win&0x80) ? edge : 0, (win&0x80) ? maxcells>>1 : edge, 1, sh);
+  } else
+    if (HighCacheA[0])
+      DrawTilesFromCache(HighCacheA, sh, maxw);
+  /* - sprites hi - */
+  if (RamVReg->debug_p & PVD_KILL_S_HI)
+    ;
+  else if (RamVReg->rendstatus & PDRAW_INTERLACE)
+    DrawAllSpritesInterlace(1, sh);
+  // have sprites without layer pri bit ontop of sprites with that bit
+  else if ((sprited[1] & 0xd0) == 0xd0 && 1)// (PicoIn.opt & POPT_ACC_SPRITES))
+    DrawSpritesHiAS(sprited, sh);
+  else if (sh && (sprited[1] & SPRL_MAY_HAVE_OP))
+    DrawSpritesSHi(sprited);
+  else if (sprited[1] & SPRL_HAVE_HI)
+    DrawAllSprites(sprited, 1, 0);
+
+  if (RamVReg->debug_p & PVD_FORCE_B)
+    DrawTilesFromCacheForced(HighCacheB);
+  else if (RamVReg->debug_p & PVD_FORCE_A)
+    DrawTilesFromCacheForced(HighCacheA);
+
+#if 0
+  {
+    INT32 *c, a, b;
+    for (a = 0, c = HighCacheA; *c; c++, a++);
+    for (b = 0, c = HighCacheB; *c; c++, b++);
+    printf("%i:%03i: a=%i, b=%i\n", Pico.m.frame_count,
+           Scanline, a, b);
+  }
+#endif
+
+  return 0;
 }
 
 static void SetHighCol(INT32 line)
@@ -4450,10 +5287,16 @@ static void SetHighCol(INT32 line)
 
 static void PicoFrameStart()
 {
-	// prepare to do this frame
-	rendstatus = 0x80 >> 5;							// accurate sprites
 	RamVReg->status &= ~0x0020;                     // mask collision bit
-	if((RamVReg->reg[12]&6) == 6) rendstatus |= 8;	// interlace mode
+
+// prepare to do this frame
+	RamVReg->rendstatus = 0;
+	if ((RamVReg->reg[12] & 6) == 6)
+		RamVReg->rendstatus |= PDRAW_INTERLACE; // interlace mode
+	if (!(RamVReg->reg[12] & 1))
+		RamVReg->rendstatus |= PDRAW_32_COLS;
+
+
 	Scanline = 0;
 	BlankedLine = 0;
 
@@ -4508,6 +5351,21 @@ static INT32 PicoLine(INT32 /*scan*/)
 static INT32 screen_width = 0;
 static INT32 screen_height = 0;
 const INT32 v_res[2] = { 224, 240 };
+
+static void get_size(INT32 &s_width, INT32 &s_height)
+{
+	if (BurnDrvGetFlags() & BDF_ORIENTATION_VERTICAL) {
+		BurnDrvGetVisibleSize(&s_height, &s_width);
+	} else {
+		BurnDrvGetVisibleSize(&s_width, &s_height);
+	}
+}
+
+static void set_size(INT32 s_width, INT32 s_height)
+{
+	BurnDrvSetVisibleSize(s_width, s_height);
+}
+
 static INT32 res_check()
 {
 	if (pBurnDraw == NULL) return 1; // Don't try to change modes if display not active.
@@ -4515,32 +5373,33 @@ static INT32 res_check()
 	INT32 v_idx = (RamVReg->reg[1] & 8) >> 3;
 
 	if ((RamVReg->reg[12] & (4|2)) == (4|2)) { // interlace mode 2
-		BurnDrvGetVisibleSize(&screen_width, &screen_height);
+		get_size(screen_width, screen_height);
 
 		if (screen_height != (v_res[v_idx]*2)) {
-			bprintf(0, _T("switching to 320 x (%d*2) mode\n"), v_res[v_idx]);
-			BurnDrvSetVisibleSize(320, (v_res[v_idx]*2));
-			Reinitialise();
+			bprintf(0, _T("switching to 320 x (%d*2) mode (from %d x %d)\n"), v_res[v_idx], screen_width, screen_height);
+			set_size(320, (v_res[v_idx]*2));
+			if (has_gun) BurnGunResolutionChanged();
+			ReinitialiseVideo();
 			return 1;
 		}
 	}
 	else
 	if ((MegadriveDIP[1] & 3) == 3 && (~RamVReg->reg[12] & 1)) {
-		BurnDrvGetVisibleSize(&screen_width, &screen_height);
-
-		if (screen_width != 256 || screen_height != v_res[v_idx]) {
-			bprintf(0, _T("switching to 256 x %d mode\n"), v_res[v_idx]);
-			BurnDrvSetVisibleSize(256, v_res[v_idx]);
-			Reinitialise();
+		get_size(screen_width, screen_height);
+		if (screen_width != 256 || screen_height != 224) {
+			bprintf(0, _T("switching to 256 x 224 mode (from %d x %d)\n"), screen_width, screen_height);
+			set_size(256, 224);
+			if (has_gun) BurnGunResolutionChanged();
+			ReinitialiseVideo();
 			return 1;
 		}
 	} else {
-		BurnDrvGetVisibleSize(&screen_width, &screen_height);
-
-		if (screen_width != 320 || screen_height != v_res[v_idx]) {
-			bprintf(0, _T("switching to 320 x %d mode\n"), v_res[v_idx]);
-			BurnDrvSetVisibleSize(320, v_res[v_idx]);
-			Reinitialise();
+		get_size(screen_width, screen_height);
+		if (screen_width != 320 || screen_height != 224) {
+			bprintf(0, _T("switching to 320 x 224 mode (from %d x %d)\n"), screen_width, screen_height);
+			set_size(320, 224);
+			if (has_gun) BurnGunResolutionChanged();
+			ReinitialiseVideo();
 			return 1;
 		}
 	}
@@ -4610,12 +5469,25 @@ INT32 MegadriveDraw()
 
 	}
 
+	if (has_gun) BurnGunDrawTargets();
+
 	return 0;
 }
 
 #define CYCLES_M68K_LINE     488 // suitable for both PAL/NTSC
 #define CYCLES_M68K_VINT_LAG  68
 #define CYCLES_M68K_ASD      148
+
+static void do_timing_hacks_as(int vdp_slots)
+{
+  RamVReg->lwrite_cnt += vdp_slots - dma_xfers * 2; // wrong *2
+  if (RamVReg->lwrite_cnt > vdp_slots)
+    RamVReg->lwrite_cnt = vdp_slots;
+  else if (RamVReg->lwrite_cnt < 0)
+    RamVReg->lwrite_cnt = 0;
+  if (dma_xfers)
+	  SekCyclesBurn(CheckDMA());
+}
 
 INT32 MegadriveFrame()
 {
@@ -4632,6 +5504,17 @@ INT32 MegadriveFrame()
 		JoyPad->pad[2] |= (MegadriveJoy3[i] & 1) << i;
 		JoyPad->pad[3] |= (MegadriveJoy4[i] & 1) << i;
 		JoyPad->pad[4] |= (MegadriveJoy5[i] & 1) << i;
+	}
+
+	for (INT32 i = 0; i < 5; i++) {
+		clear_opposite.check(i, JoyPad->pad[i], 0x01, 0x02, 0x04, 0x08, nSocd[i]);
+	}
+
+	if (has_gun) {
+		BurnGunMakeInputs(0, MegadriveAnalog[0], MegadriveAnalog[1]);
+		if (has_gun == GUN_JUSTIFIER) {
+			BurnGunMakeInputs(1, MegadriveAnalog[2], MegadriveAnalog[3]);
+		}
 	}
 
 	SekCyclesNewFrame(); // for sound sync
@@ -4652,10 +5535,12 @@ INT32 MegadriveFrame()
 
 	PicoFrameStart();
 
-	INT32 lines, lines_vis = 224, line_sample;
+	INT32 lines, line_sample;
+	lines_vis = 224;
+	INT32 vdp_slots = (RamVReg->reg[12] & 1) ? 18 : 16;
+
 	INT32 hint = RamVReg->reg[10]; // Hint counter
 	INT32 vcnt_wrap = 0;
-	INT32 zirq_skipped = 0;
 #ifdef CYCDBUG
 	INT32 burny = 0;
 #endif
@@ -4672,22 +5557,43 @@ INT32 MegadriveFrame()
 	RamVReg->status &= ~0x88; // clear V-Int, come out of vblank
 	RamVReg->v_counter = 0;
 
-	SekRunM68k(CYCLES_M68K_ASD);
+	INT32 lg_y_value = (has_gun) ? (BurnGunReturnY(0) * lines_vis / 256) : 0;
 
 	for (INT32 y=0; y<lines; y++) {
+
+		line_base_cycles = SekCycleAim;//SekCyclesDone();
+
+		if (y == 0) SekRunM68k(CYCLES_M68K_ASD);
 
 		if (y > lines_vis && nBurnCPUSpeedAdjust > 0x100)
 			SekRunM68k((INT32)((INT64)CYCLES_M68K_LINE * (nBurnCPUSpeedAdjust - 0x100) / 0x0100));
 
 		Scanline = y;
 
-		if (y < lines_vis) {
-			// VDP FIFO
-			RamVReg->lwrite_cnt -= 12;
-			if (RamVReg->lwrite_cnt <= 0) {
-				RamVReg->lwrite_cnt=0;
-				RamVReg->status|=0x200;
+		if (has_gun) {
+			//extern int counter;
+			//lg_y_offset=counter;
+			if (lg_y_value == y + lg_y_offset && y + lg_y_offset < lines_vis) {
+				//xxxxxxxxdinkxxxxx
+				if ((RamIO[4] | RamIO[5]) & 0x80) {
+					const h_ h = hints[RamVReg->reg[12] & 1];
+					int slot = ((BurnGunReturnX(0) * h.hres / 256) + lg_x_offset) >> 1;
+					if (slot >= h.start) slot += h.end - h.start;
+
+					if ( (has_gun == GUN_JUSTIFIER && !(RamIO[2] & 0x30) ) ||
+						has_gun == GUN_MENACER) {
+
+						lg_latched = 1;
+						lg_latch = ((y & 0xff) << 8) | (slot & 0xff);
+						if ((RamVReg->reg[11] & 8) && SekGetIRQLevel() < 2) {
+							SekSetIRQLine(2, CPU_IRQSTATUS_ACK);
+						}
+					}
+				}
 			}
+		}
+
+		if (y < lines_vis) {
 			RamVReg->v_counter = y;
 			if ((RamVReg->reg[12]&6) == 6) { // interlace mode 2
 				RamVReg->v_counter <<= 1;
@@ -4729,7 +5635,8 @@ INT32 MegadriveFrame()
 			RamVReg->pending_ints |= 0x10;
 			if (RamVReg->reg[0] & 0x10) {
 				//bprintf(0, _T("h-int @ %d. "), SekCyclesDoneFrame());
-				SekSetIRQLine(4, CPU_IRQSTATUS_ACK);
+				//SekSetIRQLine(4, CPU_IRQSTATUS_ACK);
+				if (SekGetIRQLevel() < 4) SekSetIRQLine(4, CPU_IRQSTATUS_ACK);
 			}
 		}
 
@@ -4738,8 +5645,8 @@ INT32 MegadriveFrame()
 			RamVReg->status |= 0x08; // V-Int
 			RamVReg->pending_ints |= 0x20;
 
-			line_base_cycles = SekCyclesDone();
 			// there must be a gap between H and V ints, also after vblank bit set (Mazin Saga, Bram Stoker's Dracula)
+#if 0
 #ifdef CYCDBUG
 			burny = DMABURN();
 			SekCyclesBurn(burny);
@@ -4747,6 +5654,9 @@ INT32 MegadriveFrame()
 #else
 			SekCyclesBurn(DMABURN());
 #endif
+#endif
+			SekCyclesBurn(CheckDMA());
+
 			SekRunM68k(CYCLES_M68K_VINT_LAG);
 
 			if(RamVReg->reg[1] & 0x20) {
@@ -4769,36 +5679,30 @@ INT32 MegadriveFrame()
 			}
 		}
 
-		if (Z80HasBus && !MegadriveZ80Reset) {
-			z80CyclesSync(1);
+		z80CyclesSync();
 
-			if (y == line_sample || (y == lines_vis && zirq_skipped)) {
-				ZetSetIRQLine(0, CPU_IRQSTATUS_HOLD);
-				zirq_skipped = 0;
-			}
-		} else {
-			if (y == line_sample) {
-				zirq_skipped = 1; // if the irq gets skipped, try again @ vbl
-			}
-			z80CyclesSync(0);
+		if (y == line_sample) {
+			ZetSetIRQLine(0, CPU_IRQSTATUS_ACK);
+		}
+		if (y == line_sample+1) {
+			ZetSetIRQLine(0, CPU_IRQSTATUS_NONE);
 		}
 
 		// Run scanline
 		if (y == lines_vis) {
+			do_timing_hacks_as(vdp_slots);
 			SekRunM68k(CYCLES_M68K_LINE - CYCLES_M68K_VINT_LAG - CYCLES_M68K_ASD);
 		} else {
-			line_base_cycles = SekCyclesDone();
-#ifdef CYCDBUG
-			burny = DMABURN();
-			SekCyclesBurn(burny);
-			if (burny) {bprintf(0, _T("[%d] burny %d, cyclesdone %d. "), Scanline, burny, SekCyclesLine()); }
-#else
-			SekCyclesBurn(DMABURN());
-#endif
+
+			if (y < lines_vis) {
+				do_timing_hacks_as(vdp_slots);
+			} else {
+				SekCyclesBurn(CheckDMA());
+			}
 			SekRunM68k(CYCLES_M68K_LINE);
 		}
 
-		z80CyclesSync(Z80HasBus && !MegadriveZ80Reset);
+		z80CyclesSync();
 
 #ifdef CYCDBUG
 		if (burny)
@@ -4808,13 +5712,19 @@ INT32 MegadriveFrame()
 
 	if (pBurnDraw) MegadriveDraw();
 
-	if (Z80HasBus && !MegadriveZ80Reset) {
-		z80CyclesSync(1);
-	}
-
 	if (pBurnSoundOut) {
 		SN76496Update(0, pBurnSoundOut, nBurnSoundLen);
-		BurnMD2612Update(pBurnSoundOut, nBurnSoundLen);
+	}
+
+	// ym2612 needs to be updated even if pBurnSoundOut is NULL.
+	BurnMD2612Update(pBurnSoundOut, nBurnSoundLen);
+
+	if (papriummode && pBurnSoundOut) {
+		paprium_audio(pBurnSoundOut, nBurnSoundLen);
+	}
+
+	if (sot4wmode && pBurnSoundOut) {
+		vx_render(pBurnSoundOut, nBurnSoundLen);
 	}
 
 	SekClose();
@@ -4847,25 +5757,32 @@ INT32 MegadriveScan(INT32 nAction, INT32 *pnMin)
 		ZetScan(nAction);
 		BurnMD2612Scan(nAction, pnMin);
 		SN76496Scan(nAction, pnMin);
-		EEPROM_scan();
 
 		SCAN_VAR(Scanline);
 		SCAN_VAR(Z80HasBus);
 		SCAN_VAR(MegadriveZ80Reset);
-		SCAN_VAR(SpriteBlocks);
-		SCAN_VAR(rendstatus);
 		SCAN_VAR(SekCycleCnt);
 		SCAN_VAR(SekCycleAim);
 		SCAN_VAR(dma_xfers);
 
 		SCAN_VAR(z80_cycle_cnt);
-		SCAN_VAR(z80_cycle_aim);
-		SCAN_VAR(last_z80_sync);
 
 		BurnRandomScan(nAction);
+		clear_opposite.scan();
+
+		if (has_gun != 0) {
+			BurnGunScan();
+		}
+
+		if (papriummode) {
+			paprium_scan(nAction, pnMin);
+		}
+		if (sot4wmode) {
+			vx_scan(nAction, pnMin);
+		}
 	}
 
-	if ((nAction & ACB_NVRAM && RamMisc->SRamDetected) || RamMisc->SRamHasSerialEEPROM) {
+	if ((nAction & ACB_NVRAM) && RamMisc->SRamDetected) {
 		struct BurnArea ba;
 		memset(&ba, 0, sizeof(ba));
 		ba.Data		= SRam;
@@ -4873,6 +5790,10 @@ INT32 MegadriveScan(INT32 nAction, INT32 *pnMin)
 		ba.nAddress	= 0;
 		ba.szName	= "NV RAM";
 		BurnAcb(&ba);
+	}
+
+	if (RamMisc->SRamHasSerialEEPROM) { // scan both nvram and volatile!
+		i2c_scan(nAction, pnMin);
 	}
 
 	if (psolarmode) // pier solar

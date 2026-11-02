@@ -1,4 +1,8 @@
 // 68000 (Sixty Eight K) Interface - header file
+#pragma once
+#ifndef _M68000_INTF_H
+#define _M68000_INTF_H
+
 #include <stdint.h>
 #ifndef FASTCALL
  #undef __fastcall
@@ -134,7 +138,6 @@ void SekSetCyclesScanline(INT32 nCycles);
 void SekClose();
 void SekOpen(const INT32 i);
 INT32 SekGetActive();
-INT32 SekShouldInterrupt(); // megadrive
 void SekBurnUntilInt();
 
 void SekCPUPush(INT32 nCPU);
@@ -150,6 +153,8 @@ void SekSetIRQLine(const INT32 line, INT32 status);
 void SekSetIRQLine(INT32 nCPU, const INT32 line, INT32 status);
 void SekSetVIRQLine(const INT32 line, INT32 nstatus);
 void SekSetVIRQLine(INT32 nCPU, const INT32 line, INT32 status);
+INT32 SekShouldInterrupt(); // megadrive
+INT32 SekGetIRQLevel();
 
 void SekReset();
 void SekReset(INT32 nCPU);
@@ -258,6 +263,7 @@ INT32 SekSetTASCallback(pSekTASCallback pCallback);
 // Get a CPU's PC
 UINT32 SekGetPC(INT32 n);
 UINT32 SekGetPPC(INT32);
+UINT32 SekGetDAR(INT32 n);
 
 INT32 SekScan(INT32 nAction);
 
@@ -269,3 +275,5 @@ extern struct cpu_core_config SekConfig;
 // depreciate this and use BurnTimerAttach directly!
 #define BurnTimerAttachSek(clock)	\
 	BurnTimerAttach(&SekConfig, clock)
+
+#endif

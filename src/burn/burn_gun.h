@@ -22,12 +22,15 @@ UINT8 BurnGunReturnY(INT32 num);
 extern void BurnGunInit(INT32 nNumPlayers, bool bDrawTargets);
 void BurnGunExit();
 void BurnGunScan();
+void BurnGunResolutionChanged();
 extern void BurnGunDrawTarget(INT32 num, INT32 x, INT32 y);
+void BurnGunSetTargetScale(INT32 nScale); // draw the targets nScale times larger (a driver drawing at nScale x its resolution)
 extern void BurnGunMakeInputs(INT32 num, INT16 x, INT16 y);
 void BurnGunDrawTargets(); // call this after BurnTransferCopy();
 INT32 BurnGunIsActive(); // is the gun system active?
 void BurnGunSetBox(INT32 num, INT32 xmin, INT32 xmax, INT32 ymin, INT32 ymax);
 void BurnGunSetCoords(INT32 player, INT32 x, INT32 y); // manually set the gun coords, for libretro's lightgun emulation
+void BurnGunSetHideTime(INT32 nHideTimeInFrames); // when the inactive reticle disappears
 
 // NOTE: *depreciated* BurnPaddle is now the lowlevel code for BurnTrackball!
 // Using BurnPaddle gives you 2 paddles (A & B) per player initted.

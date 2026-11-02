@@ -72,6 +72,19 @@ static const struct GfxRange mapper_ST24M1_table[] =
 	{ 0              ,       0,       0, 0  }
 };
 
+// Strider EX: original ST24M1 ranges plus the native backport graphics bank.
+static const struct GfxRange mapper_STRIDEREX_table[] = {
+	{ GFXTYPE_STARS,   0x00000, 0x003ff, 0 },
+	{ GFXTYPE_SPRITES, 0x00000, 0x04fff, 0 },
+	{ GFXTYPE_SCROLL2, 0x04000, 0x07fff, 0 },
+	{ GFXTYPE_SCROLL3, 0x00000, 0x07fff, 1 },
+	{ GFXTYPE_SCROLL1, 0x07000, 0x07fff, 1 },
+	{ GFXTYPE_SPRITES | GFXTYPE_SCROLL2, 0x10000, 0x17fff, 2 },
+	{ GFXTYPE_SCROLL1, 0x08000, 0x0bfff, 2 },
+	{ GFXTYPE_SCROLL3, 0x1c000, 0x1ffff, 2 },
+	{ 0, 0, 0, 0 }
+};
+
 static const struct GfxRange mapper_ST22B_table[] = {
 	{ GFXTYPE_STARS,   0x00000, 0x1ffff, 0 },
 	{ GFXTYPE_SPRITES, 0x00000, 0x03fff, 0 },
@@ -107,6 +120,17 @@ static const struct GfxRange mapper_WL24B_table[] = {
 	{ 0              ,      0,      0, 0 }
 };
 
+// Final Fight EX: published 6 MiB (4+2) graphics mapper.
+static const struct GfxRange mapper_FFIGHTEX_table[] = {
+	{ GFXTYPE_SPRITES, 0x00000, 0x043ff, 0 },
+	{ GFXTYPE_SCROLL1, 0x04400, 0x04bff, 0 },
+	{ GFXTYPE_SCROLL3, 0x04c00, 0x05fff, 0 },
+	{ GFXTYPE_SCROLL2, 0x06000, 0x07fff, 0 },
+	{ GFXTYPE_SPRITES | GFXTYPE_SCROLL1 | GFXTYPE_SCROLL2 | GFXTYPE_SCROLL3, 0x08000, 0x0ffff, 0 },
+	{ GFXTYPE_SPRITES | GFXTYPE_SCROLL1 | GFXTYPE_SCROLL2 | GFXTYPE_SCROLL3, 0x10000, 0x17fff, 1 },
+	{ 0, 0, 0, 0 }
+};
+
 static const struct GfxRange mapper_S224B_table[] = {
 	{ GFXTYPE_SPRITES, 0x0000, 0x43ff, 0 },
 	{ GFXTYPE_SCROLL1, 0x4400, 0x4bff, 0 },
@@ -138,6 +162,12 @@ static const struct GfxRange mapper_AR22B_table[] = {
 	{ GFXTYPE_SCROLL2, 0x4000, 0x5fff, 1 },
 	{ GFXTYPE_SCROLL3, 0x6000, 0x7fff, 1 },
 	{ 0              ,      0,      0, 0 }
+};
+
+static const struct GfxRange mapper_ARA63B_table[] = {
+	{ GFXTYPE_SPRITES | GFXTYPE_SCROLL1 | GFXTYPE_SCROLL2 | GFXTYPE_SCROLL3, 0x00000, 0x07fff, 0 },
+	{ GFXTYPE_SPRITES | GFXTYPE_SCROLL1 | GFXTYPE_SCROLL2 | GFXTYPE_SCROLL3, 0x08000, 0x0Ffff, 1 },
+	{ 0              , 0,      0     , 0 }
 };
 
 static const struct GfxRange mapper_O224B_table[] = {
@@ -284,6 +314,11 @@ static const struct GfxRange mapper_S9263B_table[] = {
 
 static const struct GfxRange mapper_VA63B_table[] = {
 	{ GFXTYPE_SPRITES | GFXTYPE_SCROLL1 | GFXTYPE_SCROLL2 | GFXTYPE_SCROLL3, 0x00000, 0x07fff, 0 },
+	{ 0              , 0,      0     , 0 }
+};
+
+static const struct GfxRange mapper_varthb2_table[] = {
+	{ GFXTYPE_SPRITES | GFXTYPE_SCROLL1 | GFXTYPE_SCROLL2 | GFXTYPE_SCROLL3, 0x00000, 0x1ffff, 0 },
 	{ 0              , 0,      0     , 0 }
 };
 
@@ -531,6 +566,24 @@ void SetGfxMapper(INT32 MapperId)
 			return;
 		}
 		
+		case mapper_FFIGHTEX: {
+			GfxBankSizes[0] = 0x10000;
+			GfxBankSizes[1] = 0x08000;
+			GfxBankSizes[2] = 0x00000;
+			GfxBankSizes[3] = 0x00000;
+			GfxBankMapper = mapper_FFIGHTEX_table;
+			return;
+		}
+
+		case mapper_STRIDEREX: {
+			GfxBankSizes[0] = 0x08000;
+			GfxBankSizes[1] = 0x08000;
+			GfxBankSizes[2] = 0x10000;
+			GfxBankSizes[3] = 0x00000;
+			GfxBankMapper = mapper_STRIDEREX_table;
+			return;
+		}
+
 		case mapper_ST24M1: {
 			GfxBankSizes[0] = 0x8000;
 			GfxBankSizes[1] = 0x8000;
@@ -602,7 +655,16 @@ void SetGfxMapper(INT32 MapperId)
 			GfxBankMapper = mapper_AR22B_table;
 			return;
 		}
-				
+		
+		case mapper_ARA63B: {
+			GfxBankSizes[0] = 0x8000;
+			GfxBankSizes[1] = 0x8000;
+			GfxBankSizes[2] = 0x0000;
+			GfxBankSizes[3] = 0x0000;
+			GfxBankMapper = mapper_ARA63B_table;
+			return;
+		}
+		
 		case mapper_O224B: {
 			GfxBankSizes[0] = 0x8000;
 			GfxBankSizes[1] = 0x4000;
@@ -924,6 +986,15 @@ void SetGfxMapper(INT32 MapperId)
 			GfxBankSizes[2] = 0x0000;
 			GfxBankSizes[3] = 0x0000;
 			GfxBankMapper = mapper_pang3b4_table;
+			return;
+		}
+
+		case mapper_varthb2: {
+			GfxBankSizes[0] = 0x20000;
+			GfxBankSizes[1] = 0x0000;
+			GfxBankSizes[2] = 0x0000;
+			GfxBankSizes[3] = 0x0000;
+			GfxBankMapper = mapper_varthb2_table;
 			return;
 		}
 	}
@@ -1861,6 +1932,36 @@ void SetCpsBId(INT32 CpsBId, INT32 bStars)
 			if (bStars) {
 				CpsLayEn[4] = 0x30;
 				CpsLayEn[5] = 0x30;
+			}
+			return;
+		}
+
+		case HACK_B_7: {
+			// varthb2: same B-board test as CPS_B_04, but layer control reg
+			// is 0x70 and priority mask 2 has been patched out (MaskAddr[1]=0)
+			CpsBID[0]   = 0x60;
+			CpsBID[1]   = 0x00;
+			CpsBID[2]   = 0x04;
+
+			CpsMProt[0] = 0x00;
+			CpsMProt[1] = 0x00;
+			CpsMProt[2] = 0x00;
+			CpsMProt[3] = 0x00;
+
+			nCpsLcReg   = 0x70;
+			MaskAddr[0] = 0x66;
+			MaskAddr[1] = 0x00;
+			MaskAddr[2] = 0x68;
+			MaskAddr[3] = 0x72;
+
+			nCpsPalCtrlReg = 0x6a;
+
+			CpsLayEn[1] = 0x02;
+			CpsLayEn[2] = 0x04;
+			CpsLayEn[3] = 0x08;
+			if (bStars) {
+				CpsLayEn[4] = 0x00;
+				CpsLayEn[5] = 0x00;
 			}
 			return;
 		}

@@ -57,7 +57,7 @@ static UINT32 lightgun_port;
 
 static UINT16 color_base[3];
 
-static INT32 nExtraCycles;
+static INT32 nExtraCycles[3];
 
 static UINT8 DrvJoy1[16];
 static UINT8 DrvJoy2[16];
@@ -70,7 +70,7 @@ static UINT8 DrvJoyFS[4];
 static UINT8 DrvDips[5];
 static UINT8 DrvReset;
 static UINT16 DrvInputs[3];
-
+static INT32 scanline = 0;
 static INT32 uses_gun = 0;
 static INT16 DrvGun0 = 0;
 static INT16 DrvGun1 = 0;
@@ -549,8 +549,8 @@ void deco32_z80_sound_init(UINT8 *rom, UINT8 *ram)
 	BurnYM2151SetRoute(BURN_SND_YM2151_YM2151_ROUTE_2, 0.40, BURN_SND_ROUTE_RIGHT);
 	BurnTimerAttachZet(3580000);
 
-	MSM6295Init(0, (32220000 / 32) / 132, 1);
-	MSM6295Init(1, (32220000 / 16) / 132, 1);
+	MSM6295Init(0, (32220000 / 32) / MSM6295_PIN7_HIGH, 1);
+	MSM6295Init(1, (32220000 / 16) / MSM6295_PIN7_HIGH, 1);
 	MSM6295SetRoute(0, 1.00, BURN_SND_ROUTE_BOTH);
 	MSM6295SetRoute(1, 0.25, BURN_SND_ROUTE_BOTH);
 }
@@ -618,7 +618,7 @@ static UINT8 deco_irq_read(INT32 offset)
 
 		case 3:
 			// ((totalcycles/fps)/scanlines)
-			INT32 hblank = ((ArmGetTotalCycles() / 256) > 145833) ? 1 : 0;
+			INT32 hblank = ((ArmTotalCycles() / 256) > 145833) ? 1 : 0;
 			UINT8 data = 0;
 			data |= 1 << 7;
 			data |= (lightgun_irq ? 1 : 0) << 6;
@@ -696,9 +696,9 @@ static inline void palette_write(UINT32 offs) // for captaven, only game to not 
 
 	UINT32 *p = (UINT32*)DrvPalBuf;
 
-	UINT8 r = (p[offs] >>  0) & 0xff;
-	UINT8 g = (p[offs] >>  8) & 0xff;
-	UINT8 b = (p[offs] >> 16) & 0xff;
+	UINT8 r = (BURN_ENDIAN_SWAP_INT32(p[offs]) >>  0) & 0xff;
+	UINT8 g = (BURN_ENDIAN_SWAP_INT32(p[offs]) >>  8) & 0xff;
+	UINT8 b = (BURN_ENDIAN_SWAP_INT32(p[offs]) >> 16) & 0xff;
 
 	DrvPalette[offs] = BurnHighCol(r,g,b,0);
 }
@@ -719,7 +719,7 @@ static void captaven_write_long(UINT32 address, UINT32 data)
 
 	if (address >= 0x130000 && address <= 0x131fff) {
 		UINT32 *p = (UINT32*)DrvPalBuf;
-		p[(address & 0x1fff) / 4] = data;
+		p[(address & 0x1fff) / 4] = BURN_ENDIAN_SWAP_INT32(data);
 		palette_write(address);
 	}
 
@@ -789,7 +789,7 @@ static UINT32 captaven_read_long(UINT32 address)
 //	bprintf (0, _T("RW: %5.5x\n"), address);
 	if (address >= 0x130000 && address <= 0x131fff) {
 		UINT32 *p = (UINT32*)DrvPalBuf;
-		return p[(address & 0x1fff) / 4];
+		return BURN_ENDIAN_SWAP_INT32(p[(address & 0x1fff) / 4]);
 	}
 
 	if (address >= 0x128000 && address <= 0x12ffff) {
@@ -981,9 +981,8 @@ static void fghthist_write_long(UINT32 address, UINT32 data)
 		return; // nop;
 	}
 
-	Write16Long(DrvSprRAM2,				0x170000, 0x171fff) // 16-bit - nslasher
-
-	Write16Long(DrvSprRAM,				0x178000, 0x179fff) // 16-bit
+	Write16Long(DrvSprRAM2,					0x170000, 0x171fff) // 16-bit - nslasher
+	Write16Long(DrvSprRAM,					0x178000, 0x179fff) // 16-bit
 	Write16Long(deco16_pf_ram[0],			0x182000, 0x183fff) // 16-bit
 	Write16Long(deco16_pf_ram[1],			0x184000, 0x185fff) // 16-bit
 	Write16Long(deco16_pf_rowscroll[0],		0x192000, 0x193fff) // 16-bit
@@ -1002,7 +1001,7 @@ static void fghthist_write_long(UINT32 address, UINT32 data)
 		case 0x150000: // fghthist / nslasher / tattass
 			if (game_select == 3) {
 				tattass_control_write(data);
-				global_priority = (data & 3) | (~data & 4); // 3rd bit is inverted in tattass
+				global_priority = (data & 3) | (~data & 4); // 3rd bit is inverted in tattass (compared to nslasher)
 			} else {
 				EEPROMWrite(data & 0x20, data & 0x40, data & 0x10);
 				global_priority = data & 7;
@@ -1073,9 +1072,8 @@ static UINT32 fghthist_read_long(UINT32 address)
 		return (deco146_104_prot_rw(0, (address & 0x7ffc) >> 1) << 16) | 0xffff;
 	}
 
-	Read16Long(DrvSprRAM2,				0x170000, 0x171fff) // 16-bit - nslasher
-
-	Read16Long(DrvSprRAM,				0x178000, 0x179fff) // 16-bit
+	Read16Long(DrvSprRAM2,					0x170000, 0x171fff) // 16-bit - nslasher
+	Read16Long(DrvSprRAM,					0x178000, 0x179fff) // 16-bit
 	Read16Long(deco16_pf_ram[0],			0x182000, 0x183fff) // 16-bit
 	Read16Long(deco16_pf_ram[1],			0x184000, 0x185fff) // 16-bit
 	Read16Long(deco16_pf_rowscroll[0],		0x192000, 0x193fff) // 16-bit
@@ -1087,22 +1085,23 @@ static UINT32 fghthist_read_long(UINT32 address)
 	Read16Long(deco16_pf_rowscroll[3],		0x1d4000, 0x1d5fff) // 16-bit
 	Read16Long(((UINT8*)deco16_pf_control[1]),	0x1e0000, 0x1e001f) // 16-bit
 
-	switch (address & ~3)
-	{
-		case 0x120020:
-			return DrvInputs[0];
+	if (game_select != 3) {
+		switch (address & ~3)
+		{
+			case 0x120020:
+				return DrvInputs[0];
 
-		case 0x120024:
-			return (DrvInputs[1] & ~0x10) | ((deco16_vblank) ? 0x10 : 0);
+			case 0x120024:
+				return (DrvInputs[1] & ~0x10) | ((deco16_vblank) ? 0x10 : 0);
 
-		case 0x120028:
-			return (EEPROMRead() & 1) ? 0xff : 0xfe;
+			case 0x120028:
+				return ((EEPROMRead() & 1) ? 0xff : 0xfe);
 
-		case 0x16c000:
-		case 0x17c000:
-			return 0; // nops
+			case 0x16c000:
+			case 0x17c000:
+				return 0; // nops
+		}
 	}
-
 	return 0;
 }
 
@@ -1231,7 +1230,7 @@ static UINT32 lockload_read_long(UINT32 address)
 static void dragngun_write_byte(UINT32 address, UINT8 data)
 {
 	if (address >= 0x1000000 && address <= 0x1001000) {
-		*((UINT32*)(DrvDVIRAM0 + ((address & 0xfff) ^ 3))) = data;
+		*((UINT32*)(DrvDVIRAM0 + ((address & 0xfff) ^ 3))) = BURN_ENDIAN_SWAP_INT32((UINT32)data);
 		return;
 	}
 
@@ -1257,7 +1256,7 @@ static void dragngun_write_long(UINT32 address, UINT32 data)
 	Write16Long(deco16_pf_rowscroll[3],		0x1e4000, 0x1e5fff) // 16-bit
 
 	if (address >= 0x1000000 && address <= 0x1001000) {
-		*((UINT32*)(DrvDVIRAM0 + ((address & 0xfff) / 4))) = data;
+		*((UINT32*)(DrvDVIRAM0 + ((address & 0xfff) / 4))) = BURN_ENDIAN_SWAP_INT32(data);
 		return;
 	}
 
@@ -1378,7 +1377,7 @@ static UINT32 dragngun_read_long(UINT32 address)
 	Read16Long(deco16_pf_rowscroll[3],		0x1e4000, 0x1e5fff) // 16-bit
 
 	if (address >= 0x1000008 && address <= 0x1001000) {
-		return *((UINT32*)(DrvDVIRAM0 + (address & 0xfff)));
+		return BURN_ENDIAN_SWAP_INT32(*((UINT32*)(DrvDVIRAM0 + (address & 0xfff))));
 	}
 
 	switch (address & ~3)
@@ -1458,9 +1457,12 @@ static INT32 DrvDoReset()
 		deco16SoundReset();
 	}
 
-	if (game_select != 3) DrvYM2151WritePort(0, 0);
+	if (game_select != 3) {
+		// tattass has neither
+		DrvYM2151WritePort(0, 0);
 
-	EEPROMReset();
+		EEPROMReset();
+	}
 
 	deco16Reset();
 
@@ -1476,7 +1478,7 @@ static INT32 DrvDoReset()
 	raster_irq_scanline = 0;
 	lightgun_latch = 0;
 
-	nExtraCycles = 0;
+	nExtraCycles[0] = nExtraCycles[1] = nExtraCycles[2] = 0;
 
 	HiscoreReset();
 
@@ -1525,7 +1527,7 @@ static INT32 MemIndex()
 	DrvAceRAM	= Next; Next += 0x000400; // 0xa0
 	DrvSprRAM2	= Next; Next += 0x001000;
 	DrvSprBuf2	= Next; Next += 0x001000;
-	DrvTMSRAM	= Next; Next += 0x000100;
+	DrvTMSRAM	= Next; Next += 0x000200; // 0x100 words!
 	DrvJackRAM	= Next; Next += 0x001000;
 	DrvDVIRAM0  = Next; Next += 0x008000;
 	DrvDVIRAM1  = Next; Next += 0x000200;
@@ -1577,6 +1579,8 @@ static INT32 FghthistCommonInit(INT32 z80_sound, UINT32 speedhack)
 	game_select = 1;
 	speedhack_address = speedhack;
 
+	BurnSetRefreshRate(57.79965);
+
 	gfxlen[0] = 0x200000;
 	gfxlen[1] = 0x200000;
 	gfxlen[2] = 0x200000;
@@ -1606,7 +1610,7 @@ static INT32 FghthistCommonInit(INT32 z80_sound, UINT32 speedhack)
 		if (BurnLoadRom(DrvSndROM0 + 0x000000,	  9, 1)) return 1;
 
 		if (BurnLoadRom(DrvSndROM1 + 0x000000,	 10, 1)) return 1;
-	
+
 		deco56_decrypt_gfx(DrvGfxROM1, 0x100000);
 		deco74_decrypt_gfx(DrvGfxROM2, 0x100000);
 
@@ -1657,7 +1661,7 @@ static INT32 FghthistCommonInit(INT32 z80_sound, UINT32 speedhack)
 	else
 	{
 		use_z80 = 0;
-		deco16SoundInit(DrvHucROM, DrvHucRAM, 3580000, 0, DrvYM2151WritePort, 0.42, 1006875, 1.00, 2013750, 0.35);
+		deco16SoundInit(DrvHucROM, DrvHucRAM, 4027500, 0, DrvYM2151WritePort, 0.42, 1006875, 1.00, 2013750, 0.35);
 		BurnYM2151SetRoute(BURN_SND_YM2151_YM2151_ROUTE_1, 0.80, BURN_SND_ROUTE_LEFT);
 		BurnYM2151SetRoute(BURN_SND_YM2151_YM2151_ROUTE_2, 0.80, BURN_SND_ROUTE_RIGHT);
 	}
@@ -1710,6 +1714,8 @@ static INT32 CaptavenCommonInit(INT32 has_z80, UINT32 speedhack)
 {
 	game_select = 0;
 	speedhack_address = speedhack;
+
+	BurnSetRefreshRate(57.44485); // 7MHz / 448 / 272 = 57.44485Hz (15.625kHz horizontal)
 
 	gfxlen[0] = 0x100000;
 	gfxlen[1] = 0x100000;
@@ -1840,6 +1846,9 @@ static INT32 NslasherCommonInit(INT32 has_z80, UINT32 speedhack)
 	game_select = 2;
 	has_ace = 1;
 	speedhack_address = speedhack;
+
+	BurnSetRefreshRate(58.464346);
+
 	GenericTilesInit(); // for allocating memory for pTempDraw;
 
 	gfxlen[0] = 0x400000;
@@ -1954,7 +1963,7 @@ static INT32 NslasherCommonInit(INT32 has_z80, UINT32 speedhack)
 	}
 	else
 	{
-		deco16SoundInit(DrvHucROM, DrvHucRAM, 3580000, 0, DrvYM2151WritePort, 0.42, 1006875, 1.00, 2013750, 0.25);
+		deco16SoundInit(DrvHucROM, DrvHucRAM, 4027500, 0, DrvYM2151WritePort, 0.42, 1006875, 1.00, 2013750, 0.25);
 		BurnYM2151SetRoute(BURN_SND_YM2151_YM2151_ROUTE_1, 0.80, BURN_SND_ROUTE_LEFT);
 		BurnYM2151SetRoute(BURN_SND_YM2151_YM2151_ROUTE_2, 0.80, BURN_SND_ROUTE_RIGHT);
 	}
@@ -2102,8 +2111,6 @@ static INT32 TattassCommonInit(INT32 has_z80, UINT32 speedhack)
 	ArmSetReadLongHandler(fghthist_read_long);
 	ArmClose();
 
-	EEPROMInit(&eeprom_interface_93C46);
-
 	deco_104_init();
 	deco_146_104_set_port_a_cb(fghthist_read_A); // inputs 0
 	deco_146_104_set_port_b_cb(tattass_read_B); // eeprom
@@ -2157,6 +2164,8 @@ static INT32 DragngunCommonInit(INT32 has_z80, UINT32 speedhack)
 {
 	game_select = 4;
 	speedhack_address = speedhack;
+
+	BurnSetRefreshRate(57.79965);
 
 	GenericTilesInit(); // for allocating memory for pTempSprite
 
@@ -2294,9 +2303,9 @@ static INT32 DragngunCommonInit(INT32 has_z80, UINT32 speedhack)
 
 	{	// disable service mode lockout (what is this??)
 		if (DrvARMROM[0] == 0x5f) { // japan
-			*((UINT32*)(DrvARMROM + 0x1a1b4)) = 0xe1a00000;
+			*((UINT32*)(DrvARMROM + 0x1a1b4)) = BURN_ENDIAN_SWAP_INT32(0xe1a00000);
 		} else {
-			*((UINT32*)(DrvARMROM + 0x1b32c)) = 0xe1a00000;
+			*((UINT32*)(DrvARMROM + 0x1b32c)) = BURN_ENDIAN_SWAP_INT32(0xe1a00000);
 		}
 	}
 
@@ -2328,7 +2337,9 @@ static INT32 DrvExit()
 		deco16SoundExit();
 	}
 
-	EEPROMExit();
+	if (game_select != 3) {
+		EEPROMExit();
+	}
 
 	ArmExit();
 
@@ -2364,13 +2375,13 @@ static void DrvPaletteUpdate()
 	UINT32 *p = (UINT32*)DrvPalBuf;
 	UINT32 *s = (UINT32*)DrvAceRAM;
 
-	UINT8 fadeptr = s[0x20] & 0xff;
-	UINT8 fadeptg = s[0x21] & 0xff;
-	UINT8 fadeptb = s[0x22] & 0xff;
-	UINT8 fadepsr = s[0x23] & 0xff;
-	UINT8 fadepsg = s[0x24] & 0xff;
-	UINT8 fadepsb = s[0x25] & 0xff;
-	UINT16 mode = s[0x26] & 0xffff;
+	UINT8 fadeptr = BURN_ENDIAN_SWAP_INT32(s[0x20]) & 0xff;
+	UINT8 fadeptg = BURN_ENDIAN_SWAP_INT32(s[0x21]) & 0xff;
+	UINT8 fadeptb = BURN_ENDIAN_SWAP_INT32(s[0x22]) & 0xff;
+	UINT8 fadepsr = BURN_ENDIAN_SWAP_INT32(s[0x23]) & 0xff;
+	UINT8 fadepsg = BURN_ENDIAN_SWAP_INT32(s[0x24]) & 0xff;
+	UINT8 fadepsb = BURN_ENDIAN_SWAP_INT32(s[0x25]) & 0xff;
+	UINT16 mode = BURN_ENDIAN_SWAP_INT32(s[0x26]) & 0xffff;
 
 	for (INT32 i = 0; i < 0x2000/4; i++)
 	{
@@ -2751,7 +2762,7 @@ static INT32 CaptavenStartDraw()
 
 	deco16_clear_prio_map();
 
-	BurnTransferClear();
+	BurnTransferClear(0x400); // PF3 base / pen 0x400 backdrop (matches hardware comp_pal_addr {1'b1,2'b00,8'h00})
 
 	return 0;
 }
@@ -2847,8 +2858,14 @@ static void draw_combined_playfield(INT32 color, INT32 priority) // opaque
 	UINT16 *dest = pTransDraw;
 	UINT8 *prio = deco16_prio_map;
 
+	if ((deco16_pf_control[1][5] & 0x8080) != 0x8080) {
+		memset(pTempDraw[2], 0x00, nScreenWidth * nScreenHeight * sizeof(INT16));
+		memset(pTempDraw[3], 0x00, nScreenWidth * nScreenHeight * sizeof(INT16));
+		return;
+	}
+
 	UINT8 *tptr = deco16_pf_rowscroll[3];
-	deco16_pf_rowscroll[3] = deco16_pf_rowscroll[2];
+	deco16_pf_rowscroll[3] = deco16_pf_rowscroll[2]; // use layer2's rowscroll for both layers
 
 	deco16_draw_layer(2, pTempDraw[2], DECO16_LAYER_OPAQUE);
 	deco16_draw_layer(3, pTempDraw[3], DECO16_LAYER_OPAQUE);
@@ -3578,8 +3595,16 @@ static INT32 DrvFrame()
 
 	INT32 nInterleave = 274;
 	INT32 nCyclesTotal[2] = { (INT32)((double)7000000 / 57.799650), (INT32)((double)deco16_sound_cpuclock / 57.799650) };
-	if (game_select == 2) nCyclesTotal[0] = 7080500 / 60; // nslasher
-	INT32 nCyclesDone[2] = { nExtraCycles, 0 };
+	if (game_select == 0) { // captaven: 7MHz / 448 / 272 = 57.44485Hz (15.625kHz horizontal)
+		nInterleave = 272;
+		nCyclesTotal[0] = (INT32)((double)7000000 / 57.44485);
+		nCyclesTotal[1] = (INT32)((double)deco16_sound_cpuclock / 57.44485);
+	}
+	if (game_select == 2) { // nslasher
+		nCyclesTotal[0] = (INT32)((double)7080500 / 58.464346);
+		nCyclesTotal[1] = (INT32)((double)deco16_sound_cpuclock / 58.464346);
+	}
+	INT32 nCyclesDone[2] = { nExtraCycles[0], nExtraCycles[1] };
 
 	ArmOpen(0);
 	h6280Open(0);
@@ -3620,7 +3645,8 @@ static INT32 DrvFrame()
 	h6280Close();
 	ArmClose();
 
-	nExtraCycles = nCyclesDone[0] - nCyclesTotal[0];
+	nExtraCycles[0] = nCyclesDone[0] - nCyclesTotal[0];
+	nExtraCycles[1] = nCyclesDone[1] - nCyclesTotal[1];
 
 	if (pBurnDraw && pDrawScanline == NULL) {
 		BurnDrvRedraw();
@@ -3657,9 +3683,12 @@ static INT32 DrvZ80Frame()
 	}
 
 	INT32 nInterleave = 274;
-	INT32 nCyclesTotal[2] = { 7000000 / 60, 3580000 / 60 };
-	if (game_select == 2) nCyclesTotal[0] = 7080500 / 60; // nslasher
-	INT32 nCyclesDone[2] = { nExtraCycles, 0 };
+	INT32 nCyclesTotal[2] = { (INT32)((double)7000000 / 57.799650), (INT32)((double)3580000 / 57.799650) };
+	if (game_select == 2) { // nslasher
+		nCyclesTotal[0] = (INT32)((double)7080500 / 58.464346);
+		nCyclesTotal[1] = (INT32)((double)3580000 / 58.464346);
+	}
+	INT32 nCyclesDone[2] = { nExtraCycles[0], nExtraCycles[1] };
 
 	ArmOpen(0);
 	ZetOpen(0);
@@ -3684,7 +3713,8 @@ static INT32 DrvZ80Frame()
 	ZetClose();
 	ArmClose();
 
-	nExtraCycles = nCyclesDone[0] - nCyclesTotal[0];
+	nExtraCycles[0] = nCyclesDone[0] - nCyclesTotal[0];
+	nExtraCycles[1] = nCyclesDone[1] - nCyclesTotal[1];
 
 	if (pBurnSoundOut) {
 		deco32_z80_sound_update(pBurnSoundOut, nBurnSoundLen);
@@ -3705,6 +3735,7 @@ static INT32 DrvBSMTFrame()
 
 	ArmNewFrame();
 	decobsmt_new_frame();
+
 	{
 		memset (DrvInputs, 0xff, 3 * sizeof(INT16));
 
@@ -3718,15 +3749,23 @@ static INT32 DrvBSMTFrame()
 	}
 
 	INT32 nInterleave = 274;
-	INT32 nCyclesTotal[3] = { 7000000 / 58, 1789790 / 58, 24000000/4 / 58 };
-	INT32 nCyclesDone[3] = { nExtraCycles, 0, 0 };
+	INT32 nCyclesTotal[3] = { (INT32)((double)7000000 / 57.79965), (INT32)((double)2000000 / 57.79965), (INT32)((double)24000000/4 / 57.79965) };
+	INT32 nCyclesDone[3] = { nExtraCycles[0], nExtraCycles[1], nExtraCycles[2] };
 
 	ArmOpen(0);
-	deco16_vblank = 1;
 
 	for (INT32 i = 0; i < nInterleave; i++)
 	{
+		scanline = (i + 248) % 274;
+
+		deco16_vblank = (scanline < 8 && scanline > 247);
+
+		if (scanline == 248) {
+			irq_callback(1);
+		}
+
 		CPU_RUN(0, Arm);
+
 		if (bsmt_in_reset == 0) {
 			M6809Open(0);
 			CPU_RUN(1, M6809);
@@ -3740,28 +3779,21 @@ static INT32 DrvBSMTFrame()
 			CPU_RUN(2, tms32010);
 			M6809Close();
 		}
-
-		deco_irq_scanline_callback(i); // iq_132 - ok?
-
-		if (i == 8) deco16_vblank = 0;
-
-		if (i == 248) {
-			if (game_select == 1 || game_select == 2 || game_select == 3) irq_callback(1);
-			deco16_vblank = 1;
-		}
 	}
+
+	ArmClose();
 
 	if (pBurnSoundOut) {
 		decobsmt_update();
 	}
 
-	ArmClose();
-
-	nExtraCycles = nCyclesDone[0] - nCyclesTotal[0];
-
 	if (pBurnDraw) {
 		BurnDrvRedraw();
 	}
+
+	nExtraCycles[0] = nCyclesDone[0] - nCyclesTotal[0];
+	nExtraCycles[1] = nCyclesDone[1] - nCyclesTotal[1];
+	nExtraCycles[2] = nCyclesDone[2] - nCyclesTotal[2];
 
 	return 0;
 }
@@ -3769,7 +3801,7 @@ static INT32 DrvBSMTFrame()
 static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 {
 	struct BurnArea ba;
-	
+
 	if (pnMin != NULL) {
 		*pnMin = 0x029722;
 	}
@@ -4860,7 +4892,94 @@ static struct BurnRomInfo tattassRomDesc[] = {
 	{ "pp44.cpu",		0x80000, 0xc3ca5b49, 1 | BRF_PRG | BRF_ESS }, //  0 ARM Code
 	{ "pp45.cpu",		0x80000, 0xd3f30de0, 1 | BRF_PRG | BRF_ESS }, //  1
 
-	{ "u7.snd",		0x10000, 0x6947be8a, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 Code
+	{ "u7.snd",			0x10000, 0xa7228077, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 Code
+
+	{ "abak_b01.s02",	0x80000, 0xbc805680, 3 | BRF_GRA },           //  3 Tilemap 0&1 Tiles & Characters (Encrypted)
+	{ "abak_b01.s13",	0x80000, 0x350effcd, 3 | BRF_GRA },           //  4
+	{ "abak_b23.s02",	0x80000, 0x91abdc21, 3 | BRF_GRA },           //  5
+	{ "abak_b23.s13",	0x80000, 0x80eb50fe, 3 | BRF_GRA },           //  6
+
+	{ "bbak_b01.s02",	0x80000, 0x611be9a6, 4 | BRF_GRA },           //  7 Tilemap 2&3 Tiles (Encrypted)
+	{ "bbak_b01.s13",	0x80000, 0x097e0604, 4 | BRF_GRA },           //  8
+	{ "bbak_b23.s02",	0x80000, 0x3836531a, 4 | BRF_GRA },           //  9
+	{ "bbak_b23.s13",	0x80000, 0x1210485a, 4 | BRF_GRA },           // 10
+
+	{ "ob1_c0.b0",		0x80000, 0x053fecca, 5 | BRF_GRA },           // 11 Sprites bank 0
+	{ "ob1_c1.b0",		0x80000, 0xe183e6bc, 5 | BRF_GRA },           // 12
+	{ "ob1_c2.b0",		0x80000, 0x1314f828, 5 | BRF_GRA },           // 13
+	{ "ob1_c3.b0",		0x80000, 0xc63866df, 5 | BRF_GRA },           // 14
+	{ "ob1_c4.b0",		0x80000, 0xf71cdd1b, 5 | BRF_GRA },           // 15
+	{ "ob1_c0.b1",		0x80000, 0x385434b0, 5 | BRF_GRA },           // 16
+	{ "ob1_c1.b1",		0x80000, 0x0a3ec489, 5 | BRF_GRA },           // 17
+	{ "ob1_c2.b1",		0x80000, 0x52f06081, 5 | BRF_GRA },           // 18
+	{ "ob1_c3.b1",		0x80000, 0xa8a5cfbe, 5 | BRF_GRA },           // 19
+	{ "ob1_c4.b1",		0x80000, 0x09d0acd6, 5 | BRF_GRA },           // 20
+	{ "ob1_c0.b2",		0x80000, 0x946e9f59, 5 | BRF_GRA },           // 21
+	{ "ob1_c1.b2",		0x80000, 0x9f66ad54, 5 | BRF_GRA },           // 22
+	{ "ob1_c2.b2",		0x80000, 0xa8df60eb, 5 | BRF_GRA },           // 23
+	{ "ob1_c3.b2",		0x80000, 0xa1a753be, 5 | BRF_GRA },           // 24
+	{ "ob1_c4.b2",		0x80000, 0xb65b3c4b, 5 | BRF_GRA },           // 25
+	{ "ob1_c0.b3",		0x80000, 0xcbbbc696, 5 | BRF_GRA },           // 26
+	{ "ob1_c1.b3",		0x80000, 0xf7b1bdee, 5 | BRF_GRA },           // 27
+	{ "ob1_c2.b3",		0x80000, 0x97815619, 5 | BRF_GRA },           // 28
+	{ "ob1_c3.b3",		0x80000, 0xfc3ccb7a, 5 | BRF_GRA },           // 29
+	{ "ob1_c4.b3",		0x80000, 0xdfdfd0ff, 5 | BRF_GRA },           // 30
+
+	{ "ob2_c0.b0",		0x80000, 0x9080ebe4, 6 | BRF_GRA },           // 31 Sprites bank 1
+	{ "ob2_c1.b0",		0x80000, 0xc0464970, 6 | BRF_GRA },           // 32
+	{ "ob2_c2.b0",		0x80000, 0x35a2e621, 6 | BRF_GRA },           // 33
+	{ "ob2_c3.b0",		0x80000, 0x99c7cc2d, 6 | BRF_GRA },           // 34
+	{ "ob2_c0.b1",		0x80000, 0x2c2c15c9, 6 | BRF_GRA },           // 35
+	{ "ob2_c1.b1",		0x80000, 0xd2c49a14, 6 | BRF_GRA },           // 36
+	{ "ob2_c2.b1",		0x80000, 0xfbe957e8, 6 | BRF_GRA },           // 37
+	{ "ob2_c3.b1",		0x80000, 0xd7238829, 6 | BRF_GRA },           // 38
+	{ "ob2_c0.b2",		0x80000, 0xaefa1b01, 6 | BRF_GRA },           // 39
+	{ "ob2_c1.b2",		0x80000, 0x4af620ca, 6 | BRF_GRA },           // 40
+	{ "ob2_c2.b2",		0x80000, 0x8e58be07, 6 | BRF_GRA },           // 41
+	{ "ob2_c3.b2",		0x80000, 0x1b5188c5, 6 | BRF_GRA },           // 42
+	{ "ob2_c0.b3",		0x80000, 0xa2a5dafd, 6 | BRF_GRA },           // 43
+	{ "ob2_c1.b3",		0x80000, 0x6f0afd05, 6 | BRF_GRA },           // 44
+	{ "ob2_c2.b3",		0x80000, 0x90fe5f4f, 6 | BRF_GRA },           // 45
+	{ "ob2_c3.b3",		0x80000, 0xe3517e6e, 6 | BRF_GRA },           // 46
+
+	{ "u17.snd",		0x80000, 0x49303539, 7 | BRF_GRA },           // 47 BSMT Samples
+	{ "u21.snd",		0x80000, 0x0ad8bc18, 7 | BRF_GRA },           // 48
+	{ "u36.snd",		0x80000, 0xf558947b, 7 | BRF_GRA },           // 49
+	{ "u37.snd",		0x80000, 0x7a3190bc, 7 | BRF_GRA },           // 50
+
+	{ "eeprom-tattass.bin",	0x00400, 0x7140f40c, 8 | BRF_PRG | BRF_ESS }, // 51 Default Settings
+
+#if !defined ROM_VERIFY
+	{ "bsmt2000.bin",	0x02000, 0xc2a265af, 9 | BRF_PRG | BRF_ESS }, // 52 DSP Code
+#endif
+};
+
+STD_ROM_PICK(tattass)
+STD_ROM_FN(tattass)
+
+static INT32 TattassInit()
+{
+	return TattassCommonInit(0, 0x1c5ec);
+}
+
+struct BurnDriver BurnDrvTattass = {
+	"tattass", NULL, NULL, NULL, "1994",
+	"Tattoo Assassins (US prototype, Mar 14 1995)\0", NULL, "Data East Pinball", "DECO 32",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_PROTOTYPE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_DATAEAST, GBF_VSFIGHT, 0,
+	NULL, tattassRomInfo, tattassRomName, NULL, NULL, NULL, NULL, TattassInputInfo, TattassDIPInfo,
+	TattassInit, DrvExit, DrvBSMTFrame, NslasherDraw, DrvScan, &DrvRecalc, 0x800,
+	320, 240, 4, 3
+};
+
+
+// Tattoo Assassins (US prototype, Mar 14 1995, older sound)
+
+static struct BurnRomInfo tattassoRomDesc[] = {
+	{ "pp44.cpu",		0x80000, 0xc3ca5b49, 1 | BRF_PRG | BRF_ESS }, //  0 ARM Code
+	{ "pp45.cpu",		0x80000, 0xd3f30de0, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "u7.snd",			0x10000, 0x6947be8a, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 Code
 
 	{ "abak_b01.s02",	0x80000, 0xbc805680, 3 | BRF_GRA },           //  3 Tilemap 0&1 Tiles & Characters (Encrypted)
 	{ "abak_b01.s13",	0x80000, 0x350effcd, 3 | BRF_GRA },           //  4
@@ -4922,20 +5041,15 @@ static struct BurnRomInfo tattassRomDesc[] = {
 #endif
 };
 
-STD_ROM_PICK(tattass)
-STD_ROM_FN(tattass)
+STD_ROM_PICK(tattasso)
+STD_ROM_FN(tattasso)
 
-static INT32 TattassInit()
-{
-	return TattassCommonInit(0, 0x1c5ec);
-}
-
-struct BurnDriver BurnDrvTattass = {
-	"tattass", NULL, NULL, NULL, "1994",
-	"Tattoo Assassins (US prototype, Mar 14 1995)\0", NULL, "Data East Pinball", "DECO 32",
+struct BurnDriver BurnDrvTattasso = {
+	"tattasso", "tattass", NULL, NULL, "1994",
+	"Tattoo Assassins (US prototype, Mar 14 1995, older sound)\0", NULL, "Data East Pinball", "DECO 32",
 	NULL, NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_PROTOTYPE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_DATAEAST, GBF_VSFIGHT, 0,
-	NULL, tattassRomInfo, tattassRomName, NULL, NULL, NULL, NULL, TattassInputInfo, TattassDIPInfo,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_PROTOTYPE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_DATAEAST, GBF_VSFIGHT, 0,
+	NULL, tattassoRomInfo, tattassoRomName, NULL, NULL, NULL, NULL, TattassInputInfo, TattassDIPInfo,
 	TattassInit, DrvExit, DrvBSMTFrame, NslasherDraw, DrvScan, &DrvRecalc, 0x800,
 	320, 240, 4, 3
 };
@@ -4947,7 +5061,7 @@ static struct BurnRomInfo tattassaRomDesc[] = {
 	{ "rev232a.000",	0x80000, 0x1a357112, 1 | BRF_PRG | BRF_ESS }, //  0 ARM Code
 	{ "rev232a.001",	0x80000, 0x550245d4, 1 | BRF_PRG | BRF_ESS }, //  1
 
-	{ "u7.snd",		0x10000, 0x6947be8a, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 Code
+	{ "u7.snd",			0x10000, 0xa7228077, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 Code
 
 	{ "abak_b01.s02",	0x80000, 0xbc805680, 3 | BRF_GRA },           //  3 Tilemap 0&1 Tiles & Characters (Encrypted)
 	{ "abak_b01.s13",	0x80000, 0x350effcd, 3 | BRF_GRA },           //  4
@@ -4997,10 +5111,10 @@ static struct BurnRomInfo tattassaRomDesc[] = {
 	{ "ob2_c2.b3",		0x80000, 0x90fe5f4f, 6 | BRF_GRA },           // 45
 	{ "ob2_c3.b3",		0x80000, 0xe3517e6e, 6 | BRF_GRA },           // 46
 
-	{ "u17.snd",		0x80000, 0xb945c18d, 7 | BRF_GRA },           // 47 BSMT Samples
-	{ "u21.snd",		0x80000, 0x10b2110c, 7 | BRF_GRA },           // 48
-	{ "u36.snd",		0x80000, 0x3b73abe2, 7 | BRF_GRA },           // 49
-	{ "u37.snd",		0x80000, 0x986066b5, 7 | BRF_GRA },           // 50
+	{ "u17.snd",		0x80000, 0x49303539, 7 | BRF_GRA },           // 47 BSMT Samples
+	{ "u21.snd",		0x80000, 0x0ad8bc18, 7 | BRF_GRA },           // 48
+	{ "u36.snd",		0x80000, 0xf558947b, 7 | BRF_GRA },           // 49
+	{ "u37.snd",		0x80000, 0x7a3190bc, 7 | BRF_GRA },           // 50
 
 	{ "eeprom-tattass.bin",	0x00400, 0x7140f40c, 8 | BRF_PRG | BRF_ESS }, // 51 Default Settings
 

@@ -212,25 +212,25 @@ static void xorworldPatch() // protection hack
 {
 	UINT16 *rom = (UINT16*)Drv68KROM;
 
-	rom[0x1390 / 2] = 0x4239;
-	rom[0x1392 / 2] = 0x00ff;
-	rom[0x1394 / 2] = 0xe196;
-	rom[0x1396 / 2] = 0x4239;
-	rom[0x1398 / 2] = 0x00ff;
-	rom[0x139a / 2] = 0xe197;
-	rom[0x139c / 2] = 0x4239;
-	rom[0x139e / 2] = 0x00ff;
-	rom[0x13a0 / 2] = 0xe0bc;
-	rom[0x13a2 / 2] = 0x41f9;
-	rom[0x13a4 / 2] = 0x00ff;
-	rom[0x13a6 / 2] = 0xcfce;
-	rom[0x13a8 / 2] = 0x3e3c;
-	rom[0x13aa / 2] = 0x000f;
-	rom[0x13ac / 2] = 0x4218;
-	rom[0x13ae / 2] = 0x51cf;
-	rom[0x13b0 / 2] = 0xfffc;
-	rom[0x13b2 / 2] = 0x4e75;
-	rom[0x13b4 / 2] = 0x31ff;
+	rom[0x1390 / 2] = BURN_ENDIAN_SWAP_INT16(0x4239);
+	rom[0x1392 / 2] = BURN_ENDIAN_SWAP_INT16(0x00ff);
+	rom[0x1394 / 2] = BURN_ENDIAN_SWAP_INT16(0xe196);
+	rom[0x1396 / 2] = BURN_ENDIAN_SWAP_INT16(0x4239);
+	rom[0x1398 / 2] = BURN_ENDIAN_SWAP_INT16(0x00ff);
+	rom[0x139a / 2] = BURN_ENDIAN_SWAP_INT16(0xe197);
+	rom[0x139c / 2] = BURN_ENDIAN_SWAP_INT16(0x4239);
+	rom[0x139e / 2] = BURN_ENDIAN_SWAP_INT16(0x00ff);
+	rom[0x13a0 / 2] = BURN_ENDIAN_SWAP_INT16(0xe0bc);
+	rom[0x13a2 / 2] = BURN_ENDIAN_SWAP_INT16(0x41f9);
+	rom[0x13a4 / 2] = BURN_ENDIAN_SWAP_INT16(0x00ff);
+	rom[0x13a6 / 2] = BURN_ENDIAN_SWAP_INT16(0xcfce);
+	rom[0x13a8 / 2] = BURN_ENDIAN_SWAP_INT16(0x3e3c);
+	rom[0x13aa / 2] = BURN_ENDIAN_SWAP_INT16(0x000f);
+	rom[0x13ac / 2] = BURN_ENDIAN_SWAP_INT16(0x4218);
+	rom[0x13ae / 2] = BURN_ENDIAN_SWAP_INT16(0x51cf);
+	rom[0x13b0 / 2] = BURN_ENDIAN_SWAP_INT16(0xfffc);
+	rom[0x13b2 / 2] = BURN_ENDIAN_SWAP_INT16(0x4e75);
+	rom[0x13b4 / 2] = BURN_ENDIAN_SWAP_INT16(0x31ff);
 }
 
 static INT32 DrvInit()
@@ -299,8 +299,8 @@ static void draw_layer()
 		INT32 sx = (offs & 0x1f) << 3;
 		INT32 sy = (offs >> 5) << 3;
 
-		INT32 code  = ram[offs] & 0x0fff;
-		INT32 color = ram[offs] >> 12;
+		INT32 code  = BURN_ENDIAN_SWAP_INT16(ram[offs]) & 0x0fff;
+		INT32 color = BURN_ENDIAN_SWAP_INT16(ram[offs]) >> 12;
 
 		Render8x8Tile(pTransDraw, code, sx, sy - 16, color, 4, 0, DrvGfxROM);
 	}
@@ -312,10 +312,10 @@ static void draw_sprites()
 
 	for (INT32 i = 0; i < 0x40; i += 2)
 	{
-		INT32 sx    = ram[i] & 0xff;
-		INT32 sy    = (240 - (ram[i] >> 8)) - 16;
-		INT32 code  = ram[i+1] & 0x0ffc;
-		INT32 color = ram[i+1] >> 12;
+		INT32 sx    = BURN_ENDIAN_SWAP_INT16(ram[i]) & 0xff;
+		INT32 sy    = (240 - (BURN_ENDIAN_SWAP_INT16(ram[i]) >> 8)) - 16;
+		INT32 code  = BURN_ENDIAN_SWAP_INT16(ram[i+1]) & 0x0ffc;
+		INT32 color = BURN_ENDIAN_SWAP_INT16(ram[i+1]) >> 12;
 
 		Render8x8Tile_Mask_Clip(pTransDraw, code + 0, sx + 0, sy + 0, color, 4, 0, 0, DrvGfxROM);
 		Render8x8Tile_Mask_Clip(pTransDraw, code + 1, sx + 0, sy + 8, color, 4, 0, 0, DrvGfxROM);
@@ -406,7 +406,7 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 }
 
 
-// Xor World (prototype)
+// Xor World (ver 1.2, checksum DB5D0F, prototype)
 
 static struct BurnRomInfo xorworldRomDesc[] = {
 	{ "c13.bin",	0x10000, 0x615a864d, 1 | BRF_PRG | BRF_ESS }, //  0 68k Code
@@ -415,9 +415,9 @@ static struct BurnRomInfo xorworldRomDesc[] = {
 	{ "d9.bin",		0x10000, 0xda8d4d65, 2 | BRF_GRA },           //  2 Tiles and Sprites
 	{ "d10.bin",	0x10000, 0x3b1d6f24, 2 | BRF_GRA },           //  3
 
-	{ "b4.bin",	0x00100, 0x75e468af, 3 | BRF_GRA },           //  4 Color PROMs
-	{ "b7.bin",	0x00100, 0x7e1cd146, 3 | BRF_GRA },           //  5
-	{ "b5.bin",	0x00100, 0xc1b9d9f9, 3 | BRF_GRA },           //  6
+	{ "b4.bin",		0x00100, 0x75e468af, 3 | BRF_GRA },           //  4 Color PROMs
+	{ "b7.bin",		0x00100, 0x7e1cd146, 3 | BRF_GRA },           //  5
+	{ "b5.bin",		0x00100, 0xc1b9d9f9, 3 | BRF_GRA },           //  6
 };
 
 STD_ROM_PICK(xorworld)
@@ -425,10 +425,38 @@ STD_ROM_FN(xorworld)
 
 struct BurnDriver BurnDrvXorworld = {
 	"xorworld", NULL, NULL, NULL, "1990",
-	"Xor World (prototype)\0", NULL, "Gaelco", "Miscellaneous",
+	"Xor World (ver 1.2, checksum DB5D0F, prototype)\0", NULL, "Gaelco", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_PROTOTYPE, 2, HARDWARE_MISC_POST90S, GBF_PUZZLE, 0,
 	NULL, xorworldRomInfo, xorworldRomName, NULL, NULL, NULL, NULL, XorworldInputInfo, XorworldDIPInfo,
+	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x100,
+	256, 224, 4, 3
+};
+
+
+// Xor World (ver 1.2, checksum DB5D10, prototype)
+
+static struct BurnRomInfo xorworldaRomDesc[] = {
+	{ "2_p3_27c512.bin",	0x10000, 0x615a864d, 1 | BRF_PRG | BRF_ESS }, //  0 68k Code
+	{ "1_4_27c512.bin",		0x10000, 0x4919889a, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "d9.bin",				0x10000, 0xda8d4d65, 2 | BRF_GRA },           //  2 Tiles and Sprites
+	{ "d10.bin",			0x10000, 0x3b1d6f24, 2 | BRF_GRA },           //  3
+
+	{ "b4.bin",				0x00100, 0x75e468af, 3 | BRF_GRA },           //  4 Color PROMs
+	{ "b7.bin",				0x00100, 0x7e1cd146, 3 | BRF_GRA },           //  5
+	{ "b5.bin",				0x00100, 0xc1b9d9f9, 3 | BRF_GRA },           //  6
+};
+
+STD_ROM_PICK(xorworlda)
+STD_ROM_FN(xorworlda)
+
+struct BurnDriver BurnDrvXorworlda = {
+	"xorworlda", "xorworld", NULL, NULL, "1990",
+	"Xor World (ver 1.2, checksum DB5D10, prototype)\0", NULL, "Gaelco", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_PROTOTYPE, 2, HARDWARE_MISC_POST90S, GBF_PUZZLE, 0,
+	NULL, xorworldaRomInfo, xorworldaRomName, NULL, NULL, NULL, NULL, XorworldInputInfo, XorworldDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x100,
 	256, 224, 4, 3
 };

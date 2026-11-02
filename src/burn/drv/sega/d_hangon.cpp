@@ -770,6 +770,8 @@ static struct BurnRomInfo HangonRomDesc[] = {
 	{ "315-5118.bin",     0x0008f, 0x51d448a2, BRF_OPT },
 	{ "315-5119.bin",     0x0008f, 0xa37f00e1, BRF_OPT },
 	{ "315-5120.bin",     0x0008f, 0xba5f92ec, BRF_OPT },
+	{ "315-5103.6e",      0x000eb, 0x85284c32, BRF_OPT },
+	{ "315-5121.2a",      0x000eb, 0x5dd89643, BRF_OPT },
 };
 
 
@@ -816,6 +818,8 @@ static struct BurnRomInfo Hangon1RomDesc[] = {
 	{ "315-5118.bin",     0x0008f, 0x51d448a2, BRF_OPT },
 	{ "315-5119.bin",     0x0008f, 0xa37f00e1, BRF_OPT },
 	{ "315-5120.bin",     0x0008f, 0xba5f92ec, BRF_OPT },
+	{ "315-5103.6e",      0x000eb, 0x85284c32, BRF_OPT },
+	{ "315-5121.2a",      0x000eb, 0x5dd89643, BRF_OPT },
 };
 
 
@@ -862,6 +866,8 @@ static struct BurnRomInfo Hangon2RomDesc[] = {
 	{ "315-5118.bin",     0x0008f, 0x51d448a2, BRF_OPT },
 	{ "315-5119.bin",     0x0008f, 0xa37f00e1, BRF_OPT },
 	{ "315-5120.bin",     0x0008f, 0xba5f92ec, BRF_OPT },
+	{ "315-5103.6e",      0x000eb, 0x85284c32, BRF_OPT },
+	{ "315-5121.2a",      0x000eb, 0x5dd89643, BRF_OPT },
 };
 
 
@@ -1453,7 +1459,7 @@ static UINT16 __fastcall SharrierReadWord(UINT32 a)
 {
 	if (a >= 0x40000 && a <= 0x43fff) {
 		if (dontrecurse == 0) sys16_sync_mcu();
-		return *(UINT16*)(System16Ram + (a & 0x3fff));
+		return BURN_ENDIAN_SWAP_INT16(*(UINT16*)(System16Ram + (a & 0x3fff)));
 	}
 
 	switch (a) {
@@ -1587,7 +1593,7 @@ static void __fastcall SharrierWriteWord(UINT32 a, UINT16 d)
 			bprintf(0, _T("[68k.b] frame: %d / cyc: %d  -  addr  %x   data %x\n"), nCurrentFrame, SekTotalCycles(), a, d);
 		}
 #endif
-		*(UINT16*)(System16Ram + (a & 0x3fff)) = d;
+		*(UINT16*)(System16Ram + (a & 0x3fff)) = BURN_ENDIAN_SWAP_INT16(d);
 		return;
 	}
 
@@ -1940,9 +1946,9 @@ struct BurnDriver BurnDrvEndurora = {
 	"endurora", "enduror", NULL, NULL, "1986",
 	"Enduro Racer (Rev A, YM2151, mask ROM sprites, FD1089B 317-0013A)\0", NULL, "Sega", "Hang-On",
 	NULL, NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_HANGON | HARDWARE_SEGA_FD1089B_ENC | HARDWARE_SEGA_SPRITE_LOAD32 | HARDWARE_SEGA_YM2203, GBF_RACING, 0,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_HANGON | HARDWARE_SEGA_FD1089B_ENC | HARDWARE_SEGA_SPRITE_LOAD32, GBF_RACING, 0,
 	NULL, EnduroraRomInfo, EnduroraRomName, NULL, NULL, NULL, NULL, EndurorInputInfo, EndurorDIPInfo,
-	EndurorInit, System16Exit, HangonYM2203Frame, HangonRender, System16Scan,
+	EndurorInit, System16Exit, HangonFrame, HangonRender, System16Scan,
 	NULL, 0x1800, 320, 224, 4, 3
 };
 
@@ -1950,9 +1956,9 @@ struct BurnDriver BurnDrvEndurorb = {
 	"endurorb", "enduror", NULL, NULL, "1986",
 	"Enduro Racer (YM2151, FD1089B 317-0013A)\0", NULL, "Sega", "Hang-On",
 	NULL, NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_HANGON | HARDWARE_SEGA_FD1089B_ENC | HARDWARE_SEGA_SPRITE_LOAD32 | HARDWARE_SEGA_YM2203, GBF_RACING, 0,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_HANGON | HARDWARE_SEGA_FD1089B_ENC | HARDWARE_SEGA_SPRITE_LOAD32, GBF_RACING, 0,
 	NULL, EndurorbRomInfo, EndurorbRomName, NULL, NULL, NULL, NULL, EndurorInputInfo, EndurorDIPInfo,
-	EndurorInit, System16Exit, HangonYM2203Frame, HangonRender, System16Scan,
+	EndurorInit, System16Exit, HangonFrame, HangonRender, System16Scan,
 	NULL, 0x1800, 320, 224, 4, 3
 };
 

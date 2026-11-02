@@ -37,6 +37,7 @@ static struct BurnInputInfo Mk3InputList[] = {
 	{"Tilt",			BIT_DIGITAL,	nWolfUnitJoy3 + 3,	"tilt"},
 	{"Dip A",			BIT_DIPSWITCH,	nWolfUnitDSW + 0,	"dip"},
 	{"Dip B",			BIT_DIPSWITCH,	nWolfUnitDSW + 1,	"dip"},
+	{"Dip C",			BIT_DIPSWITCH,	nWolfUnitDSW + 2,	"dip"},
 };
 
 STDINPUTINFO(Mk3)
@@ -102,6 +103,72 @@ static struct BurnDIPInfo Mk3DIPList[]=
 };
 
 STDDIPINFO(Mk3)
+
+static struct BurnDIPInfo UMk3DIPList[]=
+{
+	{0x1c, 0xff, 0xff, 0x7d, NULL		},
+	{0x1d, 0xff, 0xff, 0xd4, NULL		},
+	{0x1e, 0xff, 0xff, 0x00, NULL		},
+
+	{0   , 0xfe, 0   ,    2, "Test Switch"		},
+	{0x1c, 0x01, 0x01, 0x01, "Off"		},
+	{0x1c, 0x01, 0x01, 0x00, "On"		},
+
+	{0   , 0xfe, 0   ,    2, "Counters"		},
+	{0x1c, 0x01, 0x02, 0x02, "One"		},
+	{0x1c, 0x01, 0x02, 0x00, "Two"		},
+
+	{0   , 0xfe, 0   ,    19, "Coinage"		},
+	{0x1c, 0x01, 0x7c, 0x7c, "USA-1"		},
+	{0x1c, 0x01, 0x7c, 0x3c, "USA-2"		},
+	{0x1c, 0x01, 0x7c, 0x5c, "USA-3"		},
+	{0x1c, 0x01, 0x7c, 0x1c, "USA-4"		},
+	{0x1c, 0x01, 0x7c, 0x6c, "USA-ECA"		},
+	{0x1c, 0x01, 0x7c, 0x0c, "USA-Free Play"		},
+	{0x1c, 0x01, 0x7c, 0x74, "German-1"		},
+	{0x1c, 0x01, 0x7c, 0x34, "German-2"		},
+	{0x1c, 0x01, 0x7c, 0x54, "German-3"		},
+	{0x1c, 0x01, 0x7c, 0x14, "German-4"		},
+	{0x1c, 0x01, 0x7c, 0x64, "German-5"		},
+	{0x1c, 0x01, 0x7c, 0x24, "German-ECA"		},
+	{0x1c, 0x01, 0x7c, 0x04, "German-Free Play"		},
+	{0x1c, 0x01, 0x7c, 0x78, "French-1"		},
+	{0x1c, 0x01, 0x7c, 0x38, "French-2"		},
+	{0x1c, 0x01, 0x7c, 0x58, "French-3"		},
+	{0x1c, 0x01, 0x7c, 0x18, "French-4"		},
+	{0x1c, 0x01, 0x7c, 0x68, "French-ECA"		},
+	{0x1c, 0x01, 0x7c, 0x08, "French-Free Play"		},
+
+	{0   , 0xfe, 0   ,    2, "Coinage Source"		},
+	{0x1c, 0x01, 0x80, 0x80, "Dipswitch"		},
+	{0x1c, 0x01, 0x80, 0x00, "CMOS"		},
+
+	{0   , 0xfe, 0   ,    2, "Powerup Test"		},
+	{0x1d, 0x01, 0x02, 0x00, "Off"		},
+	{0x1d, 0x01, 0x02, 0x02, "On"		},
+
+	{0   , 0xfe, 0   ,    2, "Bill Validator"		},
+	{0x1d, 0x01, 0x04, 0x04, "Off"		},
+	{0x1d, 0x01, 0x04, 0x00, "On"		},
+
+	{0   , 0xfe, 0   ,    2, "Attract Sound"		},
+	{0x1d, 0x01, 0x10, 0x00, "Off"		},
+	{0x1d, 0x01, 0x10, 0x10, "On"		},
+
+	{0   , 0xfe, 0   ,    2, "Blood"		},
+	{0x1d, 0x01, 0x40, 0x00, "Off"		},
+	{0x1d, 0x01, 0x40, 0x40, "On"		},
+
+	{0   , 0xfe, 0   ,    2, "Violence"		},
+	{0x1d, 0x01, 0x80, 0x00, "Off"		},
+	{0x1d, 0x01, 0x80, 0x80, "On"		},
+
+	{0   , 0xfe, 0   ,    2, "Scorpion voice bugfix"	},
+	{0x1e, 0x01, 0x01, 0x00, "On"		},
+	{0x1e, 0x01, 0x01, 0x01, "Off"		},
+};
+
+STDDIPINFO(UMk3)
 
 static struct BurnInputInfo OpeniceInputList[] = {
 	{"P1 Coin",		    BIT_DIGITAL,	nWolfUnitJoy3 + 0,	"p1 coin"},
@@ -543,7 +610,7 @@ struct BurnDriver BurnDrvMk3 = {
 	BDF_GAME_WORKING, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, mk3RomInfo, mk3RomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -594,7 +661,7 @@ struct BurnDriver BurnDrvMk3r20 = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, mk3r20RomInfo, mk3r20RomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -645,7 +712,7 @@ struct BurnDriver BurnDrvMk3r10 = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, mk3r10RomInfo, mk3r10RomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -696,7 +763,7 @@ struct BurnDriver BurnDrvMk3p40 = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, mk3p40RomInfo, mk3p40RomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -747,11 +814,115 @@ struct BurnDriver BurnDrvUmk3 = {
 	"Ultimate Mortal Kombat 3 (rev 1.2)\0", NULL, "Midway", "MIDWAY Wolf-Unit",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
-	NULL, umk3RomInfo, umk3RomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
-    WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+	NULL, umk3RomInfo, umk3RomName, NULL, NULL, NULL, NULL, Mk3InputInfo, UMk3DIPInfo,
+    WolfUnitInitUMK3Patch, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
+
+// Ultimate Mortal Kombat 3 WaveNet Edition (rev 2.03 04/01/97)
+
+static struct BurnRomInfo umk3wRomDesc[] = {
+	{ "l1.2_mortal_kombat_3_u54_wavenet.u54",	0x080000, 0x74f1e45d, 1 | BRF_PRG | BRF_ESS }, //  0 TMS34010
+	{ "l1.2_mortal_kombat_3_u63_wavenet.u63",	0x080000, 0x289d62dc, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "l2.0_mortal_kombat_3_u2_ultimate.u2",	0x100000, 0x3838cfe5, 2 | BRF_PRG | BRF_ESS }, //  2 DCS sound banks
+	{ "l1_mortal_kombat_3_u3_music_spch.u3",	0x100000, 0x856fe411, 2 | BRF_PRG | BRF_ESS }, //  3
+	{ "l1_mortal_kombat_3_u4_music_spch.u4",	0x100000, 0x428a406f, 2 | BRF_PRG | BRF_ESS }, //  4
+	{ "l1_mortal_kombat_3_u5_music_spch.u5",	0x100000, 0x3b98a09f, 2 | BRF_PRG | BRF_ESS }, //  5
+
+	{ "l1_mortal_kombat_3_u133_game_rom.u133",	0x100000, 0x79b94667, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 0) }, //  6 GFX
+	{ "l1_mortal_kombat_3_u132_game_rom.u132",	0x100000, 0x13e95228, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 1) }, //  7
+	{ "l1_mortal_kombat_3_u131_game_rom.u131",	0x100000, 0x41001e30, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 2) }, //  8
+	{ "l1_mortal_kombat_3_u130_game_rom.u130",	0x100000, 0x49379dd7, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 3) }, //  9
+
+	{ "l1_mortal_kombat_3_u129_game_rom.u129",	0x100000, 0xa8b41803, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 0) }, // 10
+	{ "l1_mortal_kombat_3_u128_game_rom.u128",	0x100000, 0xb410d72f, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 1) }, // 11
+	{ "l1_mortal_kombat_3_u127_game_rom.u127",	0x100000, 0xbd985be7, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 2) }, // 12
+	{ "l1_mortal_kombat_3_u126_game_rom.u126",	0x100000, 0xe7c32cf4, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 3) }, // 13
+
+	{ "l1_mortal_kombat_3_u125_game_rom.u125",	0x100000, 0x9a52227e, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 0) }, // 14
+	{ "l1_mortal_kombat_3_u124_game_rom.u124",	0x100000, 0x5c750ebc, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 1) }, // 15
+	{ "l1_mortal_kombat_3_u123_game_rom.u123",	0x100000, 0xf0ab88a8, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 2) }, // 16
+	{ "l1_mortal_kombat_3_u122_game_rom.u122",	0x100000, 0x9b87cdac, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 3) }, // 17
+
+	{ "mortal_kombat_iii_ultimate_u121_video_image.u121",	0x100000, 0xcc4b95db, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 0) }, // 18
+	{ "mortal_kombat_iii_ultimate_u120_video_image.u120",	0x100000, 0x1c8144cd, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 1) }, // 19
+	{ "mortal_kombat_iii_ultimate_u119_video_image.u119",	0x100000, 0x5f10c543, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 2) }, // 20
+	{ "mortal_kombat_iii_ultimate_u118_video_image.u118",	0x100000, 0xde0c4488, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 3) }, // 21
+
+	{ "mortal_kombat_iii_ultimate_u113_video_image.u113",	0x100000, 0x99d74a1e, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 0) }, // 22
+	{ "mortal_kombat_iii_ultimate_u112_video_image.u112",	0x100000, 0xb5a46488, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
+	{ "mortal_kombat_iii_ultimate_u111_video_image.u111",	0x100000, 0xa87523c8, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
+	{ "mortal_kombat_iii_ultimate_u110_video_image.u110",	0x100000, 0x0038f205, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "463_mk3_ultimate.u64", 0x1009, 0x4f425218, 0 | BRF_OPT },
+};
+
+STD_ROM_PICK(umk3w)
+STD_ROM_FN(umk3w)
+
+struct BurnDriver BurnDrvUmk3w = {
+	"umk3w", "umk3", NULL, NULL, "1997",
+	"Ultimate Mortal Kombat 3 WaveNet Edition (rev 2.03 04/01/97)\0", NULL, "Midway", "MIDWAY Wolf-Unit",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
+	NULL, umk3wRomInfo, umk3wRomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
+    WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
+};
+
+// Ultimate Mortal Kombat 3 WaveNet Edition + (Kano Transformations) (rev 2.03 04/01/97)
+// Hack by Team Plus
+static struct BurnRomInfo umk3wpRomDesc[] = {
+	{ "l1.2_mortal_kombat_3_u54_wavenetkt.u54",	0x080000, 0x965fb405, 1 | BRF_PRG | BRF_ESS }, //  0 TMS34010
+	{ "l1.2_mortal_kombat_3_u63_wavenetkt.u63",	0x080000, 0x653bcac4, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "l2.0_mortal_kombat_3_u2_ultimate.u2",	0x100000, 0x3838cfe5, 2 | BRF_PRG | BRF_ESS }, //  2 DCS sound banks
+	{ "l1_mortal_kombat_3_u3_music_spch.u3",	0x100000, 0x856fe411, 2 | BRF_PRG | BRF_ESS }, //  3
+	{ "l1_mortal_kombat_3_u4_music_spch.u4",	0x100000, 0x428a406f, 2 | BRF_PRG | BRF_ESS }, //  4
+	{ "l1_mortal_kombat_3_u5_music_spch.u5",	0x100000, 0x3b98a09f, 2 | BRF_PRG | BRF_ESS }, //  5
+
+	{ "l1_mortal_kombat_3_u133_game_rom.u133",	0x100000, 0x79b94667, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 0) }, //  6 GFX
+	{ "l1_mortal_kombat_3_u132_game_rom.u132",	0x100000, 0x13e95228, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 1) }, //  7
+	{ "l1_mortal_kombat_3_u131_game_rom.u131",	0x100000, 0x41001e30, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 2) }, //  8
+	{ "l1_mortal_kombat_3_u130_game_rom.u130",	0x100000, 0x49379dd7, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 3) }, //  9
+
+	{ "l1_mortal_kombat_3_u129_game_rom.u129",	0x100000, 0xa8b41803, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 0) }, // 10
+	{ "l1_mortal_kombat_3_u128_game_rom.u128",	0x100000, 0xb410d72f, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 1) }, // 11
+	{ "l1_mortal_kombat_3_u127_game_rom.u127",	0x100000, 0xbd985be7, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 2) }, // 12
+	{ "l1_mortal_kombat_3_u126_game_rom.u126",	0x100000, 0xe7c32cf4, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 3) }, // 13
+
+	{ "l1_mortal_kombat_3_u125_game_rom.u125",	0x100000, 0x9a52227e, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 0) }, // 14
+	{ "l1_mortal_kombat_3_u124_game_rom.u124",	0x100000, 0x5c750ebc, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 1) }, // 15
+	{ "l1_mortal_kombat_3_u123_game_rom.u123",	0x100000, 0xf0ab88a8, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 2) }, // 16
+	{ "l1_mortal_kombat_3_u122_game_rom.u122",	0x100000, 0x9b87cdac, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 3) }, // 17
+
+	{ "mortal_kombat_iii_ultimate_u121_video_image.u121",	0x100000, 0xcc4b95db, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 0) }, // 18
+	{ "mortal_kombat_iii_ultimate_u120_video_image.u120",	0x100000, 0x1c8144cd, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 1) }, // 19
+	{ "mortal_kombat_iii_ultimate_u119_video_image.u119",	0x100000, 0x5f10c543, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 2) }, // 20
+	{ "mortal_kombat_iii_ultimate_u118_video_image.u118",	0x100000, 0xde0c4488, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 3) }, // 21
+
+	{ "mortal_kombat_iii_ultimate_u113_video_image.u113",	0x100000, 0x99d74a1e, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 0) }, // 22
+	{ "mortal_kombat_iii_ultimate_u112_video_image.u112",	0x100000, 0xb5a46488, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
+	{ "mortal_kombat_iii_ultimate_u111_video_image.u111",	0x100000, 0xa87523c8, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
+	{ "mortal_kombat_iii_ultimate_u110_video_image.u110",	0x100000, 0x0038f205, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "463_mk3_ultimate.u64", 0x1009, 0x4f425218, 0 | BRF_OPT },
+};
+
+STD_ROM_PICK(umk3wp)
+STD_ROM_FN(umk3wp)
+
+struct BurnDriver BurnDrvUmk3wp = {
+	"umk3wp", "umk3", NULL, NULL, "1997",
+	"Ultimate Mortal Kombat 3 WaveNet Edition + (Kano Transformations) (rev 2.03 04/01/97)\0", NULL, "Midway", "MIDWAY Wolf-Unit",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
+	NULL, umk3wpRomInfo, umk3wpRomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
+    WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
+};
 
 // Ultimate Mortal Kombat 3 (rev 1.1)
 
@@ -802,7 +973,7 @@ struct BurnDriver BurnDrvUmk3r11 = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, umk3r11RomInfo, umk3r11RomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -855,7 +1026,7 @@ struct BurnDriver BurnDrvUmk3r10 = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, umk3r10RomInfo, umk3r10RomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 // Ultimate Mortal Kombat 3 Tournament Edition 2.0.042 (August 2018)
@@ -907,7 +1078,7 @@ struct BurnDriver BurnDrvUmk3te = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, umk3teRomInfo, umk3teRomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -967,7 +1138,7 @@ struct BurnDriver BurnDrvUmk3uk = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, umk3ukRomInfo, umk3ukRomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
 	WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-	400, 256, 4, 3
+	WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1026,11 +1197,11 @@ struct BurnDriver BurnDrvUmk3p = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 2, HARDWARE_MIDWAY_WUNIT, GBF_VSFIGHT, 0,
 	NULL, umk3pRomInfo, umk3pRomName, NULL, NULL, NULL, NULL, Mk3InputInfo, Mk3DIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
-// 2 On 2 Open Ice Challenge (rev 1.21)
+// NHL Open Ice: 2 on 2 Challenge (rev 1.21)
 
 static struct BurnRomInfo openiceRomDesc[] = {
 	{ "open_ice_l1.21.u54",	0x080000, 0xe4225284, 1 | BRF_PRG | BRF_ESS }, //  0 TMS34010
@@ -1067,16 +1238,16 @@ STD_ROM_FN(openice)
 
 struct BurnDriver BurnDrvOpenice = {
 	"openice", NULL, NULL, NULL, "1995",
-	"2 On 2 Open Ice Challenge (rev 1.21)\0", NULL, "Midway", "MIDWAY Wolf-Unit",
+	"NHL Open Ice: 2 on 2 Challenge (rev 1.21)\0", NULL, "Midway", "MIDWAY Wolf-Unit",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, openiceRomInfo, openiceRomName, NULL, NULL, NULL, NULL, OpeniceInputInfo, OpeniceDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
-// 2 On 2 Open Ice Challenge (rev 1.2A)
+// NHL Open Ice: 2 on 2 Challenge (rev 1.2A)
 /* PCB had alternate ROM labels showing the dates & checksums */
 
 static struct BurnRomInfo openiceaRomDesc[] = {
@@ -1114,12 +1285,12 @@ STD_ROM_FN(openicea)
 
 struct BurnDriver BurnDrvOpenicea = {
 	"openicea", "openice", NULL, NULL, "1995",
-	"2 On 2 Open Ice Challenge (rev 1.2A)\0", NULL, "Midway", "MIDWAY Wolf-Unit",
+	"NHL Open Ice: 2 on 2 Challenge (rev 1.2A)\0", NULL, "Midway", "MIDWAY Wolf-Unit",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, openiceaRomInfo, openiceaRomName, NULL, NULL, NULL, NULL, OpeniceInputInfo, OpeniceDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1160,6 +1331,8 @@ static struct BurnRomInfo nbahangtRomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",	0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",	0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",	0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",				0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbahangt)
@@ -1172,7 +1345,7 @@ struct BurnDriver BurnDrvNbahangt = {
 	BDF_GAME_WORKING, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbahangtRomInfo, nbahangtRomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1213,6 +1386,8 @@ static struct BurnRomInfo nbahangtm13RomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",	0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",	0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",	0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",				0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbahangtm13)
@@ -1225,7 +1400,7 @@ struct BurnDriver BurnDrvNbahangtm13 = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbahangtm13RomInfo, nbahangtm13RomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1266,6 +1441,8 @@ static struct BurnRomInfo nbahangtl12RomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",	0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",	0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",	0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",				0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbahangtl12)
@@ -1278,7 +1455,7 @@ struct BurnDriver BurnDrvNbahangtl12 = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbahangtl12RomInfo, nbahangtl12RomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1319,6 +1496,8 @@ static struct BurnRomInfo nbahangtm12RomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",	0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",	0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",	0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",				0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbahangtm12)
@@ -1331,7 +1510,7 @@ struct BurnDriver BurnDrvNbahangtm12 = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbahangtm12RomInfo, nbahangtm12RomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1372,6 +1551,8 @@ static struct BurnRomInfo nbahangtl11RomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",	0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",	0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",	0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",				0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbahangtl11)
@@ -1384,7 +1565,7 @@ struct BurnDriver BurnDrvNbahangtl11 = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbahangtl11RomInfo, nbahangtl11RomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1425,6 +1606,8 @@ static struct BurnRomInfo nbahangtm11RomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",	0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",	0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",	0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",				0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbahangtm11)
@@ -1437,7 +1620,7 @@ struct BurnDriver BurnDrvNbahangtm11 = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbahangtm11RomInfo, nbahangtm11RomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1485,6 +1668,8 @@ static struct BurnRomInfo nbamhtRomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",		0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",		0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",		0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",					0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbamht)
@@ -1497,7 +1682,7 @@ struct BurnDriver BurnDrvNbamht = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbamhtRomInfo, nbamhtRomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1538,6 +1723,8 @@ static struct BurnRomInfo nbamhtl10RomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",		0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",		0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",		0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",					0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbamhtl10)
@@ -1550,7 +1737,7 @@ struct BurnDriver BurnDrvNbamhtl10 = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbamhtl10RomInfo, nbamhtl10RomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1591,6 +1778,8 @@ static struct BurnRomInfo nbamhtm10RomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",		0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",		0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",		0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",					0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbamhtm10)
@@ -1603,7 +1792,7 @@ struct BurnDriver BurnDrvNbamhtm10 = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbamhtm10RomInfo, nbamhtm10RomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1644,6 +1833,8 @@ static struct BurnRomInfo nbamhtpRomDesc[] = {
 	{ "l1.0_nba_hangtime_u_112_image_rom.u112",		0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 23
 	{ "l1.0_nba_hangtime_u_111_image_rom.u111",		0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 24
 	{ "l1.0_nba_hangtime_u_110_image_rom.u110",		0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 25
+
+	{ "459_nba_hang_time_u64.u64",					0x002000, 0x0e642b39, 0 | BRF_OPT }, // 26 security PIC
 };
 
 STD_ROM_PICK(nbamhtp)
@@ -1656,7 +1847,67 @@ struct BurnDriver BurnDrvNbamhtp = {
 	BDF_GAME_WORKING | BDF_CLONE, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, nbamhtpRomInfo, nbamhtpRomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
+};
+
+
+// NBA Super Maximum Hangtime (Custom Rebuild 07/02/26)
+// Romhack from Asure's NBA Hangtime Rebuild Repo
+// https://github.com/Asure/nba-hangtime-rebuild
+
+static struct BurnRomInfo nbamhtxRomDesc[] = {
+	{ "l1.03_maximum_hangtime_u54_l_version.u54",	0x080000, 0x9fcf1f48, 1 | BRF_PRG | BRF_ESS }, //  0 TMS34010 CPU
+	{ "l1.03_maximum_hangtime_u63_l_version.u63",	0x080000, 0x29530746, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "l1.0_nba_hangtime_u_2_music_spch.u2",		0x100000, 0x3f0b0d0a, 2 | BRF_PRG | BRF_ESS }, //  2 DCS Sound Banks
+	{ "l1.0_nba_hangtime_u_3_music_spch.u3",		0x100000, 0xec1db988, 2 | BRF_PRG | BRF_ESS }, //  3
+	{ "l1.0_nba_hangtime_u_4_music_spch.u4",		0x100000, 0xc7f847a3, 2 | BRF_PRG | BRF_ESS }, //  4
+	{ "l1.0_nba_hangtime_u_5_music_spch.u5",		0x100000, 0xef19316a, 2 | BRF_PRG | BRF_ESS }, //  5
+
+	{ "l1.0_nba_hangtime_u_133_image_rom.u133",		0x100000, 0x3163feed, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 0) }, //  6 GFX Bank 0
+	{ "l1.0_nba_hangtime_u_132_image_rom.u132",		0x100000, 0x428eaf44, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 1) }, //  7
+	{ "l1.0_nba_hangtime_u_131_image_rom.u131",		0x100000, 0x5f7c5111, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 2) }, //  8
+	{ "l1.0_nba_hangtime_u_130_image_rom.u130",		0x100000, 0xc7c0c514, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x00, 3) }, //  9
+
+	{ "l1.0_nba_hangtime_u_129_image_rom.u129",		0x100000, 0xb3d0daa0, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 0) }, // 10 GFX Bank 1
+	{ "l1.0_nba_hangtime_u_128_image_rom.u128",		0x100000, 0x3704ee69, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 1) }, // 11
+	{ "l1.0_nba_hangtime_u_127_image_rom.u127",		0x100000, 0x4ea64d5a, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 2) }, // 12
+	{ "l1.0_nba_hangtime_u_126_image_rom.u126",		0x100000, 0x0c5c19b7, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 3) }, // 13
+
+	{ "l1.0_nba_hangtime_u_125_image_rom.u125",		0x100000, 0x46c43d67, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 0) }, // 14 GFX Bank 2
+	{ "l1.0_nba_hangtime_u_124_image_rom.u124",		0x100000, 0xed495156, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 1) }, // 15
+	{ "l1.0_nba_hangtime_u_123_image_rom.u123",		0x100000, 0xb48aa5da, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 2) }, // 16
+	{ "l1.0_nba_hangtime_u_122_image_rom.u122",		0x100000, 0xb18cd181, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 3) }, // 17
+
+	{ "l1.0_nba_hangtime_u_121_image_rom.u121",		0x100000, 0x5acb267a, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 0) }, // 18 GFX Bank 3
+	{ "l1.0_nba_hangtime_u_120_image_rom.u120",		0x100000, 0x28e05f86, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 1) }, // 19
+	{ "l1.0_nba_hangtime_u_119_image_rom.u119",		0x100000, 0xb4f604ea, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 2) }, // 20
+	{ "l1.0_nba_hangtime_u_118_image_rom.u118",		0x100000, 0xa257b973, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x0c, 3) }, // 21
+
+	{ "l1.0_nba_hangtime_u_117_image_rom.u117",		0x100000, 0x6cf2e7b5, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x10, 0) }, // 22 GFX Bank 4 (Fixed from 0x0c)
+	{ "l1.0_nba_hangtime_u_116_image_rom.u116",		0x100000, 0xb19a5771, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x10, 1) }, // 23
+	{ "l1.0_nba_hangtime_u_115_image_rom.u115",		0x100000, 0x3a6dd372, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x10, 2) }, // 24
+	{ "l1.0_nba_hangtime_u_114_image_rom.u114",		0x100000, 0x23dbb571, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x10, 3) }, // 25
+	
+	{ "l1.0_nba_hangtime_u_113_image_rom.u113",		0x100000, 0xd712a779, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 0) }, // 26 GFX Bank 5
+	{ "l1.0_nba_hangtime_u_112_image_rom.u112",		0x100000, 0x644e1bca, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 1) }, // 27
+	{ "l1.0_nba_hangtime_u_111_image_rom.u111",		0x100000, 0x10d3b768, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 2) }, // 28
+	{ "l1.0_nba_hangtime_u_110_image_rom.u110",		0x100000, 0x8575aeb2, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x14, 3) }, // 29
+
+	{ "459_nba_hang_time_u64.u64",					0x002000, 0x0e642b39, 0 | BRF_OPT }, // 30 Security PIC
+};
+
+STD_ROM_PICK(nbamhtx)
+STD_ROM_FN(nbamhtx)
+
+struct BurnDriver BurnDrvNbamhtx = {
+	"nbamhtx", "nbahangt", NULL, NULL, "2026",
+	"NBA Super Maximum Hangtime (Custom Rebuild 07/02/26)\0", NULL, "hack", "MIDWAY Wolf-Unit",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
+	NULL, nbamhtxRomInfo, nbamhtxRomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
+	WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
+	WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1704,7 +1955,7 @@ struct BurnDriver BurnDrvRmpgwt = {
 	BDF_GAME_WORKING, 3, HARDWARE_MIDWAY_WUNIT, GBF_ACTION, 0,
 	NULL, rmpgwtRomInfo, rmpgwtRomName, NULL, NULL, NULL, NULL, RmpgwtInputInfo, RmpgwtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1752,7 +2003,7 @@ struct BurnDriver BurnDrvRmpgwt11 = {
 	BDF_GAME_WORKING | BDF_CLONE, 3, HARDWARE_MIDWAY_WUNIT, GBF_ACTION, 0,
 	NULL, rmpgwt11RomInfo, rmpgwt11RomName, NULL, NULL, NULL, NULL, RmpgwtInputInfo, RmpgwtDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1798,7 +2049,7 @@ struct BurnDriver BurnDrvWwfmania = {
 	BDF_GAME_WORKING, 2, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, wwfmaniaRomInfo, wwfmaniaRomName, NULL, NULL, NULL, NULL, WwfmaniaInputInfo, WwfmaniaDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1844,7 +2095,7 @@ struct BurnDriver BurnDrvWwfmaniab = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, wwfmaniabRomInfo, wwfmaniabRomName, NULL, NULL, NULL, NULL, WwfmaniaInputInfo, WwfmaniaDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1890,7 +2141,7 @@ struct BurnDriver BurnDrvWwfmaniac = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, wwfmaniacRomInfo, wwfmaniacRomName, NULL, NULL, NULL, NULL, WwfmaniaInputInfo, WwfmaniaDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
 
 
@@ -1937,8 +2188,9 @@ struct BurnDriver BurnDrvWwfmaniap = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, wwfmaniapRomInfo, wwfmaniapRomName, NULL, NULL, NULL, NULL, WwfmaniaInputInfo, WwfmaniaDIPInfo,
     WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-    400, 256, 4, 3
+    WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };
+
 
 // WWF: Wrestlemania (Acid Clown Edition)
 
@@ -1982,5 +2234,42 @@ struct BurnDriver BurnDrvWwfmanac = {
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
 	NULL, wwfmanacRomInfo, wwfmanacRomName, NULL, NULL, NULL, NULL, WwfmaniaInputInfo, WwfmaniaDIPInfo,
 	WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
-	400, 256, 4, 3
+	WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
+};
+
+
+// NBA Jam Special Edition (Wolf-Unit, rev 5.05 12/23/25)
+
+static struct BurnRomInfo nbajamseRomDesc[] = {
+	{ "nbajam_special_edition.u54",  0x080000, 0x321976a3, 1 | BRF_PRG | BRF_ESS }, //  0 TMS34010
+	{ "nbajam_special_edition.u63",  0x080000, 0x3b124fed, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "nbajam_special_edition.u2",   0x100000, 0xe7abf014, 2 | BRF_PRG | BRF_ESS }, //  2 ADPCM sound banks
+	{ "nbajam_special_edition.u3",   0x100000, 0x2760465f, 2 | BRF_PRG | BRF_ESS }, //  3
+	{ "nbajam_special_edition.u4",   0x100000, 0x382153c1, 2 | BRF_PRG | BRF_ESS }, //  4
+	{ "nbajam_special_edition.u5",   0x100000, 0x24a972e3, 2 | BRF_PRG | BRF_ESS }, //  5
+	{ "nbajam_special_edition.u6",   0x100000, 0xf4915367, 2 | BRF_PRG | BRF_ESS }, //  6
+
+	{ "nbajam_special_edition.u129", 0x100000, 0x1d448803, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 0) }, //  7 GFX
+	{ "nbajam_special_edition.u128", 0x100000, 0x860b34a4, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 1) }, //  8
+	{ "nbajam_special_edition.u127", 0x100000, 0x2ce04388, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 2) }, //  9
+	{ "nbajam_special_edition.u126", 0x100000, 0x11870a50, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x04, 3) }, // 10
+
+	{ "nbajam_special_edition.u125", 0x100000, 0x140acee3, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 0) }, // 11
+	{ "nbajam_special_edition.u124", 0x100000, 0xf6da1a70, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 1) }, // 12
+	{ "nbajam_special_edition.u123", 0x100000, 0x98702ff3, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 2) }, // 13
+	{ "nbajam_special_edition.u122", 0x100000, 0xddf1bc38, 3 | BRF_GRA | BRF_ESS | WUNIT_GFX(0x08, 3) }, // 14
+};
+
+STD_ROM_PICK(nbajamse)
+STD_ROM_FN(nbajamse)
+
+struct BurnDriver BurnDrvNbajamse = {
+	"nbajamse", "nbajamte", NULL, NULL, "2025",
+	"NBA Jam Special Edition (Wolf-Unit, rev 5.05 12/23/25)\0", NULL, "hack (Team Jam)", "MIDWAY Wolf-Unit",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 4, HARDWARE_MIDWAY_WUNIT, GBF_SPORTSMISC, 0,
+	NULL, nbajamseRomInfo, nbajamseRomName, NULL, NULL, NULL, NULL, NbahangtInputInfo, NbahangtDIPInfo,
+	WolfUnitInit, WolfUnitExit, WolfUnitFrame, WolfUnitDraw, WolfUnitScan, &nWolfUnitRecalc, 0x8000,
+	WUNIT_SCREEN_WIDTH, WUNIT_SCREEN_HEIGHT, 4, 3
 };

@@ -35,6 +35,8 @@ static UINT32 speedhack_address = ~0;
 static UINT32 speedhack_pc[4] = { 0, 0, 0, 0 };
 
 static UINT32 cpu_rate = 0; // cpu speed of game.
+static INT32 refresh_rate = 6000;
+static INT32 nExtraCycles;
 
 static UINT8 DrvReset;
 static UINT32 DrvInputs;
@@ -602,11 +604,13 @@ static void DrvIRQCallback(INT32, INT32 nStatus)
 	Sh2SetIRQLine(12, (nStatus) ? CPU_IRQSTATUS_ACK : CPU_IRQSTATUS_NONE);
 }
 
-static INT32 DrvDoReset()
+static INT32 DrvDoReset(INT32 clear_mem)
 {
 	Sh2Reset();
 
-	memset (AllRam, 0, RamEnd - AllRam);
+	if (clear_mem) {
+		memset (AllRam, 0, RamEnd - AllRam);
+	}
 
 	if (EEPROMAvailable() == 0) {
 		EEPROMFill(DrvEEPROM, 0, 0x100);
@@ -624,6 +628,7 @@ static INT32 DrvDoReset()
 
 	sample_offs = 0;
 	previous_graphics_bank = -1;
+	nExtraCycles = 0;
 
 	HiscoreReset();
 
@@ -715,6 +720,8 @@ static void DrvGfxDecode(INT32 size)
 
 static INT32 DrvInit(INT32 (*LoadCallback)(), INT32 type, INT32 gfx_max, INT32 gfx_min)
 {
+	BurnSetRefreshRate((1.00 * refresh_rate)/100);
+
 	AllMem = NULL;
 	MemIndex(gfx_max - gfx_min);
 	INT32 nLen = MemEnd - (UINT8 *)0;
@@ -790,7 +797,7 @@ static INT32 DrvInit(INT32 (*LoadCallback)(), INT32 type, INT32 gfx_max, INT32 g
 
 	PsikyoshVideoInit(gfx_max, gfx_min);
 
-	DrvDoReset();
+	DrvDoReset(1);
 
 	return 0;
 }
@@ -808,6 +815,7 @@ static INT32 DrvExit()
 
 	speedhack_address = ~0;
 	memset (speedhack_pc, 0, 4 * sizeof(UINT32));
+	refresh_rate = 6000;
 
 	return 0;
 }
@@ -815,7 +823,7 @@ static INT32 DrvExit()
 static INT32 DrvFrame()
 {
 	if (DrvReset) {
-		DrvDoReset();
+		DrvDoReset(0);
 	}
 
 	Sh2NewFrame();
@@ -827,9 +835,14 @@ static INT32 DrvFrame()
 		}
 	}
 
-	BurnTimerEndFrame(cpu_rate / 60);
+	Sh2Idle(nExtraCycles);
+
+	INT32 nCyclesTotal = (cpu_rate * 100) / refresh_rate;
+	BurnTimerEndFrame(nCyclesTotal);
 
 	Sh2SetIRQLine(4, CPU_IRQSTATUS_ACK);
+
+	nExtraCycles = Sh2TotalCycles() - nCyclesTotal;
 
 	if (pBurnSoundOut) {
 		BurnYMF278BUpdate(nBurnSoundLen);
@@ -865,6 +878,8 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 		BurnYMF278BScan(nAction, pnMin);
 
 		SCAN_VAR(sample_offs);
+
+		SCAN_VAR(nExtraCycles);
 	}
 
 	EEPROMScan(nAction, pnMin);
@@ -878,7 +893,7 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 }
 
 
-// Sol Divide - The Sword Of Darkness
+// Sol Divide: Sword Of Darkness
 
 static struct BurnRomInfo soldividRomDesc[] = {
 	{ "2-prog_l.u18",	0x080000, 0xcf179b04, 1 | BRF_PRG | BRF_ESS }, //  0 SH2 Code
@@ -925,7 +940,7 @@ static INT32 SoldividInit()
 
 struct BurnDriver BurnDrvSoldivid = {
 	"soldivid", NULL, NULL, NULL, "1997",
-	"Sol Divide - The Sword Of Darkness\0", NULL, "Psikyo", "PS3-V1",
+	"Sol Divide: Sword Of Darkness\0", NULL, "Psikyo", "PS3-V1",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PSIKYO, GBF_HORSHOOT, 0,
 	NULL, soldividRomInfo, soldividRomName, NULL, NULL, NULL, NULL, Common3ButtonInputInfo, SoldividDIPInfo,
@@ -942,7 +957,7 @@ static INT32 SoldividkInit()
 	return DrvInit(SoldividLoadCallback, 0, 0x3800000, 0x2000000);
 }
 
-// Sol Divide - The Sword Of Darkness (Korea)
+// Sol Divide: Sword Of Darkness (Korea)
 
 static struct BurnRomInfo soldividkRomDesc[] = {
 	{ "9-prog_lk.u18",	0x080000, 0xb534029d, 1 | BRF_PRG | BRF_ESS }, //  0 SH2 Code
@@ -963,7 +978,7 @@ STD_ROM_FN(soldividk)
 
 struct BurnDriver BurnDrvSoldividk = {
 	"soldividk", "soldivid", NULL, NULL, "1997",
-	"Sol Divide - The Sword Of Darkness (Korea)\0", NULL, "Psikyo", "PS3-V1",
+	"Sol Divide: Sword Of Darkness (Korea)\0", NULL, "Psikyo", "PS3-V1",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PSIKYO, GBF_HORSHOOT, 0,
 	NULL, soldividkRomInfo, soldividkRomName, NULL, NULL, NULL, NULL, Common3ButtonInputInfo, SoldividkDIPInfo,
@@ -1042,7 +1057,7 @@ struct BurnDriver BurnDrvS1945ii = {
 };
 
 
-// The Fallen Angels (World) / Daraku Tenshi - The Fallen Angels (Japan)
+// The Fallen Angels (World) / Daraku Tenshi: The Fallen Angels (Japan)
 
 static struct BurnRomInfo darakuRomDesc[] = {
 	{ "4_prog_l.u18",	0x080000, 0x660b4609, 1 | BRF_PRG | BRF_ESS }, //  0 SH2 Code
@@ -1116,7 +1131,7 @@ static INT32 DarakuInit()
 
 struct BurnDriver BurnDrvDaraku = {
 	"daraku", NULL, NULL, NULL, "1998",
-	"The Fallen Angels (World) / Daraku Tenshi - The Fallen Angels (Japan)\0", NULL, "Psikyo", "PS3-V1",
+	"The Fallen Angels (World) / Daraku Tenshi: The Fallen Angels (Japan)\0", NULL, "Psikyo", "PS3-V1",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PSIKYO, GBF_VSFIGHT, 0,
 	NULL, darakuRomInfo, darakuRomName, NULL, NULL, NULL, NULL, Common4ButtonInputInfo, DarakuDIPInfo,
@@ -1700,7 +1715,7 @@ static INT32 Tgm2Init()
 	speedhack_pc[1] = 0x06028cac;
 	//speedhack_pc[2] = 0x06029272; // bad!! (game logic, etc)
 	speedhack_pc[3] = 0x06028ef2;
-	BurnSetRefreshRate(61.621);
+	refresh_rate = 6168; // 61.68 hz
 
 	return DrvInit(Tgm2LoadCallback, 1, 0x2c00000, 0x0c00000);
 }

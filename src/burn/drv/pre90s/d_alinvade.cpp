@@ -39,7 +39,7 @@ STDINPUTINFO(Alinvade)
 
 static struct BurnDIPInfo AlinvadeDIPList[]=
 {
-	{0x06, 0xff, 0xff, 0x00, NULL		},
+	{0x06, 0xff, 0xff, 0x05, NULL		},
 
 	{0   , 0xfe, 0   ,    4, "Lives"	},
 	{0x06, 0x01, 0x03, 0x00, "2"		},
@@ -47,9 +47,9 @@ static struct BurnDIPInfo AlinvadeDIPList[]=
 	{0x06, 0x01, 0x03, 0x02, "4"		},
 	{0x06, 0x01, 0x03, 0x03, "5"		},
 
-	{0   , 0xfe, 0   ,    2, "Unknown"	},
-	{0x06, 0x01, 0x04, 0x00, "Off"		},
-	{0x06, 0x01, 0x04, 0x04, "On"		},
+	{0   , 0xfe, 0   ,    2, "Bonus Life"	},
+	{0x06, 0x01, 0x04, 0x04, "10k"		},
+	{0x06, 0x01, 0x04, 0x00, "13k"		},
 };
 
 STDDIPINFO(Alinvade)
@@ -301,5 +301,5 @@ struct BurnDriver BurnDrvAlinvade = {
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 1, HARDWARE_MISC_PRE90S, GBF_SHOOT, 0,
 	NULL, alinvadeRomInfo, alinvadeRomName, NULL, NULL, NULL, NULL, AlinvadeInputInfo, AlinvadeDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 2,
-	128, 128, 4, 3
+	128, 128, 3, 4
 };

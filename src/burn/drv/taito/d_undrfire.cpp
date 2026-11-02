@@ -20,6 +20,7 @@ static UINT8 DrvRecalc;
 
 static UINT8 *TaitoSpriteRamBuffered2;
 static UINT8 *TaitoSpriteRamBuffered3;
+static UINT8 *TaitoSpriteRamBuffered4;
 static UINT8 *Contrast_LUT;
 static UINT8 *Brightness_LUT;
 
@@ -365,6 +366,7 @@ static INT32 MemIndex()
 	TaitoSpriteRamBuffered = Next; Next += 0x004000;
 	TaitoSpriteRamBuffered2= Next; Next += 0x004000;
 	TaitoSpriteRamBuffered3= Next; Next += 0x004000;
+	TaitoSpriteRamBuffered4= Next; Next += 0x004000;
 	TaitoSpriteRam2		= Next; Next += 0x000400;
 	Taito68KRam1		= Next; Next += 0x020000;
 	Taito68KRam3		= Next; Next += 0x010000;
@@ -703,7 +705,7 @@ static void DrvPaletteUpdate()
 
 	for (INT32 i = 0; i < 0x10000/4; i++)
 	{
-		UINT32 color = pal[i];
+		UINT32 color = BURN_ENDIAN_SWAP_INT32(pal[i]);
 		color = (color << 16) | (color >> 16);
 
 		INT32 r = (color >> 16) & 0xff;
@@ -722,7 +724,7 @@ static void DrvPaletteUpdate()
 
 static void draw_sprites(INT32 *primasks,INT32 x_offs,INT32 y_offs)
 {
-	UINT32 *spriteram32 = (UINT32*)TaitoSpriteRam;
+	UINT32 *spriteram32 = (UINT32*)TaitoSpriteRamBuffered4;
 	UINT16 *spritemap = (UINT16*)TaitoSpriteMapRom;
 	INT32 offs, tilenum, color, flipx, flipy;
 	INT32 x, y, priority, dblsize, curx, cury;
@@ -735,19 +737,19 @@ static void draw_sprites(INT32 *primasks,INT32 x_offs,INT32 y_offs)
 
 	for (offs = (0x4000/4-4);offs >= 0;offs -= 4)
 	{
-		UINT32 data = spriteram32[offs+0];
+		UINT32 data = BURN_ENDIAN_SWAP_INT32(spriteram32[offs+0]);
 		data = (data << 16) | (data >> 16);
 		flipx =    (data & 0x00800000) >> 23;
 		zoomx =    (data & 0x007f0000) >> 16;
 		tilenum =  (data & 0x00007fff);
 
-		data = spriteram32[offs+2];
+		data = BURN_ENDIAN_SWAP_INT32(spriteram32[offs+2]);
 		data = (data << 16) | (data >> 16);
 		priority = (data & 0x000c0000) >> 18;
 		color =    (data & 0x0003fc00) >> 10;
 		x =        (data & 0x000003ff);
 
-		data = spriteram32[offs+3];
+		data = BURN_ENDIAN_SWAP_INT32(spriteram32[offs+3]);
 		data = (data << 16) | (data >> 16);
 		dblsize =  (data & 0x00040000) >> 18;
 		flipy =    (data & 0x00020000) >> 17;
@@ -788,7 +790,7 @@ static void draw_sprites(INT32 *primasks,INT32 x_offs,INT32 y_offs)
 				if (flipx)  px = dimension-1-k;
 				if (flipy)  py = dimension-1-j;
 
-				code = spritemap[map_offset + px + (py<<(dblsize+1))];
+				code = BURN_ENDIAN_SWAP_INT16(spritemap[map_offset + px + (py<<(dblsize+1))]);
 
 				if (code==0xffff)
 				{
@@ -854,19 +856,19 @@ static void draw_sprites_cbombers(const UINT8 *pritable, INT32 x_offs, INT32 y_o
 
 	for (offs = (0x4000/4-4);offs >= 0;offs -= 4)
 	{
-		UINT32 data = spriteram32[offs+0];
+		UINT32 data = BURN_ENDIAN_SWAP_INT32(spriteram32[offs+0]);
 		data = (data << 16) | (data >> 16);
 		flipx =    (data & 0x00800000) >> 23;
 		zoomx =    (data & 0x007f0000) >> 16;
 		tilenum =  (data & 0x0000ffff);
 
-		data = spriteram32[offs+2];
+		data = BURN_ENDIAN_SWAP_INT32(spriteram32[offs+2]);
 		data = (data << 16) | (data >> 16);
 		priority = (data & 0x000c0000) >> 18;
 		color =    (data & 0x0003fc00) >> 10;
 		x =        (data & 0x000003ff);
 
-		data = spriteram32[offs+3];
+		data = BURN_ENDIAN_SWAP_INT32(spriteram32[offs+3]);
 		data = (data << 16) | (data >> 16);
 		dblsize =  (data & 0x00040000) >> 18;
 		flipy =    (data & 0x00020000) >> 17;
@@ -909,7 +911,7 @@ static void draw_sprites_cbombers(const UINT8 *pritable, INT32 x_offs, INT32 y_o
 			if (flipy)  py = dimension-1-j;
 
 			map_addr = map_offset + px + (py << (dblsize + 1));
-			code =  (spritemapHibit[map_addr] << 16) | spritemap[map_addr];
+			code =  (spritemapHibit[map_addr] << 16) | BURN_ENDIAN_SWAP_INT16(spritemap[map_addr]);
 
 			curx = x + ((k*zoomx)/dimension);
 			cury = y + ((j*zoomy)/dimension);
@@ -972,11 +974,11 @@ static INT32 UndrfireDraw()
 
 	INT32 Disable = TC0100SCNCtrl[0][6] & 0x3;
 	if (TC0100SCNBottomLayer(0)) {
-		if (nSpriteEnable & 8) if (!(Disable & 0x02)) TC0100SCNRenderFgLayer(0, 1, TaitoCharsPivot);
-		if (nSpriteEnable & 4) if (!(Disable & 0x01)) TC0100SCNRenderBgLayer(0, 0, TaitoCharsPivot);
+		if (nSpriteEnable & 8) if (!(Disable & 0x02)) TC0100SCNRenderFgLayer(0, 1, TaitoCharsPivot, 0);
+		if (nSpriteEnable & 4) if (!(Disable & 0x01)) TC0100SCNRenderBgLayer(0, 0, TaitoCharsPivot, 0);
 	} else {
-		if (nSpriteEnable & 4) if (!(Disable & 0x01)) TC0100SCNRenderBgLayer(0, 1, TaitoCharsPivot);
-		if (nSpriteEnable & 8) if (!(Disable & 0x02)) TC0100SCNRenderFgLayer(0, 0, TaitoCharsPivot);
+		if (nSpriteEnable & 4) if (!(Disable & 0x01)) TC0100SCNRenderBgLayer(0, 1, TaitoCharsPivot, 0);
+		if (nSpriteEnable & 8) if (!(Disable & 0x02)) TC0100SCNRenderFgLayer(0, 0, TaitoCharsPivot, 0);
 	}
 
 	if (nBurnLayer & 1) TC0480SCPTilemapRenderPrio(layer[0], 0, 1, TaitoChars);
@@ -1193,11 +1195,10 @@ static INT32 DrvFrame()
 		BurnDrvRedraw();
 	}
 
-	if (has_subcpu) { // cbombers sprites 3 frames ahead of tiles
-		memcpy(TaitoSpriteRamBuffered3, TaitoSpriteRamBuffered2, 0x4000);
-		memcpy(TaitoSpriteRamBuffered2, TaitoSpriteRamBuffered,  0x4000);
-		memcpy(TaitoSpriteRamBuffered,  TaitoSpriteRam,			 0x4000);
-	}
+	memcpy(TaitoSpriteRamBuffered4, TaitoSpriteRamBuffered3, 0x4000);
+	memcpy(TaitoSpriteRamBuffered3, TaitoSpriteRamBuffered2, 0x4000);
+	memcpy(TaitoSpriteRamBuffered2, TaitoSpriteRamBuffered,  0x4000);
+	memcpy(TaitoSpriteRamBuffered,  TaitoSpriteRam,			 0x4000);
 
 	return 0;
 }

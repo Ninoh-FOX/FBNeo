@@ -1469,8 +1469,10 @@ static struct BurnDIPInfo Rambo3DIPList[]=
 	{0x18, 0x01, 0x08, 0x00, "Trackball"		},
 
 	{0   , 0xfe, 0   ,    2, "Lightgun Mode for Trackball (Hack)" },
-	{0x19, 0x01, 0x01, 0x01, "On"				},
-	{0x19, 0x01, 0x01, 0x00, "Off"				},
+	{0x19, 0x82, 0x01, 0x01, "On"				},
+	{0x18, 0x00, 0x08, 0x08, NULL				},
+	{0x19, 0x82, 0x01, 0x00, "Off"				},
+	{0x18, 0x00, 0x08, 0x08, NULL				},
 
 };
 
@@ -1975,7 +1977,7 @@ static INT32 DrvExit()
 
 	SekExit();
 	ZetExit();
-	
+
 	if (sound_config == 0) {
 		BurnYM2610Exit();
 	} else {
@@ -2138,24 +2140,18 @@ static void hiticeFramebufferStateload(); // several pages below...
 
 static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 {
-	struct BurnArea ba;
-
 	if (pnMin) {
 		*pnMin = 0x029708;
 	}
 
 	if (nAction & ACB_VOLATILE) {
-		memset(&ba, 0, sizeof(ba));
-
-		ba.Data	  = TaitoRamStart;
-		ba.nLen	  = TaitoRamEnd - TaitoRamStart;
-		ba.szName = "All Ram";
-		BurnAcb(&ba);
+		ScanVar(TaitoRamStart, TaitoRamEnd - TaitoRamStart, "All Ram");
 
 		SekScan(nAction);
 		ZetScan(nAction);
 
 		TaitoICScan(nAction);
+		EEPROMScan(nAction, pnMin);
 
 		if (sound_config == 0) {
 			BurnYM2610Scan(nAction, pnMin);
@@ -2164,10 +2160,13 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 			MSM6295Scan(nAction, pnMin);
 		}
 
+		SCAN_VAR(eeprom_latch);
+		SCAN_VAR(coin_control);
 		SCAN_VAR(TaitoZ80Bank);
 		SCAN_VAR(TaitoWatchdog);
 		if (has_trackball) BurnTrackballScan();
 		SCAN_VAR(frame_counter);
+		SCAN_VAR(LastScrollX);
 
 		SCAN_VAR(nCyclesExtra);
 	}
@@ -2827,7 +2826,7 @@ static void __fastcall hitice_write_word(UINT32 a, UINT16 d)
 	TC0220IOCHalfWordWrite_Map(0x600000)
 
 	if (a >= 0xb00000 && a <= 0xb7ffff) {
-		*((UINT16*)(DrvPxlRAM + (a & 0x7fffe))) = d;
+		*((UINT16*)(DrvPxlRAM + (a & 0x7fffe))) = BURN_ENDIAN_SWAP_INT16(d);
 		hiticeFramebufferUpdate(a);
 		return;
 	}
@@ -3301,19 +3300,22 @@ struct BurnDriver BurnDrvNastarw = {
 // Rambo III (Europe)
 
 static struct BurnRomInfo rambo3RomDesc[] = {
-	{ "ramb3-11.bin",		0x020000, 0x1cc42247, TAITO_68KROM1_BYTESWAP }, //  0 68k Code
-	{ "ramb3-14.bin",		0x020000, 0x7d917c21, TAITO_68KROM1_BYTESWAP }, //  1
-	{ "ramb3-07.bin",		0x020000, 0xc973ff6f, TAITO_68KROM1_BYTESWAP }, //  2
-	{ "ramb3-06.bin",		0x020000, 0xa83d3fd5, TAITO_68KROM1_BYTESWAP }, //  3
+	{ "b93-11.rom0e.ic9",		0x020000, 0x1cc42247, TAITO_68KROM1_BYTESWAP }, //  0 68k Code
+	{ "b93-14.rom0o.ic23",		0x020000, 0x7d917c21, TAITO_68KROM1_BYTESWAP }, //  1
+	{ "b93-07.rom1e.ic8",		0x020000, 0xc973ff6f, TAITO_68KROM1_BYTESWAP }, //  2
+	{ "b93-06-rom1o.ic22",		0x020000, 0xa83d3fd5, TAITO_68KROM1_BYTESWAP }, //  3
 
-	{ "ramb3-10.bin",		0x010000, 0xb18bc020, TAITO_Z80ROM1 },          //  4 Z80 Code
+	{ "b93-10.ic36",			0x010000, 0xb18bc020, TAITO_Z80ROM1 },          //  4 Z80 Code
 
-	{ "ramb3-03.bin",		0x080000, 0xf5808c41, TAITO_CHARS },            //  5 Graphics Tiles
-	{ "ramb3-04.bin",		0x080000, 0xc57831ce, TAITO_CHARS },            //  6
-	{ "ramb3-01.bin",		0x080000, 0xc55fcf54, TAITO_CHARS },            //  7
-	{ "ramb3-02.bin",		0x080000, 0x9dd014c6, TAITO_CHARS },            //  8
+	{ "b93-03.ic3",				0x080000, 0xf5808c41, TAITO_CHARS },            //  5 Graphics Tiles
+	{ "b93-04.ic4",				0x080000, 0xc57831ce, TAITO_CHARS },            //  6
+	{ "b93-02.ic2",				0x080000, 0xc55fcf54, TAITO_CHARS },            //  7
+	{ "b93-01.ic1",				0x080000, 0x9dd014c6, TAITO_CHARS },            //  8
 
-	{ "ramb3-05.bin",		0x080000, 0x0179dc40, TAITO_YM2610A },          //  9 YM2610 A Samples
+	{ "b93-05.roma.ic46",		0x080000, 0x0179dc40, TAITO_YM2610A },          //  9 YM2610 A Samples
+
+	{ "b93-08-pal16l8b.ic11",	0x000104, 0x6b1e5259, 0 | BRF_OPT },            // 10 PLDs
+	{ "b93-09-pal16l8b.ic25",	0x000104, 0xe63d9041, 0 | BRF_OPT },            // 11
 };
 
 STD_ROM_PICK(rambo3)

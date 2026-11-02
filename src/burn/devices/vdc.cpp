@@ -13,7 +13,7 @@ static INT32 vce_clock;		// currently unused
 
 static INT32 vce_current_line;
 
-static INT32 main_width; // 512 (most) 320 (daimakai)
+static INT32 main_width; // 1024 (most) 320 (daimakai)
 
 UINT8 *vdc_vidram[2];			// allocate externally!
 
@@ -32,9 +32,17 @@ static INT32	vdc_vblank_triggered[2];
 static INT32	vdc_current_segment[2];
 static INT32	vdc_current_segment_line[2];
 static INT32	vdc_raster_count[2];
-static INT32	vdc_satb_countdown[2];
+static INT32	vdc_satb_countdown[2];	// cpu cycles until VRAM > SATB DMA completes
 
 UINT16 *vdc_tmp_draw;			// allocate externally!
+static UINT16 *vdc_linebuf; // allocated here, a single line
+static UINT8 vce_clock_list[263];
+static UINT16 vce_width_list[263];
+static UINT8 vdc_line_drawn[263];
+static INT32 vdc_vdw_offset;	// output line of the first display line, relative to the standard vertical position
+static INT32 vdc_is_sgx;
+
+#define VDC_VDW_START_LINE	20	// first display line with the usual VPR setting (0x0f02)
 
 static UINT16 vpc_priority;
 static UINT16 vpc_window1;
@@ -56,8 +64,8 @@ static void vpc_update_prio_map()
 	for (INT32 i = 0; i < 512; i++)
 	{
 		vpc_prio_map[i] = 0;
-		if (win1_adj < 0x40 || i > win1_adj) vpc_prio_map[i] |= 1;
-		if (win2_adj < 0x40 || i > win2_adj) vpc_prio_map[i] |= 2;
+		if (vpc_window1 < 0x40 || i > win1_adj) vpc_prio_map[i] |= 1;
+		if (vpc_window2 < 0x40 || i > win2_adj) vpc_prio_map[i] |= 2;
 	}
 }
 
@@ -92,26 +100,31 @@ void vpc_write(UINT8 offset, UINT8 data)
 		case 0x02:	/* Window 1 LSB */
 			vpc_window1 = (vpc_window1 & 0xff00) | data;
 			vpc_update_prio_map();
+			//bprintf(0, _T("window1.lsb  %x  %x\n"), vpc_window1, data);
 		break;
 
 		case 0x03:	/* Window 1 MSB */
 			vpc_window1 = (vpc_window1 & 0x00ff) | ((data & 3) << 8);
 			vpc_update_prio_map();
+			//bprintf(0, _T("window1.msb  %x  %x\n"), vpc_window1, data);
 		break;
 
 		case 0x04:	/* Window 2 LSB */
 			vpc_window2 = (vpc_window2 & 0xff00) | data;
 			vpc_update_prio_map();
+			//bprintf(0, _T("window2.lsb  %x  %x\n"), vpc_window2, data);
 		break;
 
 		case 0x05:	/* Window 2 MSB */
 			vpc_window2 = (vpc_window2 & 0x00ff) | ((data & 3) << 8);
 			vpc_update_prio_map();
+			//bprintf(0, _T("window2.msb  %x  %x\n"), vpc_window2, data);
 		break;
 
 		case 0x06:	/* VDC I/O select */
 			vpc_vdc_select = data & 1;
 		break;
+		//default: bprintf(0, _T("vpc_write: uhoh: %x %x\n"), offset, data);
 	}
 }
 
@@ -162,6 +175,15 @@ void vpc_reset()
 	vpc_window2 = 0;
 	vpc_vdc_select = 0;
 	vpc_priority = 0;
+
+	vce_clock = 4;
+	for (int i = 0; i < (sizeof(vce_clock_list) / sizeof(vce_clock_list[0])); i++) {
+		vce_clock_list[i] = vce_clock;
+	}
+	for (int i = 0; i < (sizeof(vce_width_list) / sizeof(vce_width_list[0])); i++) {
+		vce_width_list[i] = 256;
+	}
+
 }
 
 //--------------------------------------------------------------------------------------------------------------------------------
@@ -214,12 +236,15 @@ void vce_write(UINT8 offset, UINT8 data)
 	{
 		case 0x00:
 			vce_control = data;
+			vce_clock = (data & 0x02) ? 2 : ((data & 0x01) ? 3 : 4);
+#if 0
 			switch (data & 3) {
 				case 0: vce_clock = 0; break;
 				case 1: vce_clock = 1; break;
 				case 2:
 				case 3: vce_clock = 2; break;
 			}
+#endif
 			//bprintf(0, _T("vce_clock:  %x\tvce_control:  %x\n"), vce_clock, vce_control);
 			break;
 
@@ -244,7 +269,7 @@ void vce_write(UINT8 offset, UINT8 data)
 	}
 }
 
-void vce_palette_init(UINT32 *Palette)
+void vce_palette_init(UINT32 *Palette, UINT32 *Alt_Palette)
 {
 #if defined FBNEO_DEBUG
 	if (!DebugDev_VDCInitted) bprintf(PRINT_ERROR, _T("vce_palette_init called without init\n"));
@@ -255,6 +280,12 @@ void vce_palette_init(UINT32 *Palette)
 		INT32 r = ((i >> 3) & 7) << 5;
 		INT32 g = ((i >> 6) & 7) << 5;
 		INT32 b = ((i >> 0) & 7) << 5;
+
+		if (Alt_Palette != NULL) {
+			r = (Alt_Palette[i] >> 16) & 0xff;
+			g = (Alt_Palette[i] >> 8) & 0xff;
+			b = (Alt_Palette[i] >> 0) & 0xff;
+		}
 
 		INT32 y = ((66 * r + 129 * g +  25 * b + 128) >> 8) +  16;
 
@@ -286,6 +317,7 @@ void vce_reset()
 #define STATE_VCR		3
 
 #define VDC_WPF			684		/* width of a line in frame including blanking areas */
+#define VDC_CYCLES_PER_LINE	(1365 / 3)	/* cpu cycles per scanline */
 #define VDC_LPF		 262	 /* number of lines in a single frame */
 
 #define VDC_BSY		 0x40	/* Set when the VDC accesses VRAM */
@@ -425,7 +457,7 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 			if(cgx == 0)
 			{
 				INT32 x;
-				INT32 pixel_x = ( ( obj_x * main_width ) / vdc_width[which] );
+				INT32 pixel_x = obj_x; //( ( obj_x * main_width ) / vdc_width[which] );
 
 				conv_obj(which, obj_lsb, obj_i + (cgypos << 2), obj_l, hf, vf, buf);
 
@@ -441,10 +473,10 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 								{
 									line_buffer[pixel_x] = color_base + vce_data[0x100 + (palette << 4) + buf[x]];
 
-									if ( vdc_width[which] != 512 )
+									if (0 && vdc_width[which] != 512 )
 									{
 										INT32 dp = 1;
-										while ( pixel_x + dp < ( ( ( obj_x + x + 1 ) * main_width ) / vdc_width[which] ) )
+										while ( pixel_x + dp < ( ( ( obj_x + x + 0 ) * main_width ) / vdc_width[which] ) )
 										{
 											drawn[pixel_x + dp] = i + 2;
 											line_buffer[pixel_x + dp] = color_base + vce_data[0x100 + (palette << 4) + buf[x]];
@@ -467,6 +499,7 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 							}
 						}
 					}
+#if 0
 					if ( vdc_width[which] != 512 )
 					{
 						pixel_x = ( ( obj_x + x + 1 ) * main_width ) / vdc_width[which];
@@ -475,12 +508,14 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 					{
 						pixel_x += 1;
 					}
+#endif
+					pixel_x += 1;
 				}
 			}
 			else
 			{
 				INT32 x;
-				INT32 pixel_x = ( ( obj_x * main_width ) / vdc_width[which] );
+				INT32 pixel_x = obj_x;//( ( obj_x * main_width ) / vdc_width[which] );
 
 				conv_obj(which, obj_lsb, obj_i + (cgypos << 2) + (hf ? 2 : 0), obj_l, hf, vf, buf);
 
@@ -495,10 +530,10 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 								if ( priority || drawn[pixel_x] == 0 )
 								{
 									line_buffer[pixel_x] = color_base + vce_data[0x100 + (palette << 4) + buf[x]];
-									if ( vdc_width[which] != 512 )
+									if ( 0&& vdc_width[which] != 512 )
 									{
 										INT32 dp = 1;
-										while ( pixel_x + dp < ( ( ( obj_x + x + 1 ) * main_width ) / vdc_width[which] ) )
+										while ( pixel_x + dp < ( ( ( obj_x + x + 0 ) * main_width ) / vdc_width[which] ) )
 										{
 											drawn[pixel_x + dp] = i + 2;
 											line_buffer[pixel_x + dp] = color_base + vce_data[0x100 + (palette << 4) + buf[x]];
@@ -521,6 +556,7 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 							}
 						}
 					}
+#if 0
 					if ( vdc_width[which] != 512 )
 					{
 						pixel_x = ( ( obj_x + x + 1 ) * main_width ) / vdc_width[which];
@@ -529,6 +565,8 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 					{
 						pixel_x += 1;
 					}
+#endif
+					pixel_x += 1;
 				}
 
 				/* 32 pixel wide sprites are counted as 2 sprites and the right half
@@ -563,10 +601,10 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 									if( priority || drawn[pixel_x] == 0 )
 									{
 										line_buffer[pixel_x] = color_base + vce_data[0x100 + (palette << 4) + buf[x]];
-										if ( vdc_width[which] != 512 )
+										if ( 0&& vdc_width[which] != 512 )
 										{
 											INT32 dp = 1;
-											while ( pixel_x + dp < ( ( ( obj_x + x + 17 ) * main_width ) / vdc_width[which] ) )
+											while ( pixel_x + dp < ( ( ( obj_x + x + 16 + 0 ) * main_width ) / vdc_width[which] ) )
 											{
 												drawn[pixel_x + dp] = i + 2;
 												line_buffer[pixel_x + dp] = color_base + vce_data[0x100 + (palette << 4) + buf[x]];
@@ -589,6 +627,7 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 								}
 							}
 						}
+#if 0
 						if ( vdc_width[which] != 512 )
 						{
 							pixel_x = ( ( obj_x + x + 17 ) * main_width ) / vdc_width[which];
@@ -597,6 +636,8 @@ static void pce_refresh_sprites(INT32 which, INT32 line, UINT8 *drawn, UINT16 *l
 						{
 							pixel_x += 1;
 						}
+#endif
+						pixel_x += 1;
 					}
 				}
 			}
@@ -643,6 +684,22 @@ void vdc_check_hblank_raster_irq(INT32 which)
 
 }
 
+// called at the end of a line, with vdc_satb_countdown relative to that point
+static void vdc_satb_check(INT32 which)
+{
+	if ( vdc_satb_countdown[which] > VDC_CYCLES_PER_LINE ) return;
+
+	// completes during the coming line
+	if ( vdc_satb_countdown[which] > 0 ) h6280Run(vdc_satb_countdown[which]);
+	vdc_satb_countdown[which] = 0;
+
+	if ( vdc_data[which][DCR] & DCR_DSC )
+	{
+		vdc_status[which] |= VDC_DS;	/* set satb done flag */
+		h6280SetIRQLine(0, CPU_IRQSTATUS_ACK);
+	}
+}
+
 static void do_vblank(INT32 which)
 {
 	if (vdc_vblank_triggered[which] == 1) return; // once per frame
@@ -671,38 +728,44 @@ static void do_vblank(INT32 which)
 			vdc_sprite_ram[which][i] = ( vdc_vidram[which][ ( vdc_data[which][DVSSR] << 1 ) + i * 2 + 1 ] << 8 ) | vdc_vidram[which][ ( vdc_data[which][DVSSR] << 1 ) + i * 2 ];
 		}
 
-		/* generate interrupt if needed */
-		if ( vdc_data[which][DCR] & DCR_DSC )
-		{
-			vdc_satb_countdown[which] = 4;
-		}
+		// One word per master clock, so the DS irq is pending shortly after vblank.
+		// Space Invaders - The Original Game re-enables interrupts at the end of its
+		// vblank handler and crashes if DS arrives later.
+		// Exact transfer duration is not documented
+		vdc_satb_countdown[which] = 256 / 3;
+		vdc_satb_check(which);
 	}
 }
 
 
 static void vdc_advance_line(INT32 which)
 {
-	if (which == 0) // increment master scanline
+	if (which == 0) { // increment master scanline
 		vce_current_line = (vce_current_line + 1) % vce_linecount();
+	}
 
 	vdc_current_segment_line[which] += 1;
 	vdc_raster_count[which] += 1;
 
-	if ( vdc_satb_countdown[which] )
+	if ( vdc_satb_countdown[which] > 0 )
 	{
-		vdc_satb_countdown[which] -= 1;
-		if ( vdc_satb_countdown[which] == 0 )
-		{
-			if ( vdc_data[which][DCR] & DCR_DSC )
-			{
-				vdc_status[which] |= VDC_DS;	/* set satb done flag */
-				h6280SetIRQLine(0, CPU_IRQSTATUS_ACK);
-			}
-		}
+		vdc_satb_countdown[which] -= VDC_CYCLES_PER_LINE;
+		vdc_satb_check(which);
 	}
 
 	if ( vce_current_line == 0 )
 	{
+		if (which == 0) {
+			// lines past the display window keep old content after a mode change, blank them
+			for (INT32 i = 0; i < 263; i++) {
+				if (vdc_line_drawn[i]) continue;
+				if (vdc_is_sgx) clear_line_sgx(i); else clear_line(i);
+				vce_clock_list[i] = vce_clock;
+				vce_width_list[i] = vdc_width[0];
+			}
+			memset(vdc_line_drawn, 0, sizeof(vdc_line_drawn));
+		}
+
 		vdc_current_segment[which] = STATE_VSW;
 		vdc_current_segment_line[which] = 0;
 		vdc_vblank_triggered[which] = 0;
@@ -723,7 +786,21 @@ static void vdc_advance_line(INT32 which)
 		vdc_current_segment[which] = STATE_VDW;
 		vdc_current_segment_line[which] = 0;
 		vdc_raster_count[which] = 0x40;
+
+		if (which == 0) {
+			// follow the vertical position set by VPR (sydmead intro starts lower to center a short display)
+			vdc_vdw_offset = vce_current_line - VDC_VDW_START_LINE;
+			if (vdc_vdw_offset < 0) vdc_vdw_offset = 0;
+		}
 		//bprintf(0, _T("VDW_start(vdw:%x,bmp:%x)"), vdc_data[which][VDW] & 0x01FF,vce_current_line);
+	}
+
+	if ( STATE_VDW == vdc_current_segment[which]) {
+		INT32 row = vdc_current_segment_line[which] + vdc_vdw_offset;
+		if (row < 263) {
+			vce_clock_list[row] = vce_clock;
+			vce_width_list[row] = vdc_width[which];
+		}
 	}
 
 	if ( STATE_VDW == vdc_current_segment[which] && vdc_current_segment_line[which] == (vdc_data[which][VDW] & 0x01ff) + 1 )
@@ -849,7 +926,7 @@ static void pce_refresh_line(INT32 which, INT32 /*line*/, INT32 external_input, 
 					if ( c || ! external_input )
 						line_buffer[ pixel ] = color_base + vce_data[c];
 					pixel++;
-					if ( vdc_width[which] != 512 )
+					if ( 0 && vdc_width[which] != 512 )
 					{
 						while ( pixel < ( ( ( phys_x + 1 ) * main_width ) / vdc_width[which] ) )
 						{
@@ -872,11 +949,14 @@ void pce_hblank()
 
 	INT32 which = 0; // only 1 on pce
 
-	if (vdc_current_segment[which] == STATE_VDW && vdc_current_segment_line[0] < 262 )
+	INT32 row = vdc_current_segment_line[which] + vdc_vdw_offset;
+
+	if (vdc_current_segment[which] == STATE_VDW && row < 263 )
 	{
 		UINT8 drawn[684];
-		UINT16 *line_buffer = vdc_tmp_draw + (vdc_current_segment_line[which] * 684) + 86;
-		clear_line(vdc_current_segment_line[which]);
+		UINT16 *line_buffer = vdc_tmp_draw + (row * 684) + 86;
+		clear_line(row);
+		vdc_line_drawn[row] = 1;
 
 		memset (drawn, 0, 684);
 
@@ -895,17 +975,22 @@ void pce_hblank()
 
 void sgx_hblank()
 {
+	vdc_is_sgx = 1;
+
 	vdc_check_hblank_raster_irq(0);
 	vdc_check_hblank_raster_irq(1);
 
-	if ( vdc_current_segment[0] == STATE_VDW && vdc_current_segment_line[0] < 262 )
+	INT32 row = vdc_current_segment_line[0] + vdc_vdw_offset;
+
+	if ( vdc_current_segment[0] == STATE_VDW && row < 263 )
 	{
 		UINT8 drawn[2][512*2];
 		UINT16 *line_buffer;
 		UINT16 temp_buffer[2][512*2];
 		INT32 i;
 
-		clear_line_sgx(vdc_current_segment_line[0]); // clear line
+		clear_line_sgx(row); // clear line
+		vdc_line_drawn[row] = 1;
 
 		memset( drawn, 0, sizeof(drawn) );
 		memset( temp_buffer, 0, sizeof(temp_buffer) );
@@ -931,7 +1016,7 @@ void sgx_hblank()
 				pce_refresh_sprites(1, vdc_current_segment_line[1], drawn[1], temp_buffer[1]);
 		}
 
-		line_buffer = vdc_tmp_draw + (vdc_current_segment_line[0] * 684) + 86;
+		line_buffer = vdc_tmp_draw + (row * 684) + 86;
 
 		for( i = 0; i < 512; i++ )
 		{
@@ -1044,6 +1129,47 @@ void sgx_interrupt()
 	vdc_advance_line( 1 );
 }
 
+static UINT16 get_overscan(UINT16 &clock, UINT32 width)
+{
+	// if the clockscaled screen doesn't fit, center it
+	if (nScreenWidth < 1024) clock = 1; // custom resolution, default clock to 1
+	UINT32 w = clock * width;
+	if (w < nScreenWidth) {
+		w = nScreenWidth - w;
+		w = (w / 2);
+	} else {
+		w = 0;
+	}
+	return w;
+}
+
+UINT16 *vdc_get_line(UINT32 y)
+{
+	UINT16 line_clock = vce_clock_list[y];
+	UINT16 oversc = get_overscan(line_clock, vce_width_list[y]);
+	UINT16 *src = (vdc_tmp_draw + 86) + (684 * y);
+	UINT16 *dst = vdc_linebuf;
+
+	// game sets resolution
+	INT32 src_clock = 0;
+	INT32 src_pix = 0;
+	INT32 src_x = 0;
+	INT32 x = 0;
+	while (x < nScreenWidth) {
+		if (oversc) {
+			src_pix = 0;
+			oversc--;
+		} else
+			if (src_clock == 0) {
+				src_pix = src[src_x++];
+			}
+		dst[x] = src_pix;
+		x++;
+		src_clock = (src_clock + 1) % line_clock;
+	}
+	return vdc_linebuf;
+}
+
 static void vdc_do_dma(INT32 which)
 {
 	INT32 src = vdc_data[which][0x10];
@@ -1116,8 +1242,11 @@ void vdc_write(INT32 which, UINT8 offset, UINT8 data)
 				break;
 
 				case HDR: {
+					int old_w = vdc_width[which];
 					vdc_width[which] = ((data & 0x003F) + 1) << 3;
-					bprintf(0, _T("vdc width  %d\n"), vdc_width[which]);
+					if (old_w != vdc_width[which]) {
+						bprintf(0, _T("vdc width  %d\n"), vdc_width[which]);
+					}
 				}
 				break;
 
@@ -1296,6 +1425,9 @@ void vdc_reset()
 	}
 
 	main_width = nScreenWidth;
+
+	memset(vdc_line_drawn, 0, sizeof(vdc_line_drawn));
+	vdc_vdw_offset = 0;
 }
 
 void vdc_get_dimensions(INT32 which, INT32 *x, INT32 *y)
@@ -1311,6 +1443,10 @@ void vdc_get_dimensions(INT32 which, INT32 *x, INT32 *y)
 void vdc_init()
 {
 	DebugDev_VDCInitted = 1;
+
+	vdc_is_sgx = 0;
+
+	vdc_linebuf = (UINT16*)BurnMalloc(2048 * sizeof(UINT16));
 }
 
 void vdc_exit()
@@ -1320,6 +1456,8 @@ void vdc_exit()
 #endif
 
 	DebugDev_VDCInitted = 0;
+
+	BurnFree(vdc_linebuf);
 }
 
 INT32 vdc_scan(INT32 nAction, INT32 *pnMin)

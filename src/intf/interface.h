@@ -47,6 +47,7 @@ struct InputInOut {
 
 INT32 InputInit();
 INT32 InputExit();
+INT32 InputSelect(UINT32 nPlugIn);
 INT32 InputSetCooperativeLevel(const bool bExclusive, const bool bForeGround);
 INT32 InputMake(bool bCopy);
 INT32 InputFind(const INT32 nFlags);
@@ -68,8 +69,11 @@ struct CDEmuDo {
 	INT32			   (*CDEmuStop)();
 	INT32			   (*CDEmuPlay)(UINT8 M, UINT8 S, UINT8 F);
 	INT32			   (*CDEmuLoadSector)(INT32 LBA, char* pBuffer);
+	INT32              (*CDEmuReadDataSector)(INT32 nLba, UINT8* pBuffer);
 	UINT8*             (*CDEmuReadTOC)(INT32 track);
 	UINT8*             (*CDEmuReadQChannel)();
+	INT32			   (*CDEmuSetVolume)(double dVolume);
+	INT32			   (*CDEmuGetCurrentLBA)();
 	INT32			   (*CDEmuGetSoundBuffer)(INT16* buffer, INT32 samples);
 	INT32              (*CDEmuScan)(INT32 nAction, INT32 *pnMin);
 	// Get plugin info
@@ -174,7 +178,8 @@ const TCHAR* VidGetModuleName();
 InterfaceInfo* VidGetInfo();
 
 #ifdef BUILD_WIN32
- extern HWND hVidWnd;
+extern HWND hVidWnd;
+extern INT32 nCOMInit; // in burner/win32/main.cpp
 #endif
 
 #if defined (_XBOX)
@@ -189,6 +194,7 @@ extern INT32 nVidHorWidth, nVidHorHeight;
 extern INT32 nVidVerWidth, nVidVerHeight;
 
 extern INT32 nVidFullscreen;
+extern INT32 bVidIntegerScale;
 extern INT32 bVidBilinear;
 extern INT32 bVidScanlines;
 extern INT32 bVidDX9WinFullscreen;
@@ -202,6 +208,22 @@ extern INT32 nVidFeedbackOverSaturation;
 extern INT32 bVidCorrectAspect;
 extern INT32 bVidArcaderes;
 extern INT32 nVidDX9HardFX;
+
+struct hardfx_config {
+	char *szFileName;
+	int nOptions;
+	const float fDefaults[4];
+	float fOptions[4];
+	char *szOptions[4];
+
+	void hardfx_config_load_defaults() {
+		for (int i = 0; i < 4; i++) {
+			fOptions[i] = fDefaults[i];
+		}
+	}
+};
+
+extern hardfx_config HardFXConfigs[];
 
 extern INT32 bVidArcaderesHor;
 extern INT32 bVidArcaderesVer;
@@ -219,6 +241,7 @@ extern INT64 nVidBlitterOpt[];
 extern INT32 bVidFullStretch;
 extern INT32 bVidTripleBuffer;
 extern INT32 bVidVSync;
+extern INT32 bVidVRR;
 extern double dVidCubicB;
 extern double dVidCubicC;
 extern INT32 bVidDX9Bilinear;

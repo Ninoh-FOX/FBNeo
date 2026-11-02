@@ -123,7 +123,7 @@ struct dtimer
 
 			if (time_current >= time_trig) {
 				//extern int counter;
-				//if (counter) bprintf(0, _T("timer %d hits @ %d  sekcyc %d\n"), timer_param, time_current, SekTotalCycles());
+				//if (counter) bprintf(0, _T("timer %d hits @ %d\n"), timer_param, time_current);
 
 				if (retrig == 0) {
 					running = 0;
@@ -166,6 +166,9 @@ struct dtimer
 	INT32 isrunning() {
 		return running;
 	}
+	void enable(INT32 which) {
+		running = which;
+	}
 	UINT32 timeleft() {
 		return time_trig - time_current;
 	}
@@ -186,3 +189,4 @@ INT32 msec_to_cycles(INT32 mhz, double msec);
 INT32 usec_to_cycles(INT32 mhz, double usec);
 INT32 nsec_to_cycles(INT32 mhz, double nsec);
 INT32 clockscale_cycles(INT32 host_clock, INT32 cycles, INT32 clock_scaleto);
+float hz_to_cycles(float period, INT32 clock);

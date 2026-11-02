@@ -108,15 +108,19 @@ inline static INT32 is_netgame_or_recording()
 	INVERT			Src ^= 0xff
 	BYTESWAP		change order of bytes from 0,1,2,3 to 1,0,3,2
 	NIBBLES			Dest[0] = (byte & & 0xf); Dest[1] = (byte >> 4) & 0xf;
-	XOR			Dest ^= Src
+	XOR				Dest ^= Src
+	HI_NIBBLE		Dest = (byte << 4) | (Dest & 0x0f)
+	LO_NIBBLE		Dest = (byte & 0xf) | (Dest & 0xf0);
 */
 
-#define LD_GROUP(x)	((x) & 0xff) // 256 - plenty
-#define LD_REVERSE	(1<<8)
-#define LD_INVERT	(1<<9)
-#define LD_BYTESWAP	(1<<10)
-#define LD_NIBBLES	(1<<11)
-#define LD_XOR		(1<<12)
+#define LD_GROUP(x)		((x) & 0xff) // 256 - plenty
+#define LD_REVERSE		(1<<8)
+#define LD_INVERT		(1<<9)
+#define LD_BYTESWAP		(1<<10)
+#define LD_NIBBLES		(1<<11)
+#define LD_XOR			(1<<12)
+#define LD_HI_NIBBLE	(1<<13)
+#define LD_LO_NIBBLE	(1<<14)
 
 INT32 BurnLoadRomExt(UINT8 *Dest, INT32 i, INT32 nGap, INT32 nFlags);
 INT32 BurnLoadRom(UINT8* Dest, INT32 i, INT32 nGap);
@@ -183,7 +187,8 @@ void CpuCheatRegister(INT32 type, cpu_core_config *config);
 cheat_core *GetCpuCheatRegister(INT32 nCPU);
 cpu_core_config *GetCpuCoreConfig(INT32 nCPU);
 
-void nes_init_cheat_functions(void (*func1)(char*), void (*func2)(char*)); // callback for d_nes
+// Setup callbacks for systems which internalize the cheat system, ie: nes & snes GameGenie codes
+void nes_init_cheat_functions(void (*add_func)(char*, int), void (*remove_func)(char*));
 
 // burn_memory.cpp
 void BurnInitMemoryManager();
@@ -202,7 +207,7 @@ UINT32 BurnRoundPowerOf2(UINT32 in);
 #define BURN_SND_ROUTE_LEFT			1
 #define BURN_SND_ROUTE_RIGHT		2
 #define BURN_SND_ROUTE_BOTH			(BURN_SND_ROUTE_LEFT | BURN_SND_ROUTE_RIGHT)
-// the following 2 are only supported in ay8910 and flt_rc
+// the following 2 are only supported in ay8910, flt_rc & anything using stream.h
 #define BURN_SND_ROUTE_PANLEFT      4
 #define BURN_SND_ROUTE_PANRIGHT     8
 
@@ -270,6 +275,7 @@ extern UINT8 DebugSnd_X1010Initted;
 extern UINT8 DebugSnd_YMZ280BInitted;
 
 extern UINT8 DebugCPU_ARM7Initted;
+extern UINT8 DebugCPU_ARM9Initted;
 extern UINT8 DebugCPU_ARMInitted;
 extern UINT8 DebugCPU_H6280Initted;
 extern UINT8 DebugCPU_HD6309Initted;

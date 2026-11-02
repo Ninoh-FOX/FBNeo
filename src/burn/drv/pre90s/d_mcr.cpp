@@ -1116,8 +1116,7 @@ static INT32 DrvInit(INT32 cpu_board)
 	ZetInit(0);
 	ZetOpen(0);
 
-    ZetDaisyInit(Z80_CTC, 0);
-	z80ctc_init(nMainClock, 0, ctc_interrupt, ctc_trigger, NULL, NULL);
+	ZetDaisyInit(Z80_CTC, 0);
 
 	switch (cpu_board)
 	{
@@ -1147,6 +1146,8 @@ static INT32 DrvInit(INT32 cpu_board)
 
 		default: bprintf (0, _T("No map selected!!\n"));
 	}
+
+	z80ctc_init(nMainClock, nMainClock, 0, ctc_interrupt, ctc_trigger, NULL, NULL);
 
 	ZetClose();
 
@@ -2766,6 +2767,86 @@ struct BurnDriver BurnDrvRbtapper = {
 };
 
 
+// Tapper (Simpsons Hack)
+
+static struct BurnRomInfo stapperRomDesc[] = {
+	{ "tappg0.bin",							0x4000, 0x127171d1, 1 | BRF_PRG | BRF_ESS }, //  0 maincpu
+	{ "tappg1.bin",							0x4000, 0x9d6a47f7, 1 | BRF_PRG | BRF_ESS }, //  1
+	{ "tappg2.bin",							0x4000, 0x3a1f8778, 1 | BRF_PRG | BRF_ESS }, //  2
+	{ "tappg3.bin",							0x2000, 0xe8dcdaa4, 1 | BRF_PRG | BRF_ESS }, //  3
+
+	{ "tapper_sound_snd_0_a7_12-7-83.a7",	0x1000, 0x0e8bb9d5, 2 | BRF_PRG | BRF_ESS }, //  4 ssio:cpu
+	{ "tapper_sound_snd_1_a8_12-7-83.a8",	0x1000, 0x0cf0e29b, 2 | BRF_PRG | BRF_ESS }, //  5
+	{ "tapper_sound_snd_2_a9_12-7-83.a9",	0x1000, 0x31eb6dc6, 2 | BRF_PRG | BRF_ESS }, //  6
+	{ "tapper_sound_snd_3_a10_12-7-83.a10",	0x1000, 0x01a9be6a, 2 | BRF_PRG | BRF_ESS }, //  7
+
+	{ "stapper.bg1",						0x4000, 0x1326da21, 3 | BRF_GRA },           //  8 gfx1
+	{ "stapper.bg0",						0x4000, 0x539b93c3, 3 | BRF_GRA },           //  9
+
+	{ "stapper.fg1",						0x4000, 0x29dd8e85, 4 | BRF_GRA },           // 10 gfx2
+	{ "stapper.fg2",						0x4000, 0xa8ba850f, 4 | BRF_GRA },           // 11
+	{ "stapper.fg3",						0x4000, 0x3d9133e4, 4 | BRF_GRA },           // 12
+	{ "stapper.fg4",						0x4000, 0x9254d87c, 4 | BRF_GRA },           // 13
+	{ "stapper.fg5",						0x4000, 0x5ec2544f, 4 | BRF_GRA },           // 14
+	{ "stapper.fg6",						0x4000, 0x9b970c4b, 4 | BRF_GRA },           // 15
+	{ "stapper.fg7",						0x4000, 0xa2ef5c06, 4 | BRF_GRA },           // 16
+	{ "stapper.fg8",						0x4000, 0x1baca746, 4 | BRF_GRA },           // 17
+};
+
+STDROMPICKEXT(stapper, stapper, Ssioprom)
+STD_ROM_FN(stapper)
+
+struct BurnDriver BurnDrvStapper = {
+	"stapper", "tapper", "midssio", NULL, "2002",
+	"Tapper (Simpsons Hack)\0", NULL, "hack (DC)", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 2, HARDWARE_MISC_PRE90S, GBF_ACTION, 0,
+	NULL, stapperRomInfo, stapperRomName, NULL, NULL, NULL, NULL, TapperInputInfo, TapperDIPInfo,
+	TapperInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x40,
+	512, 480, 4, 3
+};
+
+
+// Tapper (Simpsons Hack ver.81)
+
+static struct BurnRomInfo stapper1RomDesc[] = {
+	{ "stapper1.pg0",						0x4000, 0xc915f608, 1 | BRF_PRG | BRF_ESS }, //  0 maincpu
+	{ "tappg1.bin",							0x4000, 0x9d6a47f7, 1 | BRF_PRG | BRF_ESS }, //  1
+	{ "tappg2.bin",							0x4000, 0x3a1f8778, 1 | BRF_PRG | BRF_ESS }, //  2
+	{ "stapper1.pg3",						0x2000, 0xdd4c785f, 1 | BRF_PRG | BRF_ESS }, //  3
+
+	{ "tapper_sound_snd_0_a7_12-7-83.a7",	0x1000, 0x0e8bb9d5, 2 | BRF_PRG | BRF_ESS }, //  4 ssio:cpu
+	{ "tapper_sound_snd_1_a8_12-7-83.a8",	0x1000, 0x0cf0e29b, 2 | BRF_PRG | BRF_ESS }, //  5
+	{ "tapper_sound_snd_2_a9_12-7-83.a9",	0x1000, 0x31eb6dc6, 2 | BRF_PRG | BRF_ESS }, //  6
+	{ "tapper_sound_snd_3_a10_12-7-83.a10",	0x1000, 0x01a9be6a, 2 | BRF_PRG | BRF_ESS }, //  7
+
+	{ "stapper.bg1",						0x4000, 0x1326da21, 3 | BRF_GRA },           //  8 gfx1
+	{ "stapper.bg0",						0x4000, 0x539b93c3, 3 | BRF_GRA },           //  9
+
+	{ "stapper.fg1",						0x4000, 0x29dd8e85, 4 | BRF_GRA },           // 10 gfx2
+	{ "stapper.fg2",						0x4000, 0xa8ba850f, 4 | BRF_GRA },           // 11
+	{ "stapper.fg3",						0x4000, 0x3d9133e4, 4 | BRF_GRA },           // 12
+	{ "stapper.fg4",						0x4000, 0x9254d87c, 4 | BRF_GRA },           // 13
+	{ "stapper.fg5",						0x4000, 0x5ec2544f, 4 | BRF_GRA },           // 14
+	{ "stapper.fg6",						0x4000, 0x9b970c4b, 4 | BRF_GRA },           // 15
+	{ "stapper.fg7",						0x4000, 0xa2ef5c06, 4 | BRF_GRA },           // 16
+	{ "stapper.fg8",						0x4000, 0x1baca746, 4 | BRF_GRA },           // 17
+};
+
+STDROMPICKEXT(stapper1, stapper1, Ssioprom)
+STD_ROM_FN(stapper1)
+
+struct BurnDriver BurnDrvStapper1 = {
+	"stapper1", "tapper", "midssio", NULL, "2002",
+	"Tapper (Simpsons Hack ver.81)\0", NULL, "hack (DC)", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 2, HARDWARE_MISC_PRE90S, GBF_ACTION, 0,
+	NULL, stapper1RomInfo, stapper1RomName, NULL, NULL, NULL, NULL, TapperInputInfo, TapperDIPInfo,
+	TapperInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x40,
+	512, 480, 4, 3
+};
+
+
 // Kozmik Kroozr
 
 static struct BurnRomInfo kroozrRomDesc[] = {
@@ -3108,6 +3189,52 @@ struct BurnDriver BurnDrvDotrone = {
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MISC_PRE90S, GBF_ACTION | GBF_SHOOT, 0,
 	NULL, dotroneRomInfo, dotroneRomName, NULL, NULL, NULL, NULL, DotronInputInfo, DotroneDIPInfo,
+	DotroneInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x40,
+	512, 480, 4, 3
+};
+
+
+// Discs of Tron (Environmental, prototype, 8/9/83)
+
+static struct BurnRomInfo dotronepRomDesc[] = {
+	{ "pgm0_8-9.1c",		0x4000, 0xa997e93d, 1 | BRF_PRG | BRF_ESS }, //  0 maincpu
+	{ "pgm1_8-9.2c",		0x4000, 0x31e5c11e, 1 | BRF_PRG | BRF_ESS }, //  1
+	{ "pgm2_8-9.3c",		0x4000, 0x5162fe8d, 1 | BRF_PRG | BRF_ESS }, //  2
+	{ "pgm3_8-9.4c",		0x4000, 0x4e7085e1, 1 | BRF_PRG | BRF_ESS }, //  3
+
+	{ "0_8-9.a7",			0x1000, 0x872160b3, 2 | BRF_PRG | BRF_ESS }, //  4 ssio:cpu
+	{ "1_8-9.a8",			0x1000, 0xd9c3d4ca, 2 | BRF_PRG | BRF_ESS }, //  5
+	{ "2_8-9.a9",			0x1000, 0x78cc8bad, 2 | BRF_PRG | BRF_ESS }, //  6
+	{ "3_8-9.a10",			0x1000, 0xb369ec5a, 2 | BRF_PRG | BRF_ESS }, //  7
+
+	{ "pre_aug_19.u3",		0x1000, 0xc3d0f762, 3 | BRF_PRG | BRF_ESS }, //  8 snt:cpu
+	{ "pre.u4",				0x1000, 0x7ca79b43, 3 | BRF_PRG | BRF_ESS }, //  9
+	{ "pre.u5",				0x1000, 0x24e9618e, 3 | BRF_PRG | BRF_ESS }, // 10
+
+	{ "bg0_8-9.6f",			0x2000, 0x40167124, 3 | BRF_GRA },           // 11 gfx1
+	{ "bg1_8-9.5f",			0x2000, 0xbb2d7a5d, 3 | BRF_GRA },           // 12
+
+	{ "cp4_fg7-8-9-83.a7",	0x2000, 0x1e689f9c, 4 | BRF_GRA },           // 13 gfx2
+	{ "cp3_fg8-8-9-83.a8",	0x2000, 0x172685ee, 4 | BRF_GRA },           // 14
+	{ "cp6_fg5-8-9-83.a5",	0x2000, 0x4326041b, 4 | BRF_GRA },           // 15
+	{ "cp5_fg6-8-9-83.a6",	0x2000, 0x1df69f11, 4 | BRF_GRA },           // 16
+	{ "cp8_fg3-8-9-83.a3",	0x2000, 0x7587a8fd, 4 | BRF_GRA },           // 17
+	{ "cp7_fg4-8-9-83.a4",	0x2000, 0x6e1af64f, 4 | BRF_GRA },           // 18
+	{ "cp10_fg1.a1",		0x2000, 0x759f36a7, 4 | BRF_GRA },           // 19
+	{ "cp9_fg2-8-9-83.a2",	0x2000, 0x80ba9553, 4 | BRF_GRA },           // 20
+
+	{ "1f26.u2",			0x0020, 0xfb58b867, 0 | BRF_GRA },           // 21 lamp sequencer PROM
+};
+
+STDROMPICKEXT(dotronep, dotronep, Ssioprom)
+STD_ROM_FN(dotronep)
+
+struct BurnDriver BurnDrvDotronep = {
+	"dotronep", "dotron", "midssio", NULL, "1983",
+	"Discs of Tron (Environmental, prototype, 8/9/83)\0", NULL, "Bally Midway", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_PROTOTYPE, 2, HARDWARE_MISC_PRE90S, GBF_ACTION | GBF_SHOOT, 0,
+	NULL, dotronepRomInfo, dotronepRomName, NULL, NULL, NULL, NULL, DotronInputInfo, DotroneDIPInfo,
 	DotroneInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x40,
 	512, 480, 4, 3
 };

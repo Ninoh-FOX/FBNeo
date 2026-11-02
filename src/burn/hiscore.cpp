@@ -1,4 +1,5 @@
 #include "burnint.h"
+//#include "hiscore.h"
 
 // A hiscore.dat support module for FB Neo - written by Barry Manilow, Feb 2009
 // Updates & fixes by dink and iq_132
@@ -7,7 +8,7 @@
 
 #define HISCORE_MAX_RANGES		64
 
-UINT32 nHiscoreNumRanges;
+static UINT32 nHiscoreNumRanges;
 
 #define APPLIED_STATE_NONE		0
 #define APPLIED_STATE_ATTEMPTED		1
@@ -20,7 +21,7 @@ struct _HiscoreMemRange
 	UINT8 *Data;
 };
 
-_HiscoreMemRange HiscoreMemRange[HISCORE_MAX_RANGES];
+static _HiscoreMemRange HiscoreMemRange[HISCORE_MAX_RANGES];
 
 INT32 EnableHiscores;
 static INT32 HiscoresInUse;
@@ -125,8 +126,14 @@ static INT32 is_mem_range_new (const char *pBuf)
 }
 
 static INT32 cpustr2num(char *pCpu)
-{ // all known versions of the first cpu as of May 15, 2017
-	return (strstr(pCpu, "maincpu") ||
+{
+	const int sub2 = (strstr(pCpu, "suby")) ? 2 : 0; // 3rd cpu name(s)
+
+//	bprintf(0, _T("%S / %d\n"), pCpu, sub2);
+
+	if (sub2) return 2;
+
+	return (strstr(pCpu, "maincpu") || // all known versions of the first cpu as of May 15, 2017
 		    strstr(pCpu, "cpu1") ||
 		    strstr(pCpu, "alpha") ||
 			strstr(pCpu, "master") ||
@@ -222,6 +229,26 @@ void HiscoreSearch_internal(FILE *fp, const char *name)
 						// this area will never write-confirm because it's always changing.  We'll only
 						// confirm the StartValue/EndValue in memory @ bootup, but not confirm that the value has stuck
 						// a frame after it has been written, since this is impossible.
+
+						if ( (!strcmp(name, "cppicf")) || (!strcmp(name, "cppicf2")) ) {
+							bprintf(0, _T("-- cppicf* noConfirm hack for address range %x\n"), HiscoreMemRange[nHiscoreNumRanges].Address);
+							HiscoreMemRange[nHiscoreNumRanges].NoConfirm = 1;
+						}
+
+						if ( (!strcmp(name, "crush4")) ) {
+							bprintf(0, _T("-- crush4 noConfirm hack for address range %x\n"), HiscoreMemRange[nHiscoreNumRanges].Address);
+							HiscoreMemRange[nHiscoreNumRanges].NoConfirm = 1;
+						}
+
+						if ( (!strcmp(name, "mmaze")) || (!strcmp(name, "mmaze2")) ) {
+							bprintf(0, _T("-- mmaze* noConfirm hack for address range %x\n"), HiscoreMemRange[nHiscoreNumRanges].Address);
+							HiscoreMemRange[nHiscoreNumRanges].NoConfirm = 1;
+						}
+
+						if ( (!strcmp(name, "megadon")) ) {
+							bprintf(0, _T("-- megadon* noConfirm hack for address range %x\n"), HiscoreMemRange[nHiscoreNumRanges].Address);
+							HiscoreMemRange[nHiscoreNumRanges].NoConfirm = 1;
+						}
 
 						if (!strcmp(name, "dbreed") && HiscoreMemRange[nHiscoreNumRanges].Address == 0x88959) {
 							bprintf(0, _T("-- dbreed noConfirm hack for address range %x\n"), HiscoreMemRange[nHiscoreNumRanges].Address);
@@ -438,7 +465,7 @@ void HiscoreInit()
 	WriteCheck1 = 0;
 }
 
-void HiscoreReset(INT32 bDisableInversionWriteback)
+void HiscoreReset(INT32 nHiscoreOptions)
 {
 #if defined FBNEO_DEBUG
 	if (!Debug_HiscoreInitted) bprintf(PRINT_ERROR, _T("HiscoreReset called without init\n"));
@@ -453,17 +480,21 @@ void HiscoreReset(INT32 bDisableInversionWriteback)
 	for (UINT32 i = 0; i < nHiscoreNumRanges; i++) {
 		HiscoreMemRange[i].ApplyNextFrame = 0;
 		HiscoreMemRange[i].Applied = APPLIED_STATE_NONE;
-		
+		if (nHiscoreOptions & HI_NOCONFIRM) {
+			bprintf(0, _T("-- Hiscore NoConfirm configured for address range %x\n"), HiscoreMemRange[i].Address);
+			HiscoreMemRange[i].NoConfirm = 1;
+		}
+
 		if (HiscoreMemRange[i].Loaded) {
 			cpu_open(HiscoreMemRange[i].nCpu);
 			// in some games, system16b (aliensyn, everything else) rom is mapped (for cheats)
 			// on reset where the hiscore should be.  Writing here is bad.
-			if (bDisableInversionWriteback == 0) {
+			if ((nHiscoreOptions & HI_NOCOMPLIMENTWB) == 0) {
 				cheat_subptr->write(HiscoreMemRange[i].Address, (UINT8)~HiscoreMemRange[i].StartValue);
 				if (HiscoreMemRange[i].NumBytes > 1) cheat_subptr->write(HiscoreMemRange[i].Address + HiscoreMemRange[i].NumBytes - 1, (UINT8)~HiscoreMemRange[i].EndValue);
 			}
 			cheat_subptr->close();
-			
+
 #if 1 && defined FBNEO_DEBUG
 			bprintf(PRINT_IMPORTANT, _T("Hi Score Memory Range %i Initted\n"), i);
 #endif
@@ -558,6 +589,7 @@ void HiscoreApply()
 #if 0
 		// Save for debugging hiscore.dat / driver problems.
 		cpu_open(HiscoreMemRange[i].nCpu);
+		bprintf(0, _T("cpu: %x\n"), HiscoreMemRange[i].nCpu);
 		bprintf(0, _T("start: addr %x   %x  %x\n"), HiscoreMemRange[i].Address, cheat_subptr->read(HiscoreMemRange[i].Address), HiscoreMemRange[i].StartValue);
 		bprintf(0, _T(" end : addr %x   %x  %x\n"), HiscoreMemRange[i].Address + HiscoreMemRange[i].NumBytes - 1, cheat_subptr->read(HiscoreMemRange[i].Address + HiscoreMemRange[i].NumBytes - 1), HiscoreMemRange[i].EndValue);
 		cheat_subptr->close();
@@ -567,6 +599,8 @@ void HiscoreApply()
 
 			if (cheat_subptr->read(HiscoreMemRange[i].Address) == HiscoreMemRange[i].StartValue && cheat_subptr->read(HiscoreMemRange[i].Address + HiscoreMemRange[i].NumBytes - 1) == HiscoreMemRange[i].EndValue) {
 				HiscoreMemRange[i].ApplyNextFrame = 1;
+			} else {
+				HiscoreMemRange[i].ApplyNextFrame = 0;
 			}
 			cheat_subptr->close();
 		}

@@ -13,7 +13,7 @@ UINT8 PgmBtn2[8] = {0,0,0,0,0,0,0,0};
 UINT8 PgmInput[9] = {0,0,0,0,0,0,0,0,0};
 UINT8 PgmReset = 0;
 static HoldCoin<4> hold_coin;
-static ClearOpposite<2, UINT8> clear_opposite;
+static ClearOpposite<4, UINT8> clear_opposite;
 
 INT32 nPGM68KROMLen = 0;
 INT32 nPGMTileROMLen = 0;
@@ -147,7 +147,7 @@ static INT32 pgmGetRoms(bool bLoad)
 	if (bLoad) {
 		if (nPGM68KROMLen == 0x80000 && nPGMSNDROMLen == 0x600000) { // dw2001 & dwpc
 			PGMSNDROMLoad -= 0x200000;
-		} else if ((!bDoIpsPatch && (0 == strcmp(BurnDrvGetTextA(DRV_NAME), "kov2dzxx"))) || (nIpsDrvDefine & IPS_PGM_SNDOFFS)) { // kov2dzxx
+		} else if ((!bDoIpsPatch && ((0 == strcmp(BurnDrvGetTextA(DRV_NAME), "kov2pshjz")) || (0 == strcmp(BurnDrvGetTextA(DRV_NAME), "kov2dzxx")))) || (nIpsDrvDefine & IPS_PGM_SNDOFFS)) { // kov2pshjz, kov2dzxx
 			PGMSNDROMLoad -= 0x600000;
 		}
 	}
@@ -315,8 +315,8 @@ static void __fastcall PgmVideoControllerWriteWord(UINT32 sekAddress, UINT16 wor
 {
 	switch (sekAddress & 0x0f000)
 	{
-		case 0x0000: PGMSprBuf[(sekAddress >> 1) & 0x7ff] = wordValue; bprintf(0, _T("VideoController write word: %5.5x, %4.4x\n"), sekAddress, wordValue); break; // Sprite buffer is not writeable by the 68K, but the BIOS tries anyway
-		case 0x1000: PGMZoomRAM[(sekAddress >> 1) & 0x1f] = wordValue; break; // size is guessed
+		case 0x0000: PGMSprBuf[(sekAddress >> 1) & 0x7ff] = BURN_ENDIAN_SWAP_INT16(wordValue); bprintf(0, _T("VideoController write word: %5.5x, %4.4x\n"), sekAddress, wordValue); break; // Sprite buffer is not writeable by the 68K, but the BIOS tries anyway
+		case 0x1000: PGMZoomRAM[(sekAddress >> 1) & 0x1f] = BURN_ENDIAN_SWAP_INT16(wordValue); break; // size is guessed
 		case 0x2000: pgm_bg_scrolly = wordValue; break;
 		case 0x3000: pgm_bg_scrollx = wordValue; break;
 		case 0x4000: /*bprintf (0, _T("VideoController write word: %5.5x, %4.4x\n"), sekAddress, wordValue);*/ pgm_unk_video_flags = wordValue; break; // 0610 is always written, but changing this seems to have no effect
@@ -346,7 +346,7 @@ static UINT16 __fastcall PgmVideoControllerReadWord(UINT32 sekAddress)
 	// ddp2 seems to read from the sprite buffer?
 	switch (sekAddress & 0x0f000)
 	{
-		case 0x0000: return PGMSprBuf[(sekAddress >> 1) & 0x7ff];
+		case 0x0000: return BURN_ENDIAN_SWAP_INT16(PGMSprBuf[(sekAddress >> 1) & 0x7ff]);
 		case 0x1000: return 0; // zoom ram is not readable by the 68K
 		case 0x2000: return pgm_bg_scrolly;
 		case 0x3000: return pgm_bg_scrollx;
@@ -372,7 +372,7 @@ static UINT8 __fastcall PgmVideoControllerReadByte(UINT32 sekAddress)
 	switch (sekAddress & 0x0f000)
 	{
 		case 0x0000:
-			return PGMSprBuf[(sekAddress >> 1) & 0x7ff] >> ((~sekAddress & 1) * 8);
+			return BURN_ENDIAN_SWAP_INT16(PGMSprBuf[(sekAddress >> 1) & 0x7ff]) >> ((~sekAddress & 1) * 8);
 	}
 
 	bprintf (0, _T("VideoController Read Byte: %5.5x, PC(%5.5x)\n"), sekAddress, SekGetPC(-1));
@@ -583,7 +583,7 @@ static void __fastcall PgmPaletteWriteByte(UINT32 sekAddress, UINT8 byteValue)
 
 	UINT8 *pal = (UINT8*)PGMPalRAM;
 	pal[sekAddress ^ 1] = byteValue;
-	RamCurPal[sekAddress >> 1] = CalcCol(PGMPalRAM[sekAddress >> 1]);
+	RamCurPal[sekAddress >> 1] = CalcCol(BURN_ENDIAN_SWAP_INT16(PGMPalRAM[sekAddress >> 1]));
 }
 
 static UINT8 __fastcall PgmZ80PortRead(UINT16 port)
@@ -888,18 +888,17 @@ INT32 pgmInit()
 			SekMapMemory(PGM68KROM,				0x000000, (nPGM68KROMLen-1), MAP_ROM);			// 68000 ROM (no bios)
 		} else {
 			// if a cart is mapped at 100000+, the BIOS is mapped from 0-fffff, if no cart inserted, the BIOS is mapped to 7fffff!
-			for (INT32 i = 0; i < 0x100000; i+= 0x20000) { // DDP3 bios is 512k in size, but >= 20000 is 0-filled!
-				if ((!bDoIpsPatch && nPGMMapperHack) || (nIpsDrvDefine & IPS_PGM_MAPHACK)) {
-					SekMapMemory(PGM68KBIOS, 0x000000, 0x07ffff, MAP_ROM); // kov2dzxx 68K BIOS, Mapped addresses other than 7fffff will fail.
-					SekMapMemory((PGM68KROM + 0x300000), 0x600000, 0x6fffff, MAP_ROM); // Adds a mapping for the specified game/ips.
+			// note: kov2dzxx, kovplus 68K BIOS, Mapped addresses other than 7fffff will fail.
+			SekMapMemory(PGM68KBIOS, 0x000000, 0x07ffff, MAP_ROM);
 
-					break;
-				}
-
-				SekMapMemory(PGM68KBIOS,			0x000000 | i, 0x01ffff | i, MAP_ROM);			// 68000 BIOS
+			if ((!bDoIpsPatch && nPGMMapperHack) || (nIpsDrvDefine & IPS_PGM_MAPHACK)) {
+				SekMapMemory((PGM68KROM + 0x300000), 0x600000, 0x6fffff, MAP_ROM); // Adds a mapping for the specified game/ips.
 			}
 
-			SekMapMemory(PGM68KROM,				0x100000, (nPGM68KROMLen-1)+0x100000, MAP_ROM);		// 68000 ROM
+			if (nPGM68KROMLen == 0x1000000) // banked 68k rom
+				SekMapMemory(PGM68KROM,				0x100000, 0x4fffff, MAP_ROM);
+			else
+				SekMapMemory(PGM68KROM,				0x100000, (nPGM68KROMLen-1)+0x100000, MAP_ROM);		// 68000 ROM
 
 			// from 0 to 7fffff is completely mappable by the cartridge (it can cover the bios!)
 		}
@@ -977,6 +976,7 @@ INT32 pgmInit()
 
 	v3021Init();
 	ics2115_init(ics2115_sound_irq, ICSSNDROM, nPGMSNDROMLen);
+	ics_2115_set_volume(2.0);
 	BurnTimerAttachZet(Z80_FREQ);
 
 	pBurnDrvPalette = (UINT32*)PGMPalRAM;
@@ -1069,10 +1069,10 @@ static void pgm_sprite_buffer()
 		{
 			for (INT32 j = 0; j < 10 / 2; j++)
 			{
-				PGMSprBuf[(i / (10 / 2)) * (16 / 2) + j] = ram16[i + j] & mask[nPGMSpriteBufferHack][j];
+				PGMSprBuf[(i / (10 / 2)) * (16 / 2) + j] = ram16[i + j] & BURN_ENDIAN_SWAP_INT16(mask[nPGMSpriteBufferHack][j]);
 			} 
 
-			if ((ram16[i+4] & 0x7fff) == 0) break; // verified on hardware
+			if ((BURN_ENDIAN_SWAP_INT16(ram16[i+4]) & 0x7fff) == 0) break; // verified on hardware
 		}
 	}
 }
@@ -1096,15 +1096,11 @@ INT32 pgmFrame()
 			PgmInput[5] |= (PgmBtn2[i] & 1) << i;
 		}
 
-		// clear opposites
+		// clear opposites & hold coin
 		for (INT32 i = 0; i < 4; i++) {
-			clear_opposite.check(i, PgmInput[i], 0x06, 0x18);
+			clear_opposite.check(i, PgmInput[i], 0x02, 0x4, 0x08, 0x10, nSocd[i]);
+			hold_coin.check(i, PgmInput[4], 1 << i, 7);
 		}
-
-		hold_coin.check(0, PgmInput[4], 1, 7);
-		hold_coin.check(1, PgmInput[4], 2, 7);
-		hold_coin.check(2, PgmInput[4], 4, 7);
-		hold_coin.check(3, PgmInput[4], 8, 7);
 	}
 
 	SekNewFrame();

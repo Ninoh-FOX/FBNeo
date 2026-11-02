@@ -29,6 +29,7 @@ bool bDisableDebugConsole = true;
 HINSTANCE hAppInst = NULL;			// Application Instance
 HANDLE hMainThread;
 long int nMainThreadID;
+INT32 nCOMInit = S_FALSE;
 int nAppProcessPriority = NORMAL_PRIORITY_CLASS;
 int nAppShowCmd;
 
@@ -47,8 +48,13 @@ bool bAlwaysCreateSupportFolders = true;
 bool bAutoLoadGameList = false;
 
 bool bQuietLoading = false;
+bool bNoPopups = false;
+
+bool bDontInitMedia = false; // doesn't init media (screen, input, etc.)
 
 bool bShonkyProfileMode = false;
+
+int nKailleraCheatEnableHack = 0;
 
 bool bNoChangeNumLock = 1;
 static bool bNumlockStatus;
@@ -713,6 +719,60 @@ bool SetNumLock(bool bState)
 	return keyState[VK_NUMLOCK] & 1;
 }
 
+static INT32 ParseExportPath(const TCHAR* pszCmdLine, TCHAR* pszDirPath, INT32* nPathLen)
+{
+	const TCHAR* pszDelims = _T(" \t\r\n");
+	TCHAR* pszArgA = NULL, * pszArgN = NULL;
+
+	TCHAR szBuffer[1024] = { 0 };
+	_tcscpy(szBuffer, pszCmdLine);
+
+	pszArgA = _strqtoken(szBuffer, pszDelims);	// -listxmlall or -listinfoall
+	if (NULL == pszArgA) return -1;
+
+	if ((0 != _tcsicmp(_T("-listxmlall"), pszArgA)) && (0 != _tcsicmp(_T("-listinfoall"), pszArgA)))
+		return -1;
+
+	INT32 nMarker = 0;
+
+	while (NULL != (pszArgN = _strqtoken(NULL, pszDelims))) {
+		if (0 == _tcsicmp(_T("-s"), pszArgN)) {
+			nMarker = 1;
+			continue;
+		}
+		// A parameter specifying the directory is entered
+		UINT32 nLen = _tcslen(pszArgN), nLimit = MAX_PATH;
+		if ((_T('/') != pszArgN[nLen - 1]) && (_T('\\') != pszArgN[nLen - 1]))
+			nLimit--;
+
+		if (nLen >= nLimit)
+			return -1;
+
+		TCHAR szDirPath[MAX_PATH] = { 0 };
+		_tcscpy(szDirPath, pszArgN);
+
+		DWORD dwAttrib = GetFileAttributes(szDirPath);
+		if ((INVALID_FILE_ATTRIBUTES == dwAttrib) || (!(dwAttrib & FILE_ATTRIBUTE_DIRECTORY)))
+			return -1;	// Input directory error
+
+		if ((_T('/') != szDirPath[nLen - 1]) && (_T('\\') != szDirPath[nLen - 1])) {
+			szDirPath[nLen + 0] = _T('\\');
+			szDirPath[nLen + 1] = _T('\0');
+			nLen++;
+		}
+
+		if (NULL != pszDirPath) _tcscpy(pszDirPath, szDirPath);
+		if (NULL != nPathLen)   *nPathLen = nLen;
+
+		return 2;
+	}
+
+	if (NULL != pszDirPath) _tcscpy(pszDirPath, _T(""));
+	if (NULL != nPathLen)   *nPathLen = 1;
+
+	return nMarker;	// 1 Silent, 0 Not
+}
+
 #include <wininet.h>
 
 static int AppInit()
@@ -731,9 +791,19 @@ static int AppInit()
 
 	// Load config for the application
 	ConfigAppLoad();
+	LookupSubDirThreads();
 
 #if defined (FBNEO_DEBUG)
 	OpenDebugLog();
+#endif
+
+#if defined BUILD_X64_EXE
+	if (nVidSelect == 1) {
+		// if "d3d7 / enhanced blitter" is set & running 64bit build,
+		// fall back to "basic blitter".  (d3d7 has no 64bit mode!)
+		nVidSelect = 0;
+		bprintf(0, _T("*** D3D7 / Enhanced Blitter set w/64bit build - falling back to basic blitter.\n"));
+	}
 #endif
 
 	FBALocaliseInit(szLocalisationTemplate);
@@ -766,6 +836,8 @@ static int AppInit()
 			break;
 	}
 
+	nCOMInit = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+
 	// Set the process priority
 	SetPriorityClass(GetCurrentProcess(), nAppProcessPriority);
 
@@ -782,10 +854,20 @@ static int AppInit()
 		VidSelect(nVidSelect);
 	}
 
-	hAccel = LoadAccelerators(hAppInst, MAKEINTRESOURCE(IDR_ACCELERATOR));
+	HotkeysApply();												// Build the accelerator table from the (configurable) emulator hotkeys
 
-	// Build the ROM information
-	CreateROMInfo(NULL);
+	// nExport:
+	// -1 Error
+	//  0 Not silent
+	//  1 Silent + app same directory
+	//  2 Silent + specified path
+	INT32 nExport = ParseExportPath(szCmdLine, NULL, NULL);
+
+	// Suppresses ROMs scanning when full list is exported
+	if (-1 == nExport) {
+		// Build the ROM information
+		CreateROMInfo(NULL);
+	}
 
 	// Write a clrmame dat file if we are verifying roms
 #if defined (ROM_VERIFY)
@@ -794,27 +876,21 @@ static int AppInit()
 
 	bNumlockStatus = SetNumLock(false);
 
-	if(bEnableIcons && !bIconsLoaded) {
-		// load driver icons
-		LoadDrvIcons();
-		bIconsLoaded = 1;
-	}
+	CreateDrvIconsCache();
 
 	return 0;
 }
 
 static int AppExit()
 {
-	if(bIconsLoaded) {
-		// unload driver icons
-		UnloadDrvIcons();
-		bIconsLoaded = 0;
-	}
+	UnloadDrvIcons();
+	DestroyDrvIconsCache();
 
 	SetNumLock(bNumlockStatus);
 
 	DrvExit();						// Make sure any game driver is exitted
 	FreeROMInfo();
+	DestroySubDir();
 	MediaExit();
 	BurnLibExit();					// Exit the Burn library
 
@@ -831,6 +907,9 @@ static int AppExit()
 		DestroyAcceleratorTable(hAccel);
 		hAccel = NULL;
 	}
+
+	CoUninitialize();
+	nCOMInit = S_FALSE;
 
 	SplashDestroy(1);
 
@@ -873,6 +952,95 @@ bool AppProcessKeyboardInput()
 	return true;
 }
 
+void make_sha1_database(bool snes)
+{
+	UINT32 nGameSelect = 0;
+
+	bNoPopups = true;
+	bDontInitMedia = true;
+
+	for (nGameSelect = 0; nGameSelect < nBurnDrvCount; nGameSelect++) {
+
+		#define HW_NES ( ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_NES)  )
+		#define HW_SNES ( ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SNES)  )
+
+		nBurnDrvActive=nGameSelect;
+
+		if ((!snes && HW_NES) || (snes && HW_SNES)) {
+			bprintf(0, _T("generating for %S\n"), BurnDrvGetTextA(DRV_NAME));
+			DrvInit(nGameSelect, true);
+			DrvExit();
+		}
+	}
+
+	return;
+}
+
+static void tp_validate()
+{
+	bNoPopups = true;
+	bDontInitMedia = true;
+
+	char szZipTitles[MAX_PATH];
+	char szZipPreviews[MAX_PATH];
+	char szTmp[MAX_PATH];
+
+	char *szPreviewsPath = TCHARToANSI(szAppPreviewsPath, NULL, 0);
+	snprintf(szZipPreviews, sizeof(szZipPreviews), "%s%s", szPreviewsPath, "previews.zip");
+	char *szTitlesPath = TCHARToANSI(szAppTitlesPath, NULL, 0);
+	snprintf(szZipTitles, sizeof(szZipTitles), "%s%s", szTitlesPath, "titles.zip");
+
+	FILE *p_fp = fopen("tp_validate_parents.txt", "w");
+	FILE *pc_fp = fopen("tp_validate_parentsclones.txt", "w");
+
+	snprintf(szTmp, sizeof(szTmp), "\nValidating titles & previews w/ %s  &  %s\n", szZipTitles, szZipPreviews);
+	fprintf(p_fp, "%s", szTmp); // to files
+	fprintf(pc_fp, "%s", szTmp);
+	bprintf(0, _T("%S"), szTmp); // to debug console
+	bprintf(0, _T("Outputting results to: tp_validate_parents.txt  &  tp_validate_parentsclones.txt\n"));
+	fprintf(p_fp, "Mode: Parents only.\n\n"); // to files
+	fprintf(pc_fp, "Mode: Parents & Clones.\n\n");
+
+	zip_t *titles_zip = NULL;
+	zip_t *previews_zip = NULL;
+	if (unzip_open_context(&titles_zip, szZipTitles) == false) bprintf(0, _T("can't open titles.zip!\n"));
+	if (unzip_open_context(&previews_zip, szZipPreviews) == false) bprintf(0, _T("can't open previews.zip!\n"));
+
+	for (int i = 0; i < nBurnDrvCount; i++)
+		for (int isPreview = 0; isPreview < 2; isPreview++)
+		{
+			nBurnDrvActive = i; // set game.
+
+			char szImageName[MAX_PATH];
+			char szCloneOf[MAX_PATH] = { '\0', };
+
+			if (BurnDrvGetFlags() & BDF_BOARDROM) {
+				continue; // ignore bios / boardrom
+			}
+			bool bClone = false;
+			if (BurnDrvGetFlags() & BDF_CLONE) {
+				bClone = true;
+
+				snprintf(szCloneOf, sizeof(szCloneOf), " - Clone of %s", BurnDrvGetTextA(DRV_PARENT));
+			}
+
+			snprintf(szImageName, sizeof(szImageName), isPreview ? "previews/%s.png" : "titles/%s.png", BurnDrvGetTextA(DRV_NAME));
+
+			if (unzip_exists_context(isPreview ? &previews_zip : &titles_zip, szImageName) == false) {
+				snprintf(szTmp, sizeof(szTmp), "missing %s: %s\t%s\n", isPreview ? "preview.zip" : " titles.zip", szImageName, szCloneOf);
+				if (bClone == false) fprintf(p_fp, "%s", szTmp); // to files
+				fprintf(pc_fp, "%s", szTmp);
+			}
+		}
+
+	fclose(p_fp);
+	fclose(pc_fp);
+
+	unzip_close_context(&titles_zip);
+	unzip_close_context(&previews_zip);
+	return;
+}
+
 int ProcessCmdLine()
 {
 	unsigned int i;
@@ -905,8 +1073,23 @@ int ProcessCmdLine()
 	}
 
 	if (_tcslen(szName)) {
+		if (_tcscmp(szName, _T("-nessha1")) == 0) {
+			make_sha1_database(0);
+			return 1;
+		}
+
+		if (_tcscmp(szName, _T("-snessha1")) == 0) {
+			make_sha1_database(1);
+			return 1;
+		}
+
+		if (_tcscmp(szName, _T("-tpvalidate")) == 0) {
+			tp_validate();
+			return 1;
+		}
+
 		if (_tcscmp(szName, _T("-listinfo")) == 0 ||
-			_tcscmp(szName, _T("-listxml")) == 0) {
+			_tcscmp(szName, _T("-listxml"))  == 0) {
 			write_datfile(DAT_ARCADE_ONLY, stdout);
 			return 1;
 		}
@@ -976,6 +1159,16 @@ int ProcessCmdLine()
 			return 1;
 		}
 
+		if (_tcscmp(szName, _T("-listinfosnesonly")) == 0) {
+			write_datfile(DAT_SNES_ONLY, stdout);
+			return 1;
+		}
+
+		if (_tcscmp(szName, _T("-listinfogbaonly")) == 0) {
+			write_datfile(DAT_GBA_ONLY, stdout);
+			return 1;
+		}
+
 		if (_tcscmp(szName, _T("-listinfongponly")) == 0) {
 			write_datfile(DAT_NGP_ONLY, stdout);
 			return 1;
@@ -983,6 +1176,31 @@ int ProcessCmdLine()
 
 		if (_tcscmp(szName, _T("-listinfochannelfonly")) == 0) {
 			write_datfile(DAT_CHANNELF_ONLY, stdout);
+			return 1;
+		}
+
+		if (_tcscmp(szName, _T("-listinfoastrocadeonly")) == 0) {
+			write_datfile(DAT_ASTROHOME_ONLY, stdout);
+			return 1;
+		}
+
+		if (_tcscmp(szName, _T("-listinfoall")) == 0 ||
+			_tcscmp(szName, _T("-listxmlall"))  == 0) {
+			TCHAR szDirPath[MAX_PATH] = { 0 };
+			INT32 nExport = ParseExportPath(szCmdLine, szDirPath, NULL);
+			switch (nExport) {
+				case 0:
+					CreateAllDatfilesWindows();
+					break;
+				case 1:
+					CreateAllDatfilesWindows(true);
+					break;
+				case 2:
+					CreateAllDatfilesWindows(true, szDirPath);
+					break;
+				default:
+					break;
+			}
 			return 1;
 		}
 
@@ -1001,7 +1219,8 @@ int ProcessCmdLine()
 		}
 	}
 
-	if (_tcsicmp(&szName[_tcslen(szName) - 4], _T(".cue")) == 0) {
+	if ((_tcsicmp(&szName[_tcslen(szName) - 4], _T(".cue")) == 0) ||
+		(_tcsicmp(&szName[_tcslen(szName) - 4], _T(".chd")) == 0)) {
 		// Neogeo CD Handling
 		_tcscpy(CDEmuImage, szName);
 		_tcscpy(szName, _T("neocdz"));
@@ -1067,7 +1286,7 @@ int ProcessCmdLine()
 				TCHAR* szDatName = _tcstok(szPoint, _T("\""));
 
 				memset(szRomdataName, '\0', sizeof(szRomdataName));
-				_stprintf(szRomdataName, _T("%s%s%s"), _T(".\\config\\romdata\\"), szDatName, _T(".dat"));
+				_stprintf(szRomdataName, _T("%s%s%s"), szAppRomdataPath, szDatName, _T(".dat"));
 
 				szDatName = NULL;
 				szPoint = NULL;
@@ -1178,14 +1397,14 @@ int ProcessCmdLine()
 
 					if (bDoIpsPatch) {
 						LoadIpsActivePatches();
-						IpsPatchInit();	// Entry point: cmdline launch
+						IpsPatchInit();		// Entry point: cmdline launch
 					}
 
 					if (DrvInit(i, true)) { // failed (bad romset, etc.)
 						nVidFullscreen = 0; // Don't get stuck in fullscreen mode
 					}
 
-					IpsPatchExit();	// 
+					IpsPatchExit();
 					break;
 				}
 			}
@@ -1221,7 +1440,9 @@ static void CreateSupportFolders()
 		{_T("support/samples/")},
 		{_T("support/hdd/")},
 		{_T("support/ips/")},
-		{_T("support/neocdz/")},
+		{_T("support/romdata/")},
+		{_T("support/cdcovers/")},
+		{_T("support/cdpreviews/")},
 		{_T("support/blend/")},
 		{_T("support/select/")},
 		{_T("support/versus/")},
@@ -1233,10 +1454,13 @@ static void CreateSupportFolders()
 		{_T("support/marquees/")},
 		{_T("support/cpanel/")},
 		{_T("support/cabinets/")},
+		{_T("support/commands/")},
 		{_T("support/pcbs/")},
 		{_T("support/history/")},
 		{_T("support/lua/")},
-		{_T("neocdiso/")},
+		{_T("support/shaders/")},
+		{_T("support/bezel/")},
+		{_T("cdiso/")},
 		// rom directories
 		{_T("roms/arcade/")},
 		{_T("roms/megadrive/")},
@@ -1251,8 +1475,11 @@ static void CreateSupportFolders()
 		{_T("roms/spectrum/")},
 		{_T("roms/nes/")},
 		{_T("roms/fds/")},
+		{_T("roms/snes/")},
+		{_T("roms/gba/")},
 		{_T("roms/ngp/")},
 		{_T("roms/channelf/")},
+		{_T("roms/astrocade/")},
 		{_T("roms/romdata/")},
 		{_T("\0")} // END of list
 	};
@@ -1299,7 +1526,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nShowCmd
 		{_T("config/ips")},
 		{_T("config/localisation")},
 		{_T("config/presets")},
-		{_T("config/romdata")},
+//		{_T("config/romdata")},
 		{_T("recordings")},
 		{_T("roms")},
 		{_T("savestates")},
@@ -1317,7 +1544,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nShowCmd
 	{                                           // Init Win* Common Controls lib
 		INITCOMMONCONTROLSEX initCC = {
 			sizeof(INITCOMMONCONTROLSEX),
-			ICC_BAR_CLASSES | ICC_COOL_CLASSES | ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_TREEVIEW_CLASSES,
+			ICC_WIN95_CLASSES,
 		};
 		InitCommonControlsEx(&initCC);
 	}

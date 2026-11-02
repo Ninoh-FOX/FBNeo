@@ -318,7 +318,9 @@ static UINT32 __fastcall speedhack_read_long(UINT32 offset)
 		Sh3BurnCycles(speedhack_burn);
 	}
 	UINT32 V = *((UINT32 *)(DrvMainRAM + (offset & 0xfffffc)));
+#ifdef LSB_FIRST
 	V = (V << 16) | (V >> 16);
+#endif
 	return V;
 }
 
@@ -345,7 +347,10 @@ static UINT8 __fastcall speedhack_read_byte(UINT32 offset)
 		Sh3BurnCycles(speedhack_burn);
 	}
 #endif
-	return DrvMainRAM[(offset & 0xffffff) ^ 1];
+#ifdef LSB_FIRST
+	offset ^= 1;
+#endif
+	return DrvMainRAM[offset & 0xffffff];
 }
 
 static void speedhack_set(UINT32 ram, UINT32 pc)
@@ -416,6 +421,10 @@ static INT32 DrvLoadRoms()
 	if (BurnLoadRom(DrvMainROM,  0, 1)) return 1;
 	if (ri.nLen == 0x200000) memcpy (DrvMainROM + 0x200000, DrvMainROM, 0x200000);
 	//if (ri.nLen >= 0x400000) type_d = 1;
+#ifndef LSB_FIRST
+	// u4 is stored as little-endian 16-bit words; the SH-3 core wants native (big-endian) layout here
+	BurnByteswap(DrvMainROM, 0x400000);
+#endif
 
 	if (BurnLoadRom(DrvFlashROM, 1, 1)) return 1;
 
@@ -434,6 +443,7 @@ struct speedy_s {
 
 static speedy_s gamelist[] = {
 	{ {"mushisam", "mushisamb", "\0", }, 				0xc04a2aa, 0xc0024d8 },
+	{ {"matsuri15", "\0", },			 				0xc04a2aa, 0xc0024d8 },
 	{ {"ibara", "ibarao", "mushisama", "\0", }, 		0xc04a0aa, 0xc0022f0 },
 	{ {"espgal2", "espgal2a", "espgal2b", "\0", }, 		0xc05177a, 0xc002310 },
 	{ {"mushitam", "mushitama", "\0", }, 				0xc04a0da, 0xc0022f0 },
@@ -515,7 +525,7 @@ static INT32 DrvInit()
 	rtc9701_init();
 
 	ymz770_init(DrvSoundROM, 0x800000);
-
+	ymz770_set_volume(2.0);
 	ymz770_set_buffered(Sh3TotalCycles, SH3_CLOCK);
 	DrvDoReset();
 
@@ -989,6 +999,30 @@ struct BurnDriver BurnDrvFutariblj = {
 };
 
 
+// Mushihime-Sama Matsuri Ver 1.5 (2011/5/23 CAVEMATSURI VER1.5)
+
+static struct BurnRomInfo matsuri15RomDesc[] = {
+	{ "matsuri15_u4",	0x0200000, 0x6af99f0e, 1 | BRF_PRG | BRF_ESS }, //  0 SH3 Code
+
+	{ "matsuri15_u2",	0x8400000, 0xfbc6f3c1, 2 | BRF_PRG | BRF_ESS }, //  1 Flash
+
+	{ "u23",			0x0400000, 0x6dff634f, 3 | BRF_SND },           //  2 YMZ770 Samples
+	{ "u24",			0x0400000, 0xf228b801, 3 | BRF_SND },           //  3
+};
+
+STD_ROM_PICK(matsuri15)
+STD_ROM_FN(matsuri15)
+
+struct BurnDriver BurnDrvMatsuri15 = {
+	"matsuri15", NULL, NULL, NULL, "2011",
+	"Mushihime-Sama Matsuri Ver 1.5 (2011/5/23 CAVEMATSURI VER1.5)\0", NULL, "Cave (AMI license)", "CA0??",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, 0,
+	NULL, matsuri15RomInfo, matsuri15RomName, NULL, NULL, NULL, NULL, Cv1kInputInfo, Cv1kDIPInfo,
+	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x10000,
+	240, 320, 3, 4
+};
+
 // Ibara (2005/03/22 MASTER VER.., '06. 3. 7 ver.)
 
 static struct BurnRomInfo ibaraRomDesc[] = {
@@ -1307,7 +1341,7 @@ struct BurnDriver BurnDrvDdpdfk = {
 	"ddpdfk", NULL, NULL, NULL, "2008",
 	"DoDonPachi Dai-Fukkatsu Ver 1.5 (2008/06/23 MASTER VER 1.5)\0", NULL, "Cave (AMI license)", "CA019",
 	L"DoDonPachi Dai-Fukkatsu Ver 1.5\0\u6012\u9996\u9818\u8702 \u5927\u5fa9\u6d3b Ver 1.5 (2008/06/23 MASTER VER 1.5)\0", NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, 0,
+	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, FBF_DONPACHI,
 	NULL, ddpdfkRomInfo, ddpdfkRomName, NULL, NULL, NULL, NULL, Cv1kInputInfo, Cv1kDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x10000,
 	240, 320, 3, 4
@@ -1332,7 +1366,7 @@ struct BurnDriver BurnDrvDdpdfk10 = {
 	"ddpdfk10", "ddpdfk", NULL, NULL, "2008",
 	"DoDonPachi Dai-Fukkatsu Ver 1.0 (2008/05/16 MASTER VER)\0", NULL, "Cave (AMI license)", "CA019",
 	L"DoDonPachi Dai-Fukkatsu Ver 1.0\0\u6012\u9996\u9818\u8702 \u5927\u5fa9\u6d3b Ver 1.0 (2008/05/16 MASTER VER)\0", NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, 0,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, FBF_DONPACHI,
 	NULL, ddpdfk10RomInfo, ddpdfk10RomName, NULL, NULL, NULL, NULL, Cv1kInputInfo, Cv1kDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x10000,
 	240, 320, 3, 4
@@ -1382,7 +1416,7 @@ struct BurnDriver BurnDrvDfkbl = {
 	"dfkbl", NULL, NULL, NULL, "2010",
 	"DoDonPachi Dai-Fukkatsu Black Label (2010/1/18 BLACK LABEL)\0", NULL, "Cave", "CA019B",
 	L"DoDonPachi Dai-Fukkatsu Black Label\0\u6012\u9996\u9818\u8702 \u5927\u5fa9\u6d3b (2010/1/18 BLACK LABEL)\0", NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, 0,
+	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, FBF_DONPACHI,
 	NULL, dfkblRomInfo, dfkblRomName, NULL, NULL, NULL, NULL, Cv1kInputInfo, Cv1kDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x10000,
 	240, 320, 3, 4
@@ -1407,7 +1441,7 @@ struct BurnDriver BurnDrvDdpsdoj = {
 	"ddpsdoj", NULL, NULL, NULL, "2012",
 	"DoDonPachi SaiDaiOuJou (2012/ 4/20)\0", NULL, "Cave", "CA???",
 	L"DoDonPachi SaiDaiOuJou\0\u6012\u9996\u9818\u8702 \u6700\u5927\u5f80\u751f (2012/4/20)\0", NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, 0,
+	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, FBF_DONPACHI,
 	NULL, ddpsdojRomInfo, ddpsdojRomName, NULL, NULL, NULL, NULL, Cv1kInputInfo, Cv1kDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x10000,
 	240, 320, 3, 4
@@ -1432,7 +1466,7 @@ struct BurnDriver BurnDrvsdojak = {
 	"sdojak", "ddpsdoj", NULL, NULL, "2021",
 	"DoDonPachi SaiDaiOuJou & Knuckles (CaveDwellers Hack)\0", NULL, "hack", "CA???",
 	L"DoDonPachi SaiDaiOuJou & Knuckles (CaveDwellers Hack)\0\u6012\u9996\u9818\u8702 \u6700\u5927\u5f80\u751f & \u30ca\u30c3\u30af\u30eb\u30ba (CaveDwellers, 2021/12/01)\0", NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK | BDF_ORIENTATION_VERTICAL, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, 0,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK | BDF_ORIENTATION_VERTICAL, 2, HARDWARE_CAVE_CV1000, GBF_VERSHOOT, FBF_DONPACHI,
 	NULL, sdojakRomInfo, sdojakRomName, NULL, NULL, NULL, NULL, Cv1kInputInfo, Cv1kDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x10000,
 	240, 320, 3, 4

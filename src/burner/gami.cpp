@@ -68,6 +68,91 @@ int MacOSinpInitControls(struct GameInp *pgi, const char *szi);
 
 // ---------------------------------------------------------------------------
 
+// Check if the left alt (menu) key is mapped
+#ifndef __LIBRETRO__
+void GameInpCheckLeftAlt()
+{
+	struct GameInp* pgi;
+	UINT32 i;
+
+	bLeftAltkeyMapped = false;
+
+	for (i = 0, pgi = GameInp; i < (nGameInpCount + nMacroCount); i++, pgi++) {
+
+		if (bLeftAltkeyMapped) {
+			break;
+		}
+
+		switch (pgi->nInput) {
+			case GIT_SWITCH:
+				if (pgi->Input.Switch.nCode == FBK_LALT) {
+					bLeftAltkeyMapped = true;
+				}
+				break;
+			case GIT_MACRO_AUTO:
+			case GIT_MACRO_CUSTOM:
+				if (pgi->Macro.nMode) {
+					if (pgi->Macro.Switch.nCode == FBK_LALT) {
+						bLeftAltkeyMapped = true;
+					}
+				}
+				break;
+
+			default:
+				continue;
+		}
+	}
+}
+
+// Check if the sytem mouse is mapped and set the cooperative level apropriately
+void GameInpCheckMouse()
+{
+	bool bMouseMapped = false;
+	struct GameInp* pgi;
+	UINT32 i;
+
+	for (i = 0, pgi = GameInp; i < (nGameInpCount + nMacroCount); i++, pgi++) {
+
+		if (bMouseMapped) {
+			break;
+		}
+
+		switch (pgi->nInput) {
+			case GIT_SWITCH:
+				if ((pgi->Input.Switch.nCode & 0xFF00) == 0x8000) {
+					bMouseMapped = true;
+				}
+				break;
+			case GIT_MOUSEAXIS:
+				if (pgi->Input.MouseAxis.nMouse == 0) {
+					bMouseMapped = true;
+				}
+				break;
+			case GIT_MACRO_AUTO:
+			case GIT_MACRO_CUSTOM:
+				if (pgi->Macro.nMode) {
+					if ((pgi->Macro.Switch.nCode & 0xFF00) == 0x8000) {
+						bMouseMapped = true;
+					}
+				}
+				break;
+
+			default:
+				continue;
+		}
+	}
+
+	if (bDrvOkay) {
+		if (!bRunPause) {
+			InputSetCooperativeLevel(bMouseMapped, bAlwaysProcessKeyboardInput);
+		} else {
+			InputSetCooperativeLevel(false, bAlwaysProcessKeyboardInput);
+		}
+	} else {
+		InputSetCooperativeLevel(false, false);
+	}
+}
+#endif
 
 // ---------------------------------------------------------------------------
 
@@ -421,7 +506,7 @@ static void GameInpInitMacros()
 	}
 
 	// Remove two keys for volume adjustment of cps2
-	INT32 nRealButtons = ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_CAPCOM_CPS2) ? nFireButtons - 2 : nFireButtons;
+	INT32 nRealButtons = nFireButtons;
 	INT32 nIndex = 0;
 
 	for (UINT32 nPlayer = 0; nPlayer < nMaxPlayers; nPlayer++) {
@@ -1420,24 +1505,150 @@ static struct { INT32 nCode; TCHAR* szName; } KeyNames[] = {
 
 #define FBK_DEFNAME(k) k, _T(#k)
 
-    { FBK_UPARROW,              _T("Button UP") },             // SDLK_UP
-    { FBK_DOWNARROW,            _T("Button DOWN") },           // SDLK_DOWN
-    { FBK_LEFTARROW,            _T("Button LEFT") },           // SDLK_LEFT
-    { FBK_RIGHTARROW,           _T("Button RIGHT") },          // SDLK_RIGHT
-    { FBK_ESCAPE,               _T("Button MENU") },           // SDLK_ESCAPE
-    { FBK_SPACE,                _T("Button A") },              // SDLK_SPACE
-    { FBK_LCONTROL,             _T("Button B") },              // SDLK_LCTRL
-    { FBK_LSHIFT,               _T("Button X") },              // SDLK_LSHIFT
-    { FBK_LALT,                 _T("Button Y") },              // SDLK_LALT
-    { FBK_E,                    _T("Button L1") },             // SDLK_e
-    { FBK_T,                    _T("Button R1") },             // SDLK_t
-    { FBK_TAB,                  _T("Button L2") },             // SDLK_TAB
-    { FBK_BACK,                 _T("Button R2") },             // SDLK_BACKSPACE
-    { FBK_RCONTROL,             _T("Button SELECT") },         // SDLK_RCTRL
-    { FBK_RETURN,               _T("Button START") },          // SDLK_RETURN
-    { FBK_RWIN,                 _T("Button VOL+") },           // SDLK_RSUPER
-    { FBK_LWIN,                 _T("Button VOL-") },           // SDLK_LSUPER
-    { FBK_POWER,                _T("Button POWER") },          // SDLK_POWER
+	{ FBK_ESCAPE,				_T("ESCAPE") },
+	{ FBK_1,					_T("1") },
+	{ FBK_2,					_T("2") },
+	{ FBK_3,					_T("3") },
+	{ FBK_4,					_T("4") },
+	{ FBK_5,					_T("5") },
+	{ FBK_6,					_T("6") },
+	{ FBK_7,					_T("7") },
+	{ FBK_8,					_T("8") },
+	{ FBK_9,					_T("9") },
+	{ FBK_0,					_T("0") },
+	{ FBK_MINUS,				_T("MINUS") },
+	{ FBK_EQUALS,				_T("EQUALS") },
+	{ FBK_BACK,					_T("BACKSPACE") },
+	{ FBK_TAB,					_T("TAB") },
+	{ FBK_Q,					_T("Q") },
+	{ FBK_W,					_T("W") },
+	{ FBK_E,					_T("E") },
+	{ FBK_R,					_T("R") },
+	{ FBK_T,					_T("T") },
+	{ FBK_Y,					_T("Y") },
+	{ FBK_U,					_T("U") },
+	{ FBK_I,					_T("I") },
+	{ FBK_O,					_T("O") },
+	{ FBK_P,					_T("P") },
+	{ FBK_LBRACKET,				_T("OPENING BRACKET") },
+	{ FBK_RBRACKET,				_T("CLOSING BRACKET") },
+	{ FBK_RETURN,				_T("ENTER") },
+	{ FBK_LCONTROL,				_T("LEFT CONTROL") },
+	{ FBK_A,					_T("A") },
+	{ FBK_S,					_T("S") },
+	{ FBK_D,					_T("D") },
+	{ FBK_F,					_T("F") },
+	{ FBK_G,					_T("G") },
+	{ FBK_H,					_T("H") },
+	{ FBK_J,					_T("J") },
+	{ FBK_K,					_T("K") },
+	{ FBK_L,					_T("L") },
+	{ FBK_SEMICOLON,			_T("SEMICOLON") },
+	{ FBK_APOSTROPHE,			_T("APOSTROPHE") },
+	{ FBK_GRAVE,				_T("ACCENT GRAVE") },
+	{ FBK_LSHIFT,				_T("LEFT SHIFT") },
+	{ FBK_BACKSLASH,			_T("BACKSLASH") },
+	{ FBK_Z,					_T("Z") },
+	{ FBK_X,					_T("X") },
+	{ FBK_C,					_T("C") },
+	{ FBK_V,					_T("V") },
+	{ FBK_B,					_T("B") },
+	{ FBK_N,					_T("N") },
+	{ FBK_M,					_T("M") },
+	{ FBK_COMMA,				_T("COMMA") },
+	{ FBK_PERIOD,				_T("PERIOD") },
+	{ FBK_SLASH,				_T("SLASH") },
+	{ FBK_RSHIFT,				_T("RIGHT SHIFT") },
+	{ FBK_MULTIPLY,				_T("NUMPAD MULTIPLY") },
+	{ FBK_LALT,					_T("LEFT MENU") },
+	{ FBK_SPACE,				_T("SPACE") },
+	{ FBK_CAPITAL,				_T("CAPSLOCK") },
+	{ FBK_F1,					_T("F1") },
+	{ FBK_F2,					_T("F2") },
+	{ FBK_F3,					_T("F3") },
+	{ FBK_F4,					_T("F4") },
+	{ FBK_F5,					_T("F5") },
+	{ FBK_F6,					_T("F6") },
+	{ FBK_F7,					_T("F7") },
+	{ FBK_F8,					_T("F8") },
+	{ FBK_F9,					_T("F9") },
+	{ FBK_F10,					_T("F10") },
+	{ FBK_NUMLOCK,				_T("NUMLOCK") },
+	{ FBK_SCROLL,				_T("SCROLLLOCK") },
+	{ FBK_NUMPAD7,				_T("NUMPAD 7") },
+	{ FBK_NUMPAD8,				_T("NUMPAD 8") },
+	{ FBK_NUMPAD9,				_T("NUMPAD 9") },
+	{ FBK_SUBTRACT,				_T("NUMPAD SUBTRACT") },
+	{ FBK_NUMPAD4,				_T("NUMPAD 4") },
+	{ FBK_NUMPAD5,				_T("NUMPAD 5") },
+	{ FBK_NUMPAD6,				_T("NUMPAD 6") },
+	{ FBK_ADD,					_T("NUMPAD ADD") },
+	{ FBK_NUMPAD1,				_T("NUMPAD 1") },
+	{ FBK_NUMPAD2,				_T("NUMPAD 2") },
+	{ FBK_NUMPAD3,				_T("NUMPAD 3") },
+	{ FBK_NUMPAD0,				_T("NUMPAD 0") },
+	{ FBK_DECIMAL,				_T("NUMPAD DECIMAL POINT") },
+	{ FBK_DEFNAME(FBK_OEM_102) },
+	{ FBK_F11,					_T("F11") },
+	{ FBK_F12,					_T("F12") },
+	{ FBK_F13,					_T("F13") },
+	{ FBK_F14,					_T("F14") },
+	{ FBK_F15,					_T("F15") },
+	{ FBK_DEFNAME(FBK_KANA) },
+	{ FBK_DEFNAME(FBK_ABNT_C1) },
+	{ FBK_DEFNAME(FBK_CONVERT) },
+	{ FBK_DEFNAME(FBK_NOCONVERT) },
+	{ FBK_DEFNAME(FBK_YEN) },
+	{ FBK_DEFNAME(FBK_ABNT_C2) },
+	{ FBK_NUMPADEQUALS,			_T("NUMPAD EQUALS") },
+	{ FBK_DEFNAME(FBK_PREVTRACK) },
+	{ FBK_DEFNAME(FBK_AT) },
+	{ FBK_COLON,				_T("COLON") },
+	{ FBK_UNDERLINE,			_T("UNDERSCORE") },
+	{ FBK_DEFNAME(FBK_KANJI) },
+	{ FBK_DEFNAME(FBK_STOP) },
+	{ FBK_DEFNAME(FBK_AX) },
+	{ FBK_DEFNAME(FBK_UNLABELED) },
+	{ FBK_DEFNAME(FBK_NEXTTRACK) },
+	{ FBK_NUMPADENTER,			_T("NUMPAD ENTER") },
+	{ FBK_RCONTROL,				_T("RIGHT CONTROL") },
+	{ FBK_DEFNAME(FBK_MUTE) },
+	{ FBK_DEFNAME(FBK_CALCULATOR) },
+	{ FBK_DEFNAME(FBK_PLAYPAUSE) },
+	{ FBK_DEFNAME(FBK_MEDIASTOP) },
+	{ FBK_DEFNAME(FBK_VOLUMEDOWN) },
+	{ FBK_DEFNAME(FBK_VOLUMEUP) },
+	{ FBK_DEFNAME(FBK_WEBHOME) },
+	{ FBK_DEFNAME(FBK_NUMPADCOMMA) },
+	{ FBK_DIVIDE,				_T("NUMPAD DIVIDE") },
+	{ FBK_SYSRQ,				_T("PRINTSCREEN") },
+	{ FBK_RALT,					_T("RIGHT MENU") },
+	{ FBK_PAUSE,				_T("PAUSE") },
+	{ FBK_HOME,					_T("HOME") },
+	{ FBK_UPARROW,				_T("ARROW UP") },
+	{ FBK_PRIOR,				_T("PAGE UP") },
+	{ FBK_LEFTARROW,			_T("ARROW LEFT") },
+	{ FBK_RIGHTARROW,			_T("ARROW RIGHT") },
+	{ FBK_END,					_T("END") },
+	{ FBK_DOWNARROW,			_T("ARROW DOWN") },
+	{ FBK_NEXT,					_T("PAGE DOWN") },
+	{ FBK_INSERT,				_T("INSERT") },
+	{ FBK_DELETE,				_T("DELETE") },
+	{ FBK_LWIN,					_T("LEFT WINDOWS") },
+	{ FBK_RWIN,					_T("RIGHT WINDOWS") },
+	{ FBK_DEFNAME(FBK_APPS) },
+	{ FBK_DEFNAME(FBK_POWER) },
+	{ FBK_DEFNAME(FBK_SLEEP) },
+	{ FBK_DEFNAME(FBK_WAKE) },
+	{ FBK_DEFNAME(FBK_WEBSEARCH) },
+	{ FBK_DEFNAME(FBK_WEBFAVORITES) },
+	{ FBK_DEFNAME(FBK_WEBREFRESH) },
+	{ FBK_DEFNAME(FBK_WEBSTOP) },
+	{ FBK_DEFNAME(FBK_WEBFORWARD) },
+	{ FBK_DEFNAME(FBK_WEBBACK) },
+	{ FBK_DEFNAME(FBK_MYCOMPUTER) },
+	{ FBK_DEFNAME(FBK_MAIL) },
+	{ FBK_DEFNAME(FBK_MEDIASELECT) },
 
 #undef FBK_DEFNAME
 
@@ -1536,6 +1747,41 @@ TCHAR* InpToDesc(struct GameInp* pgi)
 	if (pgi->nInput == GIT_SWITCH) {
 		return InputCodeDesc(pgi->Input.Switch.nCode);
 	}
+	if (pgi->nInput == GIT_MOUSEAXIS) {
+		TCHAR nAxis = _T('?');
+		switch (pgi->Input.MouseAxis.nAxis) {
+			case 0:
+				nAxis = _T('X');
+				break;
+			case 1:
+				nAxis = _T('Y');
+				break;
+			case 2:
+				nAxis = _T('Z');
+				break;
+		}
+		_stprintf(szInputName, _T("Mouse %i %c axis"), pgi->Input.MouseAxis.nMouse, nAxis);
+		return szInputName;
+	}
+	if (pgi->nInput & GIT_GROUP_JOYSTICK) {
+		TCHAR szAxis[8][3] = { _T("X"), _T("Y"), _T("Z"), _T("rX"), _T("rY"), _T("rZ"), _T("s0"), _T("s1") };
+		TCHAR szRange[4][16] = { _T("unknown"), _T("full"), _T("negative"), _T("positive") };
+		INT32 nRange = 0;
+		switch (pgi->nInput) {
+			case GIT_JOYAXIS_FULL:
+				nRange = 1;
+				break;
+			case GIT_JOYAXIS_NEG:
+				nRange = 2;
+				break;
+			case GIT_JOYAXIS_POS:
+				nRange = 3;
+				break;
+		}
+
+		_stprintf(szInputName, _T("Joy %d %s axis (%s range)"), pgi->Input.JoyAxis.nJoy, szAxis[pgi->Input.JoyAxis.nAxis], szRange[nRange]);
+		return szInputName;
+	}
 
 	return InpToString(pgi);							// Just do the rest as they are in the config file
 }
@@ -1598,6 +1844,13 @@ TCHAR* InputNumToName(UINT32 i)
 	return ANSIToTCHAR(bii.szName, NULL, 0);
 }
 
+bool InputNumIsDIPSWITCH(UINT32 i)
+{
+	struct BurnInputInfo bii = { NULL, 0, };
+	BurnDrvGetInputInfo(&bii, i);
+	return (bii.nType == BIT_DIPSWITCH);
+}
+
 static UINT32 MacroNameToNum(TCHAR* szName)
 {
 	struct GameInp* pgi = GameInp + nGameInpCount;
@@ -1612,16 +1865,81 @@ static UINT32 MacroNameToNum(TCHAR* szName)
 }
 
 // ---------------------------------------------------------------------------
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+extern int usejoy;
+extern INT32 MapJoystick(struct GameInp* pgi, char* szi, INT32 nPlayer, INT32 nDevice);
+#endif
 
 static INT32 GameInpAutoOne(struct GameInp* pgi, char* szi)
 {
 	for (INT32 i = 0; i < nMaxPlayers; i++) {
 		INT32 nSlide = nPlayerDefaultControls[i] >> 4;
 		switch (nPlayerDefaultControls[i] & 0x0F) {
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+			case 0:
+				// Trying to avoing calling another function to map an already mapped input
+				if (usejoy) {
+					if (GamcAnalogJoy(pgi, szi, i, 0, nSlide) && MapJoystick(pgi, szi, i, 1) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 0);
+				} else if (GamcAnalogKey(pgi, szi, i, nSlide) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, -1);
+				break;
+			case 1:
+				if (GamcAnalogJoy(pgi, szi, i, usejoy, nSlide)) {
+					if (usejoy) {
+						if (MapJoystick(pgi, szi, i, 2) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 1);
+					} else if (GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 0);
+				}
+				break;
+			case 2:
+				if (GamcAnalogJoy(pgi, szi, i, usejoy + 1, nSlide)) {
+					if (usejoy) {
+						if (MapJoystick(pgi, szi, i, 3) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 2);
+					} else if (GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 1);
+				}
+				break;
+			case 3:
+				if (GamcAnalogJoy(pgi, szi, i, usejoy + 2, nSlide)) {
+					if (usejoy) {
+						if (MapJoystick(pgi, szi, i, 4) && GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 3);
+					} else if (GamcMisc(pgi, szi, i)) GamcPlayer(pgi, szi, i, 2);
+				}
+				break;
+#else
 			case 0:										// Keyboard
 				GamcAnalogKey(pgi, szi, i, nSlide);
 				GamcPlayer(pgi, szi, i, -1);
 				GamcMisc(pgi, szi, i);
+				break;
+			case 1:										// Joystick 1
+				GamcAnalogJoy(pgi, szi, i, 0, nSlide);
+				GamcPlayer(pgi, szi, i, 0);
+				GamcMisc(pgi, szi, i);
+				break;
+			case 2:										// Joystick 2
+				GamcAnalogJoy(pgi, szi, i, 1, nSlide);
+				GamcPlayer(pgi, szi, i, 1);
+				GamcMisc(pgi, szi, i);
+				break;
+			case 3:										// Joystick 3
+				GamcAnalogJoy(pgi, szi, i, 2, nSlide);
+				GamcPlayer(pgi, szi, i, 2);
+				GamcMisc(pgi, szi, i);
+				break;
+#endif
+			case 4:										// X-Arcade left side
+				GamcMisc(pgi, szi, i);
+				GamcPlayerHotRod(pgi, szi, i, 0x10, nSlide);
+				break;
+			case 5:										// X-Arcade right side
+				GamcMisc(pgi, szi, i);
+				GamcPlayerHotRod(pgi, szi, i, 0x11, nSlide);
+				break;
+			case 6:										// Hot Rod left side
+				GamcMisc(pgi, szi, i);
+				GamcPlayerHotRod(pgi, szi, i, 0x00, nSlide);
+				break;
+			case 7:										// Hot Rod right side
+				GamcMisc(pgi, szi, i);
+				GamcPlayerHotRod(pgi, szi, i, 0x01, nSlide);
 				break;
 			default:
 				GamcMisc(pgi, szi, i);
@@ -1847,30 +2165,35 @@ INT32 GameInputAutoIni(INT32 nPlayer, TCHAR* lpszFile, bool bOverWrite)
 
 // Hardware description, preset file, {hardware, codes}, history.dat token
 tIniStruct gamehw_cfg[] = {
-	{_T("CPS-1/CPS-2/CPS-3 hardware"),	_T("config/presets/cps.ini"),		{ HARDWARE_CAPCOM_CPS1, HARDWARE_CAPCOM_CPS1_QSOUND, HARDWARE_CAPCOM_CPS1_GENERIC, HARDWARE_CAPCOM_CPSCHANGER, HARDWARE_CAPCOM_CPS2, HARDWARE_CAPCOM_CPS3, 0 }, "\t\t\t<system name=\"" },
-	{_T("Neo-Geo hardware"),			_T("config/presets/neogeo.ini"),	{ HARDWARE_SNK_NEOGEO, 0 }, 		"\t\t\t<system name=\""						},
-	{_T("Neo-Geo CD hardware"),			_T("config/presets/neogeocd.ini"),	{ HARDWARE_SNK_NEOCD, 0 },			"\t\t\t<item list=\"neocd\" name=\""		},
-	{_T("Neo Geo Pocket hardware"),     _T("config/presets/ngp.ini"),       { HARDWARE_SNK_NGP, 0 },			"\t\t\t<item list=\"ngp\" name=\""			},
-	{_T("Neo Geo Pocket C hardware"),	_T("config/presets/ngp.ini"),		{ HARDWARE_SNK_NGPC, 0 },			"\t\t\t<item list=\"ngpc\" name=\""			},
-	{_T("NES hardware"),				_T("config/presets/nes.ini"),		{ HARDWARE_NES, 0 },				"\t\t\t<item list=\"nes\" name=\""			},
-	{_T("FDS hardware"),				_T("config/presets/fds.ini"),		{ HARDWARE_FDS, 0 },				"\t\t\t<item list=\"famicom_flop\" name=\""	},
-	{_T("PGM hardware"),				_T("config/presets/pgm.ini"),		{ HARDWARE_IGS_PGM, 0 },			"\t\t\t<system name=\""        				},
-	{_T("MegaDrive hardware"),			_T("config/presets/megadrive.ini"),	{ HARDWARE_SEGA_MEGADRIVE, 0 },		"\t\t\t<item list=\"megadriv\" name=\""		},
-	{_T("PCE/SGX hardware"),			_T("config/presets/pce.ini"),		{ HARDWARE_PCENGINE_PCENGINE, 0 },	"\t\t\t<item list=\"pce\" name=\""			},
-	{_T("TG16 hardware"),				_T("config/presets/pce.ini"),		{ HARDWARE_PCENGINE_TG16, 0 },		"\t\t\t<item list=\"tg16\" name=\""			},
-	{_T("MSX1 hardware"),				_T("config/presets/msx.ini"),		{ HARDWARE_MSX, 0 },				"\t\t\t<item list=\"msx1_cart\" name=\""	},
-	{_T("Coleco hardware"),				_T("config/presets/coleco.ini"),	{ HARDWARE_COLECO, 0 },				"\t\t\t<item list=\"coleco\" name=\""		},
-	{_T("SG1000 hardware"),				_T("config/presets/sg1000.ini"),	{ HARDWARE_SEGA_SG1000, 0 },		"\t\t\t<item list=\"sg1000\" name=\""		},
-	{_T("Sega Master System hardware"),	_T("config/presets/sms.ini"),		{ HARDWARE_SEGA_MASTER_SYSTEM, 0 },	"\t\t\t<item list=\"sms\" name=\""			},
-	{_T("Sega Game Gear hardware"),		_T("config/presets/gg.ini"),		{ HARDWARE_SEGA_GAME_GEAR, 0 },		"\t\t\t<item list=\"gamegear\" name=\""		},
-	{_T("Sinclair Spectrum hardware"),	_T("config/presets/spectrum.ini"),	{ HARDWARE_SPECTRUM, 0 },			"\t\t\t<item list=\"spectrum_cass\" name=\""},
-	{_T("Fairchild Channel F hardware"),_T("config/presets/channelf.ini"),	{ HARDWARE_CHANNELF, 0 },			"\t\t\t<item list=\"channelf\" name=\""		},
-	{_T("\0"), _T("\0"), { 0 }, "" } // END of list
+	{_T("CPS-1/CPS-2/CPS-3 hardware"),	_T("config/presets/cps.ini"),		false,	{ HARDWARE_CAPCOM_CPS1, HARDWARE_CAPCOM_CPS1_QSOUND, HARDWARE_CAPCOM_CPS1_GENERIC, HARDWARE_CAPCOM_CPSCHANGER, HARDWARE_CAPCOM_CPS2, HARDWARE_CAPCOM_CPS3, 0 }, "\t\t\t<system name=\"" },
+	{_T("Neo-Geo hardware"),			_T("config/presets/neogeo.ini"),	true,	{ HARDWARE_SNK_NEOGEO, 0 }, 		"\t\t\t<system name=\""						},
+	{_T("Neo-Geo CD hardware"),			_T("config/presets/neogeocd.ini"),	true,	{ HARDWARE_SNK_NEOCD, 0 },			"\t\t\t<item list=\"neocd\" name=\""		},
+	{_T("Neo-Geo Pocket hardware"),     _T("config/presets/ngp.ini"),		false,	{ HARDWARE_SNK_NGP, 0 },			"\t\t\t<item list=\"ngp\" name=\""			},
+	{_T("Neo-Geo Pocket C hardware"),	_T("config/presets/ngp.ini"),		false,	{ HARDWARE_SNK_NGPC, 0 },			"\t\t\t<item list=\"ngpc\" name=\""			},
+	{_T("NES hardware"),				_T("config/presets/nes.ini"),		true,	{ HARDWARE_NES, 0 },				"\t\t\t<item list=\"nes\" name=\""			},
+	{_T("FDS hardware"),				_T("config/presets/fds.ini"),		true,	{ HARDWARE_FDS, 0 },				"\t\t\t<item list=\"famicom_flop\" name=\""	},
+	{_T("SNES hardware"),				_T("config/presets/snes.ini"),		true,	{ HARDWARE_SNES, 0 },				"\t\t\t<item list=\"snes\" name=\""			},
+	{_T("SNES w/Scope hardware"),		_T("config/presets/snes_scope.ini"),true,	{ HARDWARE_SNES_ZAPPER, 0 },				"\t\t\t<item list=\"snes\" name=\""			},
+	{_T("GBA hardware"),				_T("config/presets/gba.ini"),		true,	{ HARDWARE_GBA, 0 },				"\t\t\t<item list=\"gba\" name=\""	},
+	{_T("PGM hardware"),				_T("config/presets/pgm.ini"),		false,	{ HARDWARE_IGS_PGM, HARDWARE_IGS_PGM2, 0 },			"\t\t\t<system name=\""        				},
+	{_T("MegaDrive hardware"),			_T("config/presets/megadrive.ini"),	true,	{ HARDWARE_SEGA_MEGADRIVE, 0 },		"\t\t\t<item list=\"megadriv\" name=\""		},
+	{_T("PCE/SGX hardware"),			_T("config/presets/pce.ini"),		true,	{ HARDWARE_PCENGINE_PCENGINE, HARDWARE_PCENGINE_SGX, 0 },	"\t\t\t<item list=\"pce\" name=\""			},
+	{_T("PCE CD hardware"),				_T("config/presets/pcecd.ini"),		true,	{ HARDWARE_PCENGINE_PCE_CD, 0 },	"\t\t\t<item list=\"pce_cd\" name=\""		},
+	{_T("TG16 hardware"),				_T("config/presets/pce.ini"),		true,	{ HARDWARE_PCENGINE_TG16, 0 },		"\t\t\t<item list=\"tg16\" name=\""			},
+	{_T("MSX1 hardware"),				_T("config/presets/msx.ini"),		false,	{ HARDWARE_MSX, 0 },				"\t\t\t<item list=\"msx1_cart\" name=\""	},
+	{_T("Coleco hardware"),				_T("config/presets/coleco.ini"),	true,	{ HARDWARE_COLECO, 0 },				"\t\t\t<item list=\"coleco\" name=\""		},
+	{_T("SG1000 hardware"),				_T("config/presets/sg1000.ini"),	true,	{ HARDWARE_SEGA_SG1000, 0 },		"\t\t\t<item list=\"sg1000\" name=\""		},
+	{_T("Sega Master System hardware"),	_T("config/presets/sms.ini"),		true,	{ HARDWARE_SEGA_MASTER_SYSTEM, 0 },	"\t\t\t<item list=\"sms\" name=\""			},
+	{_T("Sega Game Gear hardware"),		_T("config/presets/gg.ini"),		true,	{ HARDWARE_SEGA_GAME_GEAR, 0 },		"\t\t\t<item list=\"gamegear\" name=\""		},
+	{_T("Sinclair Spectrum hardware"),	_T("config/presets/spectrum.ini"),	false,	{ HARDWARE_SPECTRUM, 0 },			"\t\t\t<item list=\"spectrum_cass\" name=\""},
+	{_T("Fairchild Channel F hardware"),_T("config/presets/channelf.ini"),	true,	{ HARDWARE_CHANNELF, 0 },			"\t\t\t<item list=\"channelf\" name=\""		},
+	{_T("Bally Astrocade hardware"),	_T("config/presets/astrocade.ini"),	true,	{ HARDWARE_ASTROHOME, 0 },			"\t\t\t<item list=\"astrocade\" name=\""	},
+	{_T("\0"), _T("\0"), false, { 0 }, "" } // END of list
 };
 
 void GetHistoryDatHardwareToken(char *to_string)
 {
-	INT32 nHardwareFlag = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK);
+	UINT32 nHardwareFlag = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK);
 
 	// See if nHardwareFlag belongs to any systems in gamehw_config
 	for (INT32 i = 0; gamehw_cfg[i].ini[0] != '\0'; i++) {
@@ -1887,19 +2210,40 @@ void GetHistoryDatHardwareToken(char *to_string)
 	strcpy(to_string, "\t\t\t<system name=\"");
 }
 
+UINT32 GameInputGetHWFlag()
+{
+	UINT32 nHardwareFlag = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK);
+
+	if (nHardwareFlag == HARDWARE_SNES) {
+		// for this(these?) systems, get the unmasked HW flag
+		// needs separate definition/.ini file for superscope games, for example
+		nHardwareFlag = BurnDrvGetHardwareCode();
+	}
+
+	return nHardwareFlag;
+}
+
 INT32 ConfigGameLoadHardwareDefaults()
 {
-	TCHAR *szFileName = _T("");
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+	TCHAR *szFolderName = NULL;
+	szFolderName = SDL_GetPrefPath(NULL, "fbneo");		// Get fbneo folder path
+#endif
+	TCHAR szFileName[MAX_PATH] = _T("");
 	INT32 nApplyHardwareDefaults = 0;
 
-	INT32 nHardwareFlag = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK);
+	UINT32 nHardwareFlag = GameInputGetHWFlag();
 
 	// See if nHardwareFlag belongs to any systems in gamehw_config
 	for (INT32 i = 0; gamehw_cfg[i].ini[0] != '\0'; i++) {
 		for (INT32 hw = 0; gamehw_cfg[i].hw[hw] != 0; hw++) {
 			if (gamehw_cfg[i].hw[hw] == nHardwareFlag)
 			{
-				szFileName = gamehw_cfg[i].ini;
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+				_stprintf(szFileName, _T("%s%s"), szFolderName, gamehw_cfg[i].ini);
+#else
+				_tcscpy(szFileName, gamehw_cfg[i].ini);
+#endif
 				nApplyHardwareDefaults = 1;
 				break;
 			}
@@ -1912,6 +2256,9 @@ INT32 ConfigGameLoadHardwareDefaults()
 		}
 	}
 
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+	SDL_free(szFolderName);
+#endif
 	return 0;
 }
 
@@ -1922,6 +2269,18 @@ INT32 GameInpDefault()
 	struct BurnInputInfo bii;
 	UINT32 i;
 
+#if defined(BUILD_SDL2) && !defined(SDL_WINDOWS)
+	TCHAR *szSDLconfigPath = NULL;
+	szSDLconfigPath = SDL_GetPrefPath("fbneo", "config");
+	for (INT32 nPlayer = 0; nPlayer < 4; nPlayer++) {
+		_stprintf(szPlayerDefaultIni[nPlayer], _T("%sp%ddefaults.ini"), szSDLconfigPath, nPlayer + 1);
+	}
+	SDL_free(szSDLconfigPath);
+
+	for (INT32 nPlayer = 0; nPlayer < nMaxPlayers; nPlayer++) {
+		GameInputAutoIni(nPlayer, szPlayerDefaultIni[nPlayer], false);
+	}
+#else
 	for (INT32 nPlayer = 0; nPlayer < nMaxPlayers; nPlayer++) {
 
 		if ((nPlayerDefaultControls[nPlayer] & 0x0F) != 0x0F) {
@@ -1930,6 +2289,7 @@ INT32 GameInpDefault()
 
 		GameInputAutoIni(nPlayer, szPlayerDefaultIni[nPlayer], false);
 	}
+#endif
 
 	// Fill all inputs still undefined
 	for (i = 0, pgi = GameInp; i < nGameInpCount; i++, pgi++) {
@@ -1953,6 +2313,11 @@ INT32 GameInpDefault()
 			pgi->nInput = GIT_CONSTANT;
 			continue;
 		}
+#ifdef BUILD_MACOS
+        if (MacOSinpInitControls(pgi, bii.szInfo) == 0) {
+            continue; // NOTE: prevents 'GameInpAutoOne' from being called
+        }
+#endif
 
 		GameInpAutoOne(pgi, bii.szInfo);
 	}
@@ -1974,13 +2339,17 @@ INT32 GameInpDefault()
 // ---------------------------------------------------------------------------
 // Write all the GameInps out to config file 'h'
 
-INT32 GameInpWrite(FILE* h)
+INT32 GameInpWrite(FILE* h, bool bSaveDips)
 {
 	// Write input types
 	for (UINT32 i = 0; i < nGameInpCount; i++) {
 		TCHAR* szName = NULL;
 		INT32 nPad = 0;
 		szName = InputNumToName(i);
+		if (bSaveDips == false && InputNumIsDIPSWITCH(i)) {
+			bprintf(0, _T("not saving dip [%s]\n"), szName);
+			continue;
+		}
 		_ftprintf(h, _T("input  \"%s\" "), szName);
 		nPad = 16 - _tcslen(szName);
 		for (INT32 j = 0; j < nPad; j++) {
@@ -1998,7 +2367,9 @@ INT32 GameInpWrite(FILE* h)
 		if (pgi->nInput & GIT_GROUP_MACRO) {
 			switch (pgi->nInput) {
 				case GIT_MACRO_AUTO:									// Auto-assigned macros
-					if (pgi->Macro.nSysMacro == 15) _ftprintf(h, _T("afire  \"%hs\"\n"), pgi->Macro.szName);  // Create autofire (afire) tag
+					if (pgi->Macro.nSysMacro == 15) {					// Autofire magic number
+						_ftprintf(h, _T("afire  \"%hs\"\n"), pgi->Macro.szName);  // Create autofire (afire) tag
+					}
 					_ftprintf(h, _T("macro  \"%hs\" "), pgi->Macro.szName);
 					break;
 				case GIT_MACRO_CUSTOM:									// Custom macros

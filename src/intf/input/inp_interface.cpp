@@ -13,8 +13,11 @@ static bool bCinpOkay;
 
 #if defined (BUILD_WIN32)
 	extern struct InputInOut InputInOutDInput;
+	extern struct InputInOut InputInOutXInput;
 #elif defined (BUILD_MACOS)
 	extern struct InputInOut InputInOutMacOS;
+#elif defined (BUILD_HEADLESS)
+	extern struct InputInOut InputInOutHeadless;
 #elif defined (BUILD_SDL)
 	extern struct InputInOut InputInOutSDL;
 #elif defined (BUILD_SDL2)
@@ -29,8 +32,11 @@ static struct InputInOut *pInputInOut[]=
 {
 #if defined (BUILD_WIN32)
 	&InputInOutDInput,
+	&InputInOutXInput,
 #elif defined (BUILD_MACOS)
 	&InputInOutMacOS,
+#elif defined (BUILD_HEADLESS)
+	&InputInOutHeadless,
 #elif defined (BUILD_SDL2)
 		&InputInOutSDL2,
 #elif defined (BUILD_SDL)
@@ -160,7 +166,7 @@ INT32 InputInit()
 	bInputOkay = false;
 
 	if (nInputSelect >= INPUT_LEN) {
-		return 1;
+		nInputSelect = 0;		// e.g. invalid value from the config file
 	}
 
 	if ((nRet = pInputInOut[nInputSelect]->Init()) == 0) {
@@ -181,6 +187,32 @@ INT32 InputExit()
 	bInputOkay = false;
 
 	return pInputInOut[nInputSelect]->Exit();
+}
+
+// Select an input plugin, re-initialising input if it was active
+INT32 InputSelect(UINT32 nPlugIn)
+{
+	if (nPlugIn >= INPUT_LEN) {
+		return 1;
+	}
+
+	if (nPlugIn == nInputSelect) {
+		return 0;
+	}
+
+	bool bWasOkay = bInputOkay;
+
+	if (bWasOkay) {
+		InputExit();
+	}
+
+	nInputSelect = nPlugIn;
+
+	if (bWasOkay) {
+		return InputInit();
+	}
+
+	return 0;
 }
 
 // This will request exclusive access for mouse and/or request input processing if the application is in the foreground only
@@ -237,7 +269,7 @@ INT32 InputMake(bool bCopy)
 		}
 
 		if (pgi->nIdent == GK_RESET) {
-			if (bResetDrv) {
+			if (bResetDrv && bCopy) {
 				// Click the reset key (from UI)
 				*(pgi->Input.pVal) = 1;
 				bResetDrv = false;
@@ -333,6 +365,20 @@ INT32 InputMake(bool bCopy)
 				if (pgi->nType == BIT_ANALOG_REL) {
 					nJoy *= nAnalogSpeed;
 					nJoy >>= 13;
+
+					// -- Deadzone handling --
+					// Scale Deadzone to the Speed.  200 seems perfect for thumbsticks @ default speed
+					const INT32 nDeadZone = 200 * nAnalogSpeed / 256;
+					nJoy = AnalogDeadZone(nJoy, nDeadZone);
+
+					// dinkNOTE: at 0x100 analog speed, it returns +-824,
+					// but some axis return +-820.
+
+					const INT32 scale_to = (32767 * nAnalogSpeed) >> 13;
+					const INT32 scale_from = scale_to - nDeadZone;
+
+					// note: negative numbers are 1 more than their positive counterpart
+					nJoy = scalerangei(nJoy, -(scale_from + 1), scale_from, -(scale_to + 1), scale_to);
 
 					// Clip axis to 16 bits (signed)
 					if (nJoy < -32768) {

@@ -60,24 +60,23 @@ static INT32 bootleg = 0;
 
 static struct BurnInputInfo DrvInputList[] =
 {
-	{"Coin 1"            , BIT_DIGITAL  , DrvInputPort0 + 6, "p1 coin"   },
-	{"Start 1"           , BIT_DIGITAL  , DrvInputPort0 + 0, "p1 start"  },
-	{"Coin 2"            , BIT_DIGITAL  , DrvInputPort0 + 7, "p2 coin"   },
-	{"Start 2"           , BIT_DIGITAL  , DrvInputPort0 + 1, "p2 start"  },
-
+	{"P1 Coin"           , BIT_DIGITAL  , DrvInputPort0 + 6, "p1 coin"   },
+	{"P1 Start"          , BIT_DIGITAL  , DrvInputPort0 + 0, "p1 start"  },
 	{"P1 Up"             , BIT_DIGITAL  , DrvInputPort1 + 3, "p1 up"     },
 	{"P1 Down"           , BIT_DIGITAL  , DrvInputPort1 + 2, "p1 down"   },
 	{"P1 Left"           , BIT_DIGITAL  , DrvInputPort1 + 1, "p1 left"   },
 	{"P1 Right"          , BIT_DIGITAL  , DrvInputPort1 + 0, "p1 right"  },
 	{"P1 Fire 1"         , BIT_DIGITAL  , DrvInputPort1 + 4, "p1 fire 1" },
 	{"P1 Fire 2"         , BIT_DIGITAL  , DrvInputPort1 + 5, "p1 fire 2" },
-	
+
+	{"P2 Coin"           , BIT_DIGITAL  , DrvInputPort0 + 7, "p2 coin"   },
+	{"P2 Start"          , BIT_DIGITAL  , DrvInputPort0 + 1, "p2 start"  },
 	{"P2 Up"             , BIT_DIGITAL  , DrvInputPort2 + 3, "p2 up"     },
 	{"P2 Down"           , BIT_DIGITAL  , DrvInputPort2 + 2, "p2 down"   },
 	{"P2 Left"           , BIT_DIGITAL  , DrvInputPort2 + 1, "p2 left"   },
 	{"P2 Right"          , BIT_DIGITAL  , DrvInputPort2 + 0, "p2 right"  },
-	{"Fire 1"            , BIT_DIGITAL  , DrvInputPort2 + 4, "p2 fire 1" },
-	{"Fire 2"            , BIT_DIGITAL  , DrvInputPort2 + 5, "p2 fire 2" },
+	{"P2 Fire 1"         , BIT_DIGITAL  , DrvInputPort2 + 4, "p2 fire 1" },
+	{"P2 Fire 2"         , BIT_DIGITAL  , DrvInputPort2 + 5, "p2 fire 2" },
 
 	{"Reset"             , BIT_DIGITAL  , &DrvReset        , "reset"     },
 	{"Dip 1"             , BIT_DIPSWITCH, DrvDip + 0       , "dip"       },
@@ -119,7 +118,7 @@ static struct BurnDIPInfo DrvDIPList[]=
 	{0x11, 0x01, 0x20, 0x20, "Off"                    },
 	{0x11, 0x01, 0x20, 0x00, "On"                     },
 
-	{0   , 0xfe, 0   , 2   , "Freeze"                 },
+	{0   , 0xfe, 0   , 2   , "Screen Stop"            },
 	{0x11, 0x01, 0x40, 0x40, "Off"                    },
 	{0x11, 0x01, 0x40, 0x00, "On"                     },
 
@@ -1776,7 +1775,7 @@ struct BurnDriver BurnDrvNineteen43jaha = {
 
 struct BurnDriver BurnDrvNineteen43b = {
 	"1943b", "1943", NULL, NULL, "1987",
-	"1943: Battle of Midway (bootleg set 1, hack of Japan set)\0", NULL, "bootleg", "Miscellaneous",
+	"1943: Battle of Midway (bootleg, hack of Japan set, set 1)\0", NULL, "bootleg", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARWARE_CAPCOM_MISC, GBF_VERSHOOT, 0,
 	NULL, DrvbRomInfo, DrvbRomName, NULL, NULL, NULL, NULL, DrvInputInfo, DrvDIPInfo,
@@ -1786,7 +1785,7 @@ struct BurnDriver BurnDrvNineteen43b = {
 
 struct BurnDriver BurnDrvNineteen43b2 = {
 	"1943b2", "1943", NULL, NULL, "1987",
-	"1943: Battle of Midway (bootleg set 2, hack of Japan set)\0", NULL, "bootleg", "Miscellaneous",
+	"1943: Battle of Midway (bootleg, hack of Japan set, set 2)\0", NULL, "bootleg", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARWARE_CAPCOM_MISC, GBF_VERSHOOT, 0,
 	NULL, Drvb2RomInfo, Drvb2RomName, NULL, NULL, NULL, NULL, DrvInputInfo, DrvDIPInfo,
@@ -1815,7 +1814,7 @@ struct BurnDriver BurnDrvNineteen43kai = {
 };
 
 struct BurnDriver BurnDrvNineteen43mii = {
-	"1943mii", NULL, NULL, NULL, "1988",
+	"1943mii", NULL, NULL, NULL, "1987",
 	"1943: The Battle of Midway Mark II (US)\0", NULL, "Capcom", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARWARE_CAPCOM_MISC, GBF_VERSHOOT, 0,

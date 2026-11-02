@@ -1,5 +1,13 @@
 // Standard ROM/input/DIP info functions
 
+#ifndef ARRAY_SIZE
+#ifdef _MSC_VER
+#define ARRAY_SIZE(arr) _countof(arr)
+#else
+#define ARRAY_SIZE(arr) ((INT32)(sizeof(arr) / sizeof((arr)[0])))
+#endif // _MSC_VER
+#endif // !ARRAY_SIZE
+
 // A function to pick a rom, or return NULL if i is out of range
 #define STD_ROM_PICK(Name)												\
 static struct BurnRomInfo* Name##PickRom(UINT32 i)						\
@@ -202,8 +210,7 @@ static INT32 Name##HDDInfo(struct BurnHDDInfo* pri, UINT32 i)			\
 		return 1;														\
 	}																	\
 	if (pri) {															\
-		pri->nLen = por->nLen;											\
-		pri->nCrc = por->nCrc;											\
+		pri->szSha1 = por->szSha1;										\
 	}																	\
 	return 0;															\
 }																		\

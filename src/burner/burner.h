@@ -20,11 +20,12 @@
 #if defined (BUILD_QT)
  #define DIRS_MAX (4)								// Maximum number of directories to search
 #else
- #define DIRS_MAX (20)								// Maximum number of directories to search
+ #define DIRS_MAX (21)								// Maximum number of directories to search
 #endif
 
 #include "title.h"
 #include "burn.h"
+#include "joyprocess.h"
 
 // ---------------------------------------------------------------------------
 // OS dependent functionality
@@ -44,6 +45,8 @@ typedef struct tagIMAGE {
  #include "burner_macos.h"
 #elif defined (BUILD_SDL) || defined (BUILD_SDL2)
  #include "burner_sdl.h"
+#elif defined (BUILD_HEADLESS)
+ #include "burner_headless.h"
 #elif defined (_XBOX) && !defined(__LIBRETRO__)
  #include "burner_xbox.h"
 #elif defined(__LIBRETRO__)
@@ -72,7 +75,7 @@ typedef struct tagIMAGE {
 
 // burn/burn.cpp
 extern INT32 bRewindEnabled;
-extern INT32 nRewindMemory;
+extern INT64 nRewindMemory;
 
 
 // image.cpp
@@ -81,11 +84,11 @@ void img_free(IMAGE* img);
 INT32 img_alloc(IMAGE* img);
 
 bool PNGIsImage(FILE* fp);
-bool PNGIsImageBuffer(unsigned char* buffer, int bufferLength);
+bool PNGIsImageBuffer(void* buffer, int bufferLength);
 INT32 PNGLoad(IMAGE* img, FILE* fp, INT32 nPreset);
-INT32 PNGLoadBuffer(IMAGE* img, unsigned char* buffer, int bufferLength, INT32 nPreset);
+INT32 PNGLoadBuffer(IMAGE* img, void* buffer, int bufferLength, INT32 nPreset);
 INT32 PNGGetInfo(IMAGE* img, FILE *fp);
-INT32 PNGGetInfoBuffer(IMAGE* img, unsigned char* buffer, int bufferLength);
+INT32 PNGGetInfoBuffer(IMAGE* img, void* buffer, int bufferLength);
 
 // gami.cpp
 extern struct GameInp* GameInp;
@@ -119,7 +122,7 @@ INT32 GameInpBlank(INT32 bDipSwitch);
 INT32 GameInputAutoIni(INT32 nPlayer, TCHAR* lpszFile, bool bOverWrite);
 INT32 ConfigGameLoadHardwareDefaults();
 INT32 GameInpDefault();
-INT32 GameInpWrite(FILE* h);
+INT32 GameInpWrite(FILE* h, bool bSaveDips);
 INT32 GameInpRead(TCHAR* szVal, bool bOverWrite);
 INT32 GameInpMacroRead(TCHAR* szVal, bool bOverWrite);
 INT32 GameMacroAutofireRead(TCHAR* szVal, bool bOverWrite);
@@ -128,11 +131,15 @@ INT32 GameInpCustomRead(TCHAR* szVal, bool bOverWrite);
 struct tIniStruct {
 	TCHAR system[80];
 	TCHAR ini[MAX_PATH];
+	bool dips_in_preset;
 	INT32 hw[8];
+//	TCHAR possible[80];
 	char gameinfotoken[80];
 };
 
 extern tIniStruct gamehw_cfg[];
+
+UINT32 GameInputGetHWFlag();
 
 void GetHistoryDatHardwareToken(char *to_string);
 
@@ -223,14 +230,17 @@ void ComputeGammaLUT();
 #define DAT_NEOGEO_ONLY			11
 #define DAT_NES_ONLY			12
 #define DAT_FDS_ONLY			13
-#define DAT_NGP_ONLY			14
-#define DAT_CHANNELF_ONLY		15
+#define DAT_SNES_ONLY			14
+#define DAT_NGP_ONLY			15
+#define DAT_CHANNELF_ONLY		16
+#define DAT_ASTROHOME_ONLY		17
+#define DAT_GBA_ONLY			18
 
 INT32 write_datfile(INT32 bType, FILE* fDat);
 INT32 create_datfile(TCHAR* szFilename, INT32 bType);
 
 // sshot.cpp
-INT32 MakeScreenShot();
+INT32 MakeScreenShot(INT32 bType);
 
 // state.cpp
 INT32 BurnStateLoadEmbed(FILE* fp, INT32 nOffset, INT32 bAll, INT32 (*pLoadGame)());
@@ -257,9 +267,12 @@ INT32 ZipLoadFile(UINT8* Dest, INT32 nLen, INT32* pnWrote, INT32 nEntry);
 INT32 __cdecl ZipLoadOneFile(char* arcName, const char* fileName, void** Dest, INT32* pnWrote);
 
 // romdata.cpp
+
 extern TCHAR szRomdataName[MAX_PATH];
+TCHAR* AdaptiveEncodingReads(const TCHAR* pszFileName);
 
 // ips_manager.cpp 
+
 void IpsPatchInit();
 void IpsPatchExit();
 
@@ -280,6 +293,7 @@ extern TCHAR szAppPreviewsPath[MAX_PATH];
 extern TCHAR szAppTitlesPath[MAX_PATH];
 extern TCHAR szAppCheatsPath[MAX_PATH];
 extern TCHAR szAppIpsPath[MAX_PATH];
+extern TCHAR szAppRomdataPath[MAX_PATH];
 extern TCHAR szAppIconsPath[MAX_PATH];
 extern TCHAR szAppSelectPath[MAX_PATH];
 extern TCHAR szAppVersusPath[MAX_PATH];
@@ -293,3 +307,4 @@ extern TCHAR szAppControlsPath[MAX_PATH];
 extern TCHAR szAppCabinetsPath[MAX_PATH];
 extern TCHAR szAppPCBsPath[MAX_PATH];
 extern TCHAR szAppHistoryPath[MAX_PATH];
+extern TCHAR szAppCommandPath[MAX_PATH];

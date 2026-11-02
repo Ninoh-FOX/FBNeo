@@ -317,6 +317,7 @@ static INT32 DrvDoReset()
 	BurnYM3812Reset();
 
 	KonamiICReset();
+	K051316Reset();
 
 	readzoomroms = 0;
 
@@ -429,6 +430,7 @@ static INT32 DrvExit()
 	GenericTilesExit();
 
 	KonamiICExit();
+	K051316Exit();
 
 	konamiExit();
 	ZetExit();
@@ -447,6 +449,7 @@ static INT32 DrvDraw()
 
 	KonamiClearBitmaps(DrvPalette[0x100]);
 
+	K051316SetRenderTarget(konami_bitmap32, konami_palette32, konami_priority_bitmap);
 	if (nBurnLayer & 1) K051316_zoom_draw(0, 1);
 	if (nSpriteEnable & 1) K053245SpritesRender(0);
 
@@ -531,6 +534,7 @@ static INT32 DrvScan(INT32 nAction,INT32 *pnMin)
 		K053260Scan(nAction, pnMin);
 
 		KonamiICScan(nAction);
+		K051316Scan(nAction);
 
 		SCAN_VAR(readzoomroms);
 	}
@@ -600,6 +604,36 @@ struct BurnDriver BurnDrvRollergj = {
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_KONAMI, GBF_SPORTSMISC, 0,
 	NULL, rollergjRomInfo, rollergjRomName, NULL, NULL, NULL, NULL, RollergInputInfo, RollergDIPInfo,
+	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x400,
+	288, 224, 4, 3
+};
+
+
+// Rollergames (Asia)
+
+static struct BurnRomInfo rollergaRomDesc[] = {
+	{ "g7",			0x020000, 0x5475c39a, 1 | BRF_PRG | BRF_ESS }, //  0 Konami Custom Code
+
+	{ "e11",		0x008000, 0x1fcfb22f, 2 | BRF_PRG | BRF_ESS }, //  1 Z80 Code
+
+	{ "999h06.k2",	0x100000, 0xeda05130, 3 | BRF_GRA },           //  2 K053245 Tiles
+	{ "999h05.k8",	0x100000, 0x5f321c7d, 3 | BRF_GRA },           //  3
+
+	{ "999h03.d23",	0x040000, 0xea1edbd2, 4 | BRF_GRA },           //  4 K051316 Tiles
+	{ "999h04.f23",	0x040000, 0xc1a35355, 4 | BRF_GRA },           //  5
+
+	{ "999h09.c5",	0x080000, 0xc5188783, 5 | BRF_SND },           //  6 K053260 Samples
+};
+
+STD_ROM_PICK(rollerga)
+STD_ROM_FN(rollerga)
+
+struct BurnDriver BurnDrvRollerga = {
+	"rollerga", "rollerg", NULL, NULL, "1991",
+	"Rollergames (Asia)\0", NULL, "Konami", "GX999",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_KONAMI, GBF_SPORTSMISC, 0,
+	NULL, rollergaRomInfo, rollergaRomName, NULL, NULL, NULL, NULL, RollergInputInfo, RollergDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x400,
 	288, 224, 4, 3
 };

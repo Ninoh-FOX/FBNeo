@@ -10,11 +10,6 @@ unexport
 #	Flags. Uncomment any of these declarations to enable their function.
 #
 
-# Check for changes in header files, but not if we want to skip the depend step
-ifndef	SKIPDEPEND
-DEPEND = 1
-endif
-
 #
 #	Declare variables
 #
@@ -86,6 +81,8 @@ objdir	= obj/$(COMPILENAME)/
 srcdir	= src/
 
 include makefile.burn_rules
+#optional: include developer's makefile.burn_rules_dev
+-include makefile.burn_rules_dev
 include makefile.burner_win32_rules
 
 incdir	= $(foreach dir,$(alldir),-I$(srcdir)$(dir)) -I$(objdir)dep/generated -I$(srcdir)dep/mingw/include -I$(srcdir)dep/mingw/include/directx9 -I$(srcdir)dep/mingw/include/xaudio2
@@ -185,6 +182,10 @@ CXXFLAGS = -pipe \
 	   -Wno-unused-but-set-variable -Wno-sequence-point -Wno-narrowing -Wno-extra \
 	   $(DEF) $(incdir)
 
+#return back to msvcrt-style swprintf
+	CFLAGS += -D__USE_MINGW_ANSI_STDIO=0
+	CXXFLAGS += -D__USE_MINGW_ANSI_STDIO=0
+
 ifdef BUILD_X64_EXE
 	CFLAGS += -m64
 	CXXFLAGS += -m64
@@ -200,7 +201,7 @@ ASFLAGS	=  -O1 -f coff -w-orphan-labels
 #       D3DUtils & D3DMath need these
 #       DEF     = -Dsinf=\(float\)sin -Dcosf=\(float\)cos -Dasinf=\(float\)asin -Dacosf=\(float\)acos -Dsqrtf=\(float\)sqrt
 
-	DEF	:= -DBUILD_WIN32 -DUSE_SPEEDHACKS -DFILENAME=$(NAME) -DMMX=$(MMX)
+	DEF	:= -DBUILD_WIN32 -DUSE_SPEEDHACKS -DFILENAME=$(NAME) -DMMX=$(MMX) -DZLIB_WINAPI -DCHDR_SYSTEM_ZLIB
 
 ifdef UNICODE
 	DEF	:= $(DEF) -D_UNICODE
@@ -244,7 +245,6 @@ endif
 
 ifdef BUILD_X64_EXE
 	DEF := $(DEF) -DBUILD_X64_EXE
-	# -DXBYAK_NO_OP_NAMES -DMIPS3_X64_DRC
 endif
 
 ifdef	SYMBOL
@@ -278,7 +278,7 @@ endif
 
 
 # For zlib
-DEF := $(DEF) -DNO_VIZ -D_LARGEFILE64_SOURCE=0 -D_FILE_OFFSET_BITS=32
+DEF := $(DEF) -DNO_VIZ -D_LARGEFILE64_SOURCE=0 -D_FILE_OFFSET_BITS=64
 
 # For lib7z
 ifdef INCLUDE_7Z_SUPPORT
@@ -582,6 +582,10 @@ ifeq ($(MAKELEVEL),1)
 	@echo Assembling $<...
 	@$(AS) $(ASFLAGS) $< -o $(subst $(srcdir),$(objdir),$(<D))/$(@F)
 
+$(objdir)dep/libs/lzma/libchdr_lzma.o: $(srcdir)dep/libs/lzma/libchdr_lzma.c
+	@echo Compiling $<...
+	@$(CC) $(CFLAGS) -c $< -o $(subst $(srcdir),$(objdir),$(<D))/$(@F)
+
 else
 
 %.o:	%.c
@@ -595,6 +599,10 @@ else
 %.o:
 	@echo Compiling $<...
 	@$(CC) $(CXXFLAGS) -c $< -o $@
+
+$(objdir)dep/libs/lzma/libchdr_lzma.o: $(srcdir)dep/libs/lzma/libchdr_lzma.c
+	@echo Compiling $<...
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 endif
 

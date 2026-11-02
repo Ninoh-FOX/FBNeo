@@ -35,6 +35,11 @@
 #endif
 
 #include <shlwapi.h>
+
+#ifdef _MSC_VER
+#pragma comment(lib, "shlwapi.lib")
+#endif
+
 #include "d3dkmt_sync.h"
 
 INT32 DSCore_Init();
@@ -50,6 +55,10 @@ INT32 Dx9Core_Init();
 #include "resource.h"
 #include "resource_string.h"
 #include "net.h"
+#include "zip.h" // unzip*() in sel.cpp
+#include "chd.h"
+#include "neocdlist.h"
+
 // ---------------------------------------------------------------------------
 
 // Macro for releasing a COM object
@@ -59,30 +68,30 @@ INT32 Dx9Core_Init();
 
 // Macros used for handling Window Messages
 #define HANDLE_WM_ENTERMENULOOP(hwnd, wParam, lParam, fn)		\
-    ((fn)((hwnd), (BOOL)(wParam)), 0L)
+	((fn)((hwnd), (BOOL)(wParam)), 0L)
 
 #ifdef __GNUC__
 #define HANDLE_WM_EXITMENULOOP(hwnd, wParam, lParam, fn)		\
-    ((fn)((hwnd), (BOOL)(wParam)))
+	((fn)((hwnd), (BOOL)(wParam)))
 #else
 #define HANDLE_WM_EXITMENULOOP(hwnd, wParam, lParam, fn)		\
-    ((fn)((hwnd), (BOOL)(wParam)), 0L)
+	((fn)((hwnd), (BOOL)(wParam)), 0L)
 #endif
 
 #define HANDLE_WM_ENTERSIZEMOVE(hwnd, wParam, lParam, fn)		\
-    ((fn)(hwnd), 0L)
+	((fn)(hwnd), 0L)
 
 #define HANDLE_WM_EXITSIZEMOVE(hwnd, wParam, lParam, fn)		\
-    ((fn)(hwnd), 0L)
+	((fn)(hwnd), 0L)
 
 #define HANDLE_WM_UNINITMENUPOPUP(hwnd,wParam,lParam,fn)		\
 	((fn)((hwnd), (HMENU)(wParam), (UINT)LOWORD(lParam), (BOOL)HIWORD(lParam)),0)
 
 // Extra macro used for handling Window Messages
 #define HANDLE_MSGB(hwnd, message, fn)							\
-    case (message): 												\
-         HANDLE_##message((hwnd), (wParam), (lParam), (fn)); \
-         break;
+	case (message): 												\
+		HANDLE_##message((hwnd), (wParam), (lParam), (fn)); \
+		break;
 
 // Macro used for re-initialiging video/sound/input
 // #define POST_INITIALISE_MESSAGE { dprintf(_T("*** (re-) initialising - %s %i\n"), _T(__FILE__), __LINE__); PostMessage(NULL, WM_APP + 0, 0, 0); }
@@ -115,7 +124,10 @@ extern bool bAlwaysCreateSupportFolders;
 extern bool bAutoLoadGameList;
 
 extern bool bQuietLoading;
+extern bool bNoPopups;
 extern bool bShonkyProfileMode;
+extern int nKailleraCheatEnableHack;
+extern bool bDontInitMedia;
 
 extern bool bNoChangeNumLock;
 extern bool bMonitorAutoCheck;
@@ -228,7 +240,9 @@ void DisableHighResolutionTiming();
 // drv.cpp
 extern int bDrvOkay;								// 1 if the Driver has been initted okay, and it's okay to use the BurnDrv functions
 extern TCHAR szAppRomPaths[DIRS_MAX][MAX_PATH];
+extern TCHAR szAppQuickPath[MAX_PATH];
 int DrvInit(int nDrvNum, bool bRestore);
+
 int DrvInitCallback();								// Used when Burn library needs to load a game. DrvInit(nBurnSelect, false)
 int DrvExit();
 void NeoCDZRateChangeback();
@@ -255,6 +269,7 @@ int RunFrame(int bDraw, int bPause);
 int RunMessageLoop();
 int RunReset();
 void ToggleLayer(unsigned char thisLayer);
+bool EmulatorAppIsFast();
 
 // scrn.cpp
 extern HWND hScrnWnd;								// Handle to the screen window
@@ -262,6 +277,9 @@ extern HWND hRebar;									// Handle to the Rebar control containing the menu
 extern HWND hwndChat;
 extern bool bRescanRoms;
 extern bool bMenuEnabled;
+extern INT32 nQuickOpen;
+
+extern bool szPrevGamesNeedsUpdate;
 
 extern RECT SystemWorkArea;							// The full screen area
 extern int nWindowPosX, nWindowPosY;
@@ -275,17 +293,23 @@ int ScrnTitle();
 void SetPauseMode(bool bPause);
 int ActivateChat();
 void DeActivateChat();
-int BurnerLoadDriver(TCHAR *szDriverName);
+int BurnerLoadDriver(TCHAR *pszDriverName);
 int StartFromReset(TCHAR *szDriverName, bool bLoadSram);
 void PausedRedraw(void);
 INT32 is_netgame_or_recording();
 void ScrnInitLua();
 void ScrnExitLua();
 char* DecorateKailleraGameName(UINT32 nBurnDrv);
+INT32 CreateAllDatfilesWindows(bool bSilent = false, const TCHAR* pszSpecDir = NULL);
+INT32 RomDataLoadDriver(const TCHAR* pszSelDat);
+INT32 BurnerQuickLoad(const INT32 nMode, const TCHAR* pszSelect);
+
+// bzip.cpp
+INT32 ArchiveNameFindDrv(const TCHAR* pszSelArc);
 
 // menu.cpp
 #define UM_DISPLAYPOPUP (WM_USER + 0x0100)
-#define UM_CANCELPOPUP (WM_USER + 0x0101)
+#define UM_CANCELPOPUP  (WM_USER + 0x0101)
 
 extern HANDLE hMenuThread;							// Handle to the thread that executes TrackPopupMenuEx
 extern DWORD nMenuThreadID;							// ID of the thread that executes TrackPopupMenuEx
@@ -303,9 +327,10 @@ extern int nScreenSizeVer;	// For vertical orientation
 extern int nWindowSize;
 
 #define SHOW_PREV_GAMES		10
-extern TCHAR szPrevGames[SHOW_PREV_GAMES][32];
+extern TCHAR szPrevGames[SHOW_PREV_GAMES][64];
 
 extern bool bModelessMenu;
+extern bool bAdaptivepopup;
 
 int MenuCreate();
 void MenuDestroy();
@@ -320,6 +345,17 @@ bool MenuHandleKeyboard(MSG*);
 void MenuRemoveTheme();
 
 // sel.cpp
+
+	// unzip()'s buf must be free()'d after use.
+bool unzip(char *szZipFn, char *szFn, void **buf, size_t *bufsize);
+bool unzip_file_exists(char *szZipFn, char *szFn);
+
+	// context-based unzip, for unzipping many files from a single zip
+bool unzip_open_context(zip_t **zip_context, char *szZipFn);
+void unzip_close_context(zip_t **zip_context);
+bool unzip_unzip_context(zip_t **zip_context, char *szFn, void **buf, size_t *bufsize);
+bool unzip_exists_context(zip_t **zip_context, char *szFn);
+
 extern UINT64 nLoadMenuShowX;
 extern int nLoadMenuShowY;
 extern int nLoadMenuExpand;
@@ -337,8 +373,6 @@ extern int nDialogSelect;
 extern int nOldDlgSelected;
 void CreateToolTipForRect(HWND hwndParent, PTSTR pszText);
 int SelMVSDialog();
-void LoadDrvIcons();
-void UnloadDrvIcons();
 #define		ICON_16x16			0
 #define		ICON_24x24			1
 #define		ICON_32x32			2
@@ -347,20 +381,75 @@ extern bool bIconsLoaded;
 extern bool bIconsOnlyParents;
 extern int nIconsSize, nIconsSizeXY, nIconsYDiff;
 extern bool bGameInfoOpen;
+extern bool bIconsByHardwares;
+extern UINT uiBackGroundColor;
+extern UINT uiMenuItemColor;
+extern UINT uiSelectedMenuItemColor;
+extern UINT uiTextFontColor;
+extern UINT nUiColorTheme;
+extern bool uiOwnerDrawActive;
+extern UINT uiLightModeCode;
+extern UINT uiDarkModeCode;
+
+struct CurrentItemInfo
+{
+	TCHAR sText[256];
+	UINT menuItemTypeFlag;
+	UINT menuItemStateFlag;
+	bool itemHasCheckMark;
+};
+
+extern HICON* pIconsCache;
+
+void CreateDrvIconsCache();
+void DestroyDrvIconsCache();
+
+void LoadDrvIcons();
+void UnloadDrvIcons();
 
 // neocdsel.cpp
-extern int NeoCDList_Init();
-extern bool bNeoCDListScanSub;
-extern bool bNeoCDListScanOnlyISO;
+int NeoCDList_Init();
+extern bool  bNeoCDListScanSub;
 extern TCHAR szNeoCDCoverDir[MAX_PATH];
+extern TCHAR szNeoCDPreviewDir[MAX_PATH];
 extern TCHAR szNeoCDGamesDir[MAX_PATH];
+
 
 HBITMAP ImageToBitmap(HWND hwnd, IMAGE* img);
 HBITMAP PNGLoadBitmap(HWND hWnd, FILE* fp, int nWidth, int nHeight, int nPreset);
+HBITMAP PNGLoadBitmapBuffer(HWND hWnd, void *buffer, int bufferLength, int nWidth, int nHeight, int nPreset);
 HBITMAP LoadBitmap(HWND hWnd, FILE* fp, int nWidth, int nHeight, int nPreset);
 int NeoCDList_CheckISO(TCHAR* pszFile, void (*pfEntryCallBack)(INT32, TCHAR*));
+#include "cd_img.h"
+
+// romdata.cpp
+extern bool bRDListScanSub;
+TCHAR* _strqtoken(TCHAR* s, const TCHAR* delims);
+INT32 RomdataGetDrvIndex(const TCHAR* pszDrvName);
+TCHAR* RomdataGetZipName(const TCHAR* pszFileName);
+TCHAR* RomdataGetDrvName(const TCHAR* pszFileName);
+TCHAR* RomdataGetFullName(const TCHAR* pszFileName);
+bool FindZipNameFromDats(const TCHAR* dirPath, const char* pszZipName, TCHAR* pszFindDat);
+INT32 RomDataManagerInit();
+bool RomDataSetQuickPath(const TCHAR* pszSelDat);
+INT32 RomDataCheck(const TCHAR* pszDatFile);
+void RomDataStateBackup();
+void RomDataStateRestore();
+bool RomDataExportTemplate(HWND hWnd, const INT32 nDrvSelect);
+
+// bzip.cpp (rom scan acceleration)
+void BzipScanBegin();
+void BzipScanEnd();
 
 // cona.cpp
+struct SubDirInfo {
+	TCHAR   BaseDir[MAX_PATH];
+	TCHAR** SubDirs;
+	UINT32  nCount;
+};
+
+extern SubDirInfo _SubDirInfo[DIRS_MAX];
+
 extern int nIniVersion;
 
 struct VidPresetData { int nWidth; int nHeight; };
@@ -369,6 +458,9 @@ extern struct VidPresetData VidPreset[4];
 struct VidPresetDataVer { int nWidth; int nHeight; };
 extern struct VidPresetDataVer VidPresetVer[4];
 
+INT32 LookupSubDirThreads();
+void SubDirThreadExit();
+void DestroySubDir();
 int ConfigAppLoad();
 int ConfigAppSave();
 
@@ -419,9 +511,61 @@ int StatedLoad(int nSlot);
 int StatedUNDO(int nSlot);
 int StatedSave(int nSlot);
 
+// hotkeys.cpp
+#define HOTKEY_MOD_SHIFT	0x0100
+#define HOTKEY_MOD_CTRL		0x0200
+#define HOTKEY_MOD_ALT		0x0400
+#define HOTKEY_MOD_MASK		(HOTKEY_MOD_SHIFT | HOTKEY_MOD_CTRL | HOTKEY_MOD_ALT)
+#define HOTKEY_KEY_MASK		(HOTKEY_MOD_MASK | 0xFF)
+enum {
+	HOTKEY_ACT_NONE = 0,
+	HOTKEY_ACT_FFWD,					// fast forward while held, frame advance when paused
+	HOTKEY_ACT_FFWD_TOGGLE,
+	HOTKEY_ACT_REWIND,					// while held
+	HOTKEY_ACT_EXIT_FULLSCREEN,
+	HOTKEY_ACT_TOGGLE_MENU,
+	HOTKEY_ACT_TOGGLE_FPS,
+	HOTKEY_ACT_TOGGLE_FRAMECOUNTER,
+	HOTKEY_ACT_MUTE,
+	HOTKEY_ACT_VOLUME_UP,
+	HOTKEY_ACT_VOLUME_DOWN,
+	HOTKEY_ACT_VOLUME_UP_FINE,
+	HOTKEY_ACT_VOLUME_DOWN_FINE,
+	HOTKEY_ACT_LUA_OPEN,
+	HOTKEY_ACT_LUA_CLOSE,
+	HOTKEY_ACT_LUA_RUN,
+	HOTKEY_ACT_LUA_STOP,
+	HOTKEY_ACT_LUA_BROWSE,
+	HOTKEY_ACT_NETPLAY_CHAT,
+};
+UINT32 HotkeyGetModifiers(const MSG* pMsg);
+INT32 HotkeyFindAction(UINT nVK, UINT32 nMods);
+bool HotkeyActionUsesKey(INT32 nAction, UINT nVK);
+void HotkeyToString(UINT16 nKey, TCHAR* szString, INT32 nLen);
+void HotkeysApply();						// (re)builds the accelerator table and updates the menu labels
+void HotkeysUpdateMenu();
+void HotkeysConfigLoadLine(TCHAR* szLine);
+void HotkeysConfigSave(FILE* h);
+int HotkeysCreate();
+
 // numdial.cpp
 int NumDialCreate(int bDial);
 void GammaDialog();
+void HardFXShaderSettingsDialog();
+
+// d3d11shaderparams.cpp
+int D3D11ShaderParamsDialog(HWND hParent);
+
+// vid_d3d11.cpp (shaders for the Direct3D 11 blitter)
+#define D3D11_SHADER_MRU_SIZE 8
+extern TCHAR szVidD3D11Shader[MAX_PATH];					// current shader / preset ("" = none)
+extern TCHAR szVidD3D11ShaderMRU[D3D11_SHADER_MRU_SIZE][MAX_PATH];	// recently used shaders
+int VidD3D11SetShader(const TCHAR* szPath);					// select (and load, if the blitter is running) a shader
+int VidD3D11ShaderParamCount();							// -1 = no shader loaded
+int VidD3D11ShaderGetParam(int n, TCHAR* szDesc, int nDescSize, float* pValue, float* pMin, float* pMax, float* pStep, float* pDefault);
+void VidD3D11ShaderSetParam(int n, float fValue);			// takes effect immediately
+int VidD3D11ShaderSaveParams();								// to config/shaders/<name>.ini
+int VidD3D11ShaderName(TCHAR* szName, int nSize);
 void ScanlineDialog();
 void PhosphorDialog();
 void ScreenAngleDialog();
@@ -431,17 +575,22 @@ void CubicSharpnessDialog();
 int SFactdCreate();
 
 // roms.cpp
+extern INT32 nRomsDlgWidth;
+extern INT32 nRomsDlgHeight;
 extern char* gameAv;
 extern bool avOk;
 extern bool bSkipStartupCheck;
-int RomsDirCreate(HWND hParentWND);
-int CreateROMInfo(HWND hParentWND);
+INT32 RomsDirCreate(HWND hParentWND);
+INT32 CreateROMInfo(HWND hParentWND);
 void FreeROMInfo();
-int WriteGameAvb();
+INT32 WriteGameAvb();
+void MarkGameAvScanned(UINT32 nDrv);
 
 // support_paths.cpp
-int SupportDirCreate(HWND hParentWND);
-int SupportDirCreateTab(int nTab, HWND hParentWND);
+extern INT32 nSupportDlgWidth;
+extern INT32 nSupportDlgHeight;
+INT32 SupportDirCreate(HWND hParentWND);
+//int SupportDirCreateTab(int nTab, HWND hParentWND);
 
 // res.cpp
 int ResCreate(int);
@@ -460,6 +609,7 @@ int ReplayInput();
 int StartRecord();
 int StartReplay(const TCHAR* szFileName = NULL);
 void StopReplay();
+INT32 FreezeInputSize();
 int FreezeInput(unsigned char** buf, int* size);
 int UnfreezeInput(const unsigned char* buf, int size);
 void DisplayReplayProperties(HWND hDlg, bool bClear);
@@ -472,6 +622,40 @@ int	MemCardSelect();
 int	MemCardInsert();
 int	MemCardEject();
 int	MemCardToggle();
+
+// Returns true if the current driver supports memory card / IC card
+static inline bool HasMemCard() {
+	UINT32 hw = BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK;
+	
+#ifdef BUILD_NEOGEO
+	if (hw == HARDWARE_SNK_NEOGEO)
+	    return true;
+#endif
+
+#ifdef BUILD_PGM2
+    if (hw == HARDWARE_IGS_PGM2)
+	    return true;
+#endif
+	
+	return false;
+}
+
+#ifdef BUILD_PGM2
+// PGM2 per-slot card operations
+extern INT32 Pgm2MaxCardSlots;						// PGM2: number of card slots (0 = no cards)
+extern int nPgm2CardStatus[4];
+extern TCHAR szPgm2CardFile[4][MAX_PATH];
+int MemCardCreatePGM2Slot(int slot);
+int MemCardSelectPGM2Slot(int slot);
+int MemCardInsertPGM2Slot(int slot);
+int MemCardEjectPGM2Slot(int slot);
+
+// Returns true if the current driver is PGM2 with card support
+static inline bool IsPGM2WithCards() {
+	UINT32 hw = BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK;
+	return (hw == HARDWARE_IGS_PGM2 && Pgm2MaxCardSlots > 0);
+}
+#endif
 
 // progress.cpp
 int ProgressUpdateBurner(double dProgress, const TCHAR* pszText, bool bAbs);
@@ -488,6 +672,28 @@ INT32 CheckFavorites(char *name);
 extern HWND LuaConsoleHWnd;
 void UpdateLuaConsole(const wchar_t* fname);
 
+// cd_img.cpp
+
+// Extended metadata container for CHD disk image
+// Stores parsed key-value tag information extracted from CHD track metadata
+// All text fields are dynamically allocated heap pointers, must be released by FreeChdExtMeta()
+struct CHD_EXT_META {
+	TCHAR* szSerial;			// SERIAL tag: unique game serial number, heap allocated
+	TCHAR* szName;			    // NAME tag: full game title, heap allocated
+	TCHAR* szPublisher;		    // PUBLISHER tag: game publisher name, heap allocated
+	TCHAR* szManufacturer;	    // MANUFACTURER tag: hardware manufacturer, heap allocated
+	TCHAR* szOemId;			    // OEMID tag: OEM identification string, heap allocated
+	TCHAR* szVersion;		    // VERSION tag: game revision / build version, heap allocated
+	TCHAR* szLanguages;		    // LANGUAGES tag: supported language list, heap allocated
+	TCHAR* szYear;			    // YEAR tag: official release year, heap allocated
+	INT32 nTrackCount;			// Total physical tracks contained inside CHD image
+	bool  bValid;				// Validity flag; TRUE if metadata parsing succeeded
+};
+
+// Parse extended metadata from opened CHD file
+INT32 GetChdExtMeta(chd_file* pChdFile, CHD_EXT_META** ppOutMeta);
+void FreeChdExtMeta(CHD_EXT_META* pMeta);
+
 // ---------------------------------------------------------------------------
 // Debugger
 
@@ -503,9 +709,9 @@ int PaletteViewerDialogCreate(HWND hParentWND);
 // ips_manager.cpp
 extern INT32 nIpsSelectedLanguage;
 INT32 GetIpsNumPatches();
-void LoadIpsActivePatches();
-INT32 GetIpsNumActivePatches();
+INT32 LoadIpsActivePatches();
 INT32 IpsManagerCreate(HWND hParentWND);
+INT32 IpsGetDrvForQuickOpen(const TCHAR* pszSelDat);
 
 // localise_download.cpp
 int LocaliseDownloadCreate(HWND hParentWND);
@@ -516,6 +722,10 @@ int ChooseMonitorCreate();
 // placeholder.cpp
 int SelectPlaceHolder();
 void ResetPlaceHolder();
+
+void UpdateUiColorMode(UINT uiColorMode);
+void ApplyDarkMode();
+void ApplyLightMode();
 
 // Misc
 #define _TtoA(a)	TCHARToANSI(a, NULL, 0)

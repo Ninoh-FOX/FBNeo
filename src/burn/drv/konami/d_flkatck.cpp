@@ -480,7 +480,7 @@ static INT32 DrvInit(INT32 rom_layout)
 	GenericTilemapSetGfx(0, DrvGfxROM, 4, 8, 8, 0x100000, 0x100, 0xf);
 	GenericTilemapSetOffsets(TMAP_GLOBAL, 0, -16);
 
-	k007121_init(0, (0x100000 / (8 * 8)) - 1);
+	k007121_init(0, (0x100000 / (8 * 8)) - 1, DrvSprRAM);
 
 	DrvDoReset(1);
 
@@ -533,8 +533,7 @@ static INT32 DrvDraw()
 	BurnTransferClear();
 
 	if (nBurnLayer & 1) GenericTilemapDraw(0, pTransDraw, 0);
-	INT32 spr_offs = (k007121_ctrl_read(0, 3) & 8) ? 0x800 : 0x000;
-	if (nSpriteEnable & 1) k007121_draw(0, pTransDraw, DrvGfxROM, NULL, &DrvSprRAM[spr_offs], 0, 40, 16, 0, -1, 0x0000);
+	if (nSpriteEnable & 1) k007121_draw(0, pTransDraw, DrvGfxROM, NULL, 0, 40, 16, 0, -1, 0x0000);
 
 	GenericTilesSetClip(-1, 40, -1, -1);
 	if (nBurnLayer & 2) GenericTilemapDraw(1, pTransDraw, 0);
@@ -579,6 +578,8 @@ static INT32 DrvFrame()
 		if (i == 240) {
 			if (k007121_ctrl_read(0, 7) & 0x02)
 				HD6309SetIRQLine(0, CPU_IRQSTATUS_HOLD);
+
+			k007121_buffer(0);
 
 			if (pBurnDraw) { // missing text in service mode if drawn after vbl
 				DrvDraw();
@@ -644,10 +645,10 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 }
 
 
-// MX5000
+// MX5000 (version U)
 
 static struct BurnRomInfo mx5000RomDesc[] = {
-	{ "669_r01.16c",	0x10000, 0x79b226fc, 1 | BRF_PRG | BRF_ESS }, //  0 HD6309 Code
+	{ "669_u01.16c",	0x10000, 0xcef39f97, 1 | BRF_PRG | BRF_ESS }, //  0 HD6309 Code
 
 	{ "669_m02.16b",	0x08000, 0x7e11e6b9, 2 | BRF_PRG | BRF_ESS }, //  1 Z80 Code
 
@@ -666,7 +667,7 @@ static INT32 Mx5000Init()
 
 struct BurnDriver BurnDrvMx5000 = {
 	"mx5000", NULL, NULL, NULL, "1987",
-	"MX5000\0", NULL, "Konami", "GX669",
+	"MX5000 (version U)\0", NULL, "Konami", "GX669",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_KONAMI, GBF_VERSHOOT, 0,
 	NULL, mx5000RomInfo, mx5000RomName, NULL, NULL, NULL, NULL, FlkatckInputInfo, FlkatckDIPInfo,
@@ -675,7 +676,33 @@ struct BurnDriver BurnDrvMx5000 = {
 };
 
 
-// Flak Attack (Japan)
+// MX5000 (version R)
+
+static struct BurnRomInfo mx5000rRomDesc[] = {
+	{ "669_r01.16c",	0x10000, 0x79b226fc, 1 | BRF_PRG | BRF_ESS }, //  0 HD6309 Code
+
+	{ "669_m02.16b",	0x08000, 0x7e11e6b9, 2 | BRF_PRG | BRF_ESS }, //  1 Z80 Code
+
+	{ "gx669f04.11a",	0x40000, 0x6d1ea61c, 3 | BRF_SND },           //  2 k007232 Samples
+
+	{ "gx669f03.5e",	0x80000, 0xff1d718b, 4 | BRF_GRA },           //  3 Graphics
+};
+
+STD_ROM_PICK(mx5000r)
+STD_ROM_FN(mx5000r)
+
+struct BurnDriver BurnDrvMx5000r = {
+	"mx5000r", "mx5000", NULL, NULL, "1987",
+	"MX5000 (version R)\0", NULL, "Konami", "GX669",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_KONAMI, GBF_VERSHOOT, 0,
+	NULL, mx5000rRomInfo, mx5000rRomName, NULL, NULL, NULL, NULL, FlkatckInputInfo, FlkatckDIPInfo,
+	Mx5000Init, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x200,
+	224, 280, 3, 4
+};
+
+
+// Flak Attack (Japan, version P)
 
 static struct BurnRomInfo flkatckRomDesc[] = {
 	{ "669_p01.16c",	0x10000, 0xc5cd2807, 1 | BRF_PRG | BRF_ESS }, //  0 HD6309 Code
@@ -692,7 +719,7 @@ STD_ROM_FN(flkatck)
 
 struct BurnDriver BurnDrvFlkatck = {
 	"flkatck", "mx5000", NULL, NULL, "1987",
-	"Flak Attack (Japan)\0", NULL, "Konami", "GX669",
+	"Flak Attack (Japan, version P)\0", NULL, "Konami", "GX669",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_KONAMI, GBF_VERSHOOT, 0,
 	NULL, flkatckRomInfo, flkatckRomName, NULL, NULL, NULL, NULL, FlkatckInputInfo, FlkatckDIPInfo,
@@ -701,7 +728,7 @@ struct BurnDriver BurnDrvFlkatck = {
 };
 
 
-// Flak Attack (Japan, PWB 450593 sub-board)
+// Flak Attack (Japan, version P, PWB 450593 sub-board)
 
 static struct BurnRomInfo flkatckaRomDesc[] = {
 	{ "669_p01.16c",	0x10000, 0xc5cd2807, 1 | BRF_PRG | BRF_ESS }, //  0 HD6309 Code
@@ -730,7 +757,7 @@ static INT32 FlkatckaInit()
 
 struct BurnDriver BurnDrvFlkatcka = {
 	"flkatcka", "mx5000", NULL, NULL, "1987",
-	"Flak Attack (Japan, PWB 450593 sub-board)\0", NULL, "Konami", "GX669",
+	"Flak Attack (Japan, version P, PWB 450593 sub-board)\0", NULL, "Konami", "GX669",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_KONAMI, GBF_VERSHOOT, 0,
 	NULL, flkatckaRomInfo, flkatckaRomName, NULL, NULL, NULL, NULL, FlkatckInputInfo, FlkatckDIPInfo,

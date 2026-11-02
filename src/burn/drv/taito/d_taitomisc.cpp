@@ -3391,7 +3391,7 @@ static void __fastcall Volfied68KWriteWord(UINT32 a, UINT16 d)
 	if (a >= 0x400000 && a <= 0x47ffff) {
 		UINT16 *Ram = (UINT16*)TaitoVideoRam;
 		INT32 Offset = (a - 0x400000) >> 1;
-		Ram[Offset] = (Ram[Offset] & ~VolfiedVidMask) | (d & VolfiedVidMask);
+		Ram[Offset] = BURN_ENDIAN_SWAP_INT16((BURN_ENDIAN_SWAP_INT16(Ram[Offset]) & ~VolfiedVidMask) | (d & VolfiedVidMask));
 		return;
 	}
 
@@ -4601,8 +4601,8 @@ static INT32 OpwolfInit()
 	nTaitoCyclesTotal[1] = 4000000 / 60;
 
 	UINT16 *Rom = (UINT16*)Taito68KRom1;
-	OpWolfGunXOffset = 0xec - (Rom[0x03ffb0 / 2] & 0xff);
-	OpWolfGunYOffset = 0x1c - (Rom[0x03ffae / 2] & 0xff);
+	OpWolfGunXOffset = 0xec - (BURN_ENDIAN_SWAP_INT16(Rom[0x03ffb0 / 2]) & 0xff);
+	OpWolfGunYOffset = 0x1c - (BURN_ENDIAN_SWAP_INT16(Rom[0x03ffae / 2]) & 0xff);
 
 	cchip_init();
 
@@ -5645,7 +5645,7 @@ static void TopspeedDrawSprites(INT32 /*PriorityDraw*/)
 			px = (xFlip) ?  (7 - k) : (k);
 			py = (yFlip) ? (15 - j) : (j);
 
-			Code = SpriteMap[MapOffset + (py << 3) + px];
+			Code = BURN_ENDIAN_SWAP_INT16(SpriteMap[MapOffset + (py << 3) + px]);
 
 			if (Code & 0x8000) {
 				BadChunks += 1;
@@ -5758,14 +5758,14 @@ static INT32 VolfiedDraw()
 	if (VolfiedVidCtrl & 0x01) p += 0x20000;
 	for (INT32 y = 0; y < nScreenHeight + 8; y++) {
 		for (INT32 x = 1; x < nScreenWidth + 1; x++) {
-			INT32 Colour = (p[x] << 2) & 0x700;
+			INT32 Colour = (BURN_ENDIAN_SWAP_INT16(p[x]) << 2) & 0x700;
 
-			if (p[x] & 0x8000) {
-				Colour |= 0x800 | ((p[x] >> 9) & 0xf);
+			if (BURN_ENDIAN_SWAP_INT16(p[x]) & 0x8000) {
+				Colour |= 0x800 | ((BURN_ENDIAN_SWAP_INT16(p[x]) >> 9) & 0xf);
 
-				if (p[x] & 0x2000) Colour &= ~0xf;
+				if (BURN_ENDIAN_SWAP_INT16(p[x]) & 0x2000) Colour &= ~0xf;
 			} else {
-				Colour |= p[x] & 0xf;
+				Colour |= BURN_ENDIAN_SWAP_INT16(p[x]) & 0xf;
 			}
 
 			if ((y - 8) >= 0 && (y - 8) < nScreenHeight) {
@@ -6424,4 +6424,47 @@ struct BurnDriver BurnDrvVolfieduo = {
 	NULL, VolfieduoRomInfo, VolfieduoRomName, NULL, NULL, NULL, NULL, VolfiedInputInfo, VolfieduDIPInfo,
 	VolfiedInit, TaitoMiscExit, JumpingFrame, VolfiedDraw, TaitoMiscScan,
 	NULL, 0x2000, 240, 320, 3, 4
+};
+
+// ----------------------
+// Hacks and Translations
+// ----------------------
+
+// Rastan Saga (Portuguese-BR Translation v1.11, Hack)
+// Modified by Antígeno
+
+static struct BurnRomInfo RastsagabrRomDesc[] = {
+	{ "b04br-14.19",	0x10000, 0xf33adf4d, BRF_ESS | BRF_PRG | TAITO_68KROM1_BYTESWAP },
+	{ "b04br-13.7",		0x10000, 0xdcc16c00, BRF_ESS | BRF_PRG | TAITO_68KROM1_BYTESWAP },
+	{ "b04br-16-1.20",	0x10000, 0x8375d5a3, BRF_ESS | BRF_PRG | TAITO_68KROM1_BYTESWAP },
+	{ "b04br-15-1.8",	0x10000, 0x602ccf6d, BRF_ESS | BRF_PRG | TAITO_68KROM1_BYTESWAP },
+	{ "b04br-18-1.21",	0x10000, 0x1846353b, BRF_ESS | BRF_PRG | TAITO_68KROM1_BYTESWAP },
+	{ "b04br-17-1.9",	0x10000, 0x8f4414b8, BRF_ESS | BRF_PRG | TAITO_68KROM1_BYTESWAP },
+
+	{ "b04-19.49",		0x10000, 0xee81fdd8, BRF_ESS | BRF_PRG | TAITO_Z80ROM1 },
+
+	{ "b04br-01.40",	0x20000, 0x56494cce, BRF_GRA | TAITO_CHARS },
+	{ "b04-03.39",		0x20000, 0xab67e064, BRF_GRA | TAITO_CHARS },
+	{ "b04br-02.67",	0x20000, 0xe4beeb34, BRF_GRA | TAITO_CHARS },
+	{ "b04-04.66",		0x20000, 0x94737e93, BRF_GRA | TAITO_CHARS },
+
+	{ "b04br-05.15",	0x20000, 0xd0de533f, BRF_GRA | TAITO_SPRITESA },
+	{ "b04br-07.14",	0x20000, 0x7521af01, BRF_GRA | TAITO_SPRITESA },
+	{ "b04br-06.28",	0x20000, 0x78510eed, BRF_GRA | TAITO_SPRITESA },
+	{ "b04br-08.27",	0x20000, 0xca183d63, BRF_GRA | TAITO_SPRITESA },
+
+	{ "b04-20.76",		0x10000, 0xfd1a34cc, BRF_SND | TAITO_MSM5205 },
+};
+
+STD_ROM_PICK(Rastsagabr)
+STD_ROM_FN(Rastsagabr)
+
+struct BurnDriver BurnDrvRastsagabr = {
+	"rastsagabr", "rastan", NULL, NULL, "2019",
+	"Rastan Saga (Portuguese-BR Translation v1.11, Hack)\0", NULL, "hack (Antigeno)", "Taito Misc",
+	NULL, NULL, L"hack (Ant\u00EDgeno)", NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK | BDF_HISCORE_SUPPORTED, 2, HARDWARE_TAITO_MISC, GBF_PLATFORM, 0,
+	NULL, RastsagabrRomInfo, RastsagabrRomName, NULL, NULL, NULL, NULL, RastanInputInfo, RastanDIPInfo,
+	RastanInit, TaitoMiscExit, TaitoMiscFrame, RastanDraw, TaitoMiscScan,
+	NULL, 0x2000, 320, 240, 4, 3
 };

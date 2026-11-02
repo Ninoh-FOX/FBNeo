@@ -388,7 +388,7 @@ static void draw_layer()
 		sx -= 12;
 		sy -= 16;
 
-		INT32 data = vram[i];
+		INT32 data = BURN_ENDIAN_SWAP_INT16(vram[i]);
 
 		for (INT32 x = 0; x < 4; x++, data >>= 1)
 		{
@@ -517,7 +517,7 @@ STD_ROM_FN(meijinsn)
 
 struct BurnDriver BurnDrvMeijinsn = {
 	"meijinsn", NULL, NULL, NULL, "1986",
-	"Meijinsen (set 1)\0", NULL, "SNK Electronics corp.", "Miscellaneous",
+	"Meijinsen (set 1)\0", NULL, "SNK", "Miscellaneous",
 	L"\u540D\u4EBA\u6226\0Meijinsen (set 1)\0", NULL, NULL, NULL,
 	BDF_GAME_WORKING, 2, HARDWARE_MISC_PRE90S, GBF_PUZZLE, 0,
 	NULL, meijinsnRomInfo, meijinsnRomName, NULL, NULL, NULL, NULL, DrvInputInfo, DrvDIPInfo,
@@ -529,19 +529,19 @@ struct BurnDriver BurnDrvMeijinsn = {
 // Meijinsen (set 2)
 
 static struct BurnRomInfo meijinsnaRomDesc[] = {
-	{ "p1.e12", 0x08000, 0xfddea817, BRF_PRG | BRF_ESS }, //  0 M68000 Code
-	{ "p2.e10", 0x08000, 0xf05659cc, BRF_PRG | BRF_ESS }, //  1
-	{ "p3.d12", 0x08000, 0x906e9d49, BRF_PRG | BRF_ESS }, //  2
-	{ "p4.d10", 0x08000, 0xefa31978, BRF_PRG | BRF_ESS }, //  3
-	{ "p5",     0x08000, 0x0ed10a47, BRF_PRG | BRF_ESS }, //  4
-	{ "p6",     0x08000, 0x60b58755, BRF_PRG | BRF_ESS }, //  5
-	{ "p7",     0x08000, 0x604c76f1, BRF_PRG | BRF_ESS }, //  6
-	{ "p8",     0x08000, 0xe3eaef19, BRF_PRG | BRF_ESS }, //  7
+	{ "p1.e12", 		0x08000, 0xfddea817, BRF_PRG | BRF_ESS }, //  0 M68000 Code
+	{ "p2.e10", 		0x08000, 0xf05659cc, BRF_PRG | BRF_ESS }, //  1
+	{ "p3.d12", 		0x08000, 0x906e9d49, BRF_PRG | BRF_ESS }, //  2
+	{ "p4.d10", 		0x08000, 0xefa31978, BRF_PRG | BRF_ESS }, //  3
+	{ "p5.c12", 		0x08000, 0x0ed10a47, BRF_PRG | BRF_ESS }, //  4
+	{ "p6.c10", 		0x08000, 0x60b58755, BRF_PRG | BRF_ESS }, //  5
+	{ "p7.b12", 		0x08000, 0x604c76f1, BRF_PRG | BRF_ESS }, //  6
+	{ "p8.b10", 		0x08000, 0xe3eaef19, BRF_PRG | BRF_ESS }, //  7
 
-	{ "p9",     0x04000, 0xaedfefdf, BRF_PRG | BRF_ESS }, //  8 Z80 Code
-	{ "p10",    0x04000, 0x93b4d764, BRF_PRG | BRF_ESS }, //  9
+	{ "p9.m4",  		0x04000, 0xaedfefdf, BRF_PRG | BRF_ESS }, //  8 Z80 Code
+	{ "p10.m5", 		0x04000, 0x93b4d764, BRF_PRG | BRF_ESS }, //  9
 
-	{ "clr",    0x00020, 0x7b95b5a7, BRF_GRA },	       // 10 Color Prom
+	{ "tbp18s030n.k5", 	0x00020, 0x7b95b5a7, BRF_GRA },	       // 10 Color Prom
 };
 
 STD_ROM_PICK(meijinsna)
@@ -549,7 +549,7 @@ STD_ROM_FN(meijinsna)
 
 struct BurnDriver BurnDrvMeijinsna = {
 	"meijinsna", "meijinsn", NULL, NULL, "1986",
-	"Meijinsen (set 2)\0", NULL, "SNK Electronics corp.", "Miscellaneous",
+	"Meijinsen (set 2)\0", NULL, "SNK", "Miscellaneous",
 	L"\u540D\u4EBA\u6226\0Meijinsen (set 2)\0", NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_MISC_PRE90S, GBF_PUZZLE, 0,
 	NULL, meijinsnaRomInfo, meijinsnaRomName, NULL, NULL, NULL, NULL, DrvInputInfo, DrvDIPInfo,

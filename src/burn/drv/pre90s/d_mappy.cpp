@@ -2399,6 +2399,138 @@ struct BurnDriver BurnDrvSuperpacm = {
 };
 
 
+// Super Pac-Man (Super Locksmith sound and gfx hack)
+
+static struct BurnRomInfo superpc1RomDesc[] = {
+	{ "sp1-2.1c",		0x2000, 0x4bb33d9c, 1 | BRF_PRG | BRF_ESS }, //  0 M6809 #0 Code
+	{ "superpc1.1b",	0x2000, 0xcec50857, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "spc-3.1k",		0x1000, 0x04445ddb, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 #1 Code
+
+	{ "superpc1.3c",	0x1000, 0x1c72ed9e, 3 | BRF_GRA },           //  3 Background Tiles
+
+	{ "superpc1.3f",	0x2000, 0x89f07757, 4 | BRF_GRA },           //  4 Sprites
+
+	{ "superpac.4c",	0x0020, 0x9ce22c46, 5 | BRF_GRA },           //  5 Color Data
+	{ "superpac.4e",	0x0100, 0x1253c5c1, 5 | BRF_GRA },           //  6
+	{ "superpac.3l",	0x0100, 0xd4d7026f, 5 | BRF_GRA },           //  7
+
+	{ "superpc1.3m",	0x0100, 0xe35238c7, 6 | BRF_GRA },           //  8 Sound Prom
+};
+
+STD_ROM_PICK(superpc1)
+STD_ROM_FN(superpc1)
+
+struct BurnDriver BurnDrvSuperpc1 = {
+	"superpc1", "superpac", NULL, NULL, "2011",
+	"Super Pac-Man (Super Locksmith sound and gfx hack)\0", NULL, "hack (Paul Smith)", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_MAZE | GBF_ACTION, 0,
+	NULL, superpc1RomInfo, superpc1RomName, NULL, NULL, NULL, NULL, SuperpacInputInfo, SuperpacDIPInfo,
+	SuperpacInit, DrvExit, DrvFrame, SuperpacDraw, DrvScan, &DrvRecalc, 0x200,
+	224, 288, 3, 4
+};
+
+
+// Super Pac-Man Plus
+
+static struct BurnRomInfo superpcpRomDesc[] = {
+	{ "spc-2.1c",		0x2000, 0x1a38c30e, 1 | BRF_PRG | BRF_ESS }, //  0 M6809 #0 Code
+	{ "spc-1.1b",		0x2000, 0x730e95a9, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "spc-3.1k",		0x1000, 0x04445ddb, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 #1 Code
+
+	{ "spv-1.3c",		0x1000, 0x78337e74, 3 | BRF_GRA },           //  3 Background Tiles
+
+	{ "spcp-2.3f",		0x2000, 0x0d52ef4d, 4 | BRF_GRA },           //  4 Sprites
+
+	{ "superpac.4c",	0x0020, 0x9ce22c46, 5 | BRF_GRA },           //  5 Color Data
+	{ "superpac.4e",	0x0100, 0x1253c5c1, 5 | BRF_GRA },           //  6
+	{ "superpac.3l",	0x0100, 0xd4d7026f, 5 | BRF_GRA },           //  7
+
+	{ "superpac.3m",	0x0100, 0xad43688f, 6 | BRF_GRA },           //  8 Sound Prom
+};
+
+STD_ROM_PICK(superpcp)
+STD_ROM_FN(superpcp)
+
+struct BurnDriver BurnDrvSuperpcp = {
+	"superpcp", "superpac", NULL, NULL, "2000",
+	"Super Pac-Man Plus\0", NULL, "hack (Blue Justice)", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_MAZE | GBF_ACTION, 0,
+	NULL, superpcpRomInfo, superpcpRomName, NULL, NULL, NULL, NULL, SuperpacInputInfo, SuperpacDIPInfo,
+	SuperpacInit, DrvExit, DrvFrame, SuperpacDraw, DrvScan, &DrvRecalc, 0x200,
+	224, 288, 3, 4
+};
+
+
+// Super Pac-Man (always small)
+
+static struct BurnRomInfo superpcsRomDesc[] = {
+	{ "sp1-2.1c",		0x2000, 0x4bb33d9c, 1 | BRF_PRG | BRF_ESS }, //  0 M6809 #0 Code
+	{ "superpcs.1b",	0x2000, 0x8df321c2, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "spc-3.1k",		0x1000, 0x04445ddb, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 #1 Code
+
+	{ "superpcs.3c",	0x1000, 0x3a4f438d, 3 | BRF_GRA },           //  3 Background Tiles
+
+	{ "superpcs.3f",	0x2000, 0xd477484e, 4 | BRF_GRA },           //  4 Sprites
+
+	{ "superpcs.4c",	0x0020, 0x5508bfda, 5 | BRF_GRA },           //  5 Color Data
+	{ "superpac.4e",	0x0100, 0x1253c5c1, 5 | BRF_GRA },           //  6
+	{ "superpac.3l",	0x0100, 0xd4d7026f, 5 | BRF_GRA },           //  7
+
+	{ "superpcs.3m",	0x0100, 0x06acd480, 6 | BRF_GRA },           //  8 Sound Prom
+};
+
+STD_ROM_PICK(superpcs)
+STD_ROM_FN(superpcs)
+
+struct BurnDriver BurnDrvSuperpcs = {
+	"superpcs", "superpac", NULL, NULL, "2011",
+	"Super Pac-Man (always small)\0", NULL, "hack (Paul Smith)", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_MAZE | GBF_ACTION, 0,
+	NULL, superpcsRomInfo, superpcsRomName, NULL, NULL, NULL, NULL, SuperpacInputInfo, SuperpacDIPInfo,
+	SuperpacInit, DrvExit, DrvFrame, SuperpacDraw, DrvScan, &DrvRecalc, 0x200,
+	224, 288, 3, 4
+};
+
+
+// Super Pac-Man (Vector sim)
+
+static struct BurnRomInfo vectrsupRomDesc[] = {
+	{ "spc-2.1c",		0x2000, 0x1a38c30e, 1 | BRF_PRG | BRF_ESS }, //  0 M6809 #0 Code
+	{ "spc-1.1b",		0x2000, 0x730e95a9, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "spc-3.1k",		0x1000, 0x04445ddb, 2 | BRF_PRG | BRF_ESS }, //  2 M6809 #1 Code
+
+	{ "vecsup-1.3c",	0x1000, 0x618db633, 3 | BRF_GRA },           //  3 Background Tiles
+
+	{ "vecsup-2.3f",	0x2000, 0x62c09c6c, 4 | BRF_GRA },           //  4 Sprites
+
+	{ "superpac.4c",	0x0020, 0x9ce22c46, 5 | BRF_GRA },           //  5 Color Data
+	{ "superpac.4e",	0x0100, 0x1253c5c1, 5 | BRF_GRA },           //  6
+	{ "superpac.3l",	0x0100, 0xd4d7026f, 5 | BRF_GRA },           //  7
+
+	{ "superpac.3m",	0x0100, 0xad43688f, 6 | BRF_GRA },           //  8 Sound Prom
+};
+
+STD_ROM_PICK(vectrsup)
+STD_ROM_FN(vectrsup)
+
+struct BurnDriver BurnDrvVectrsup = {
+	"vectrsup", "superpac", NULL, NULL, "2000",
+	"Super Pac-Man (Vector sim)\0", NULL, "hack (T-Bone)", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK | BDF_ORIENTATION_VERTICAL | BDF_ORIENTATION_FLIPPED | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_MAZE | GBF_ACTION, 0,
+	NULL, vectrsupRomInfo, vectrsupRomName, NULL, NULL, NULL, NULL, SuperpacInputInfo, SuperpacDIPInfo,
+	SuperpacInit, DrvExit, DrvFrame, SuperpacDraw, DrvScan, &DrvRecalc, 0x200,
+	224, 288, 3, 4
+};
+
+
 // Pac & Pal
 
 static struct BurnRomInfo pacnpalRomDesc[] = {
@@ -2631,6 +2763,10 @@ static struct BurnRomInfo phozonRomDesc[] = {
 	{ "palette.prm",	0x0020, 0x60e856ed, 6 | BRF_GRA | BRF_OPT }, // 14
 
 	{ "sound.prm",		0x0100, 0xad43688f, 7 | BRF_GRA },           // 15 Sound Prom
+
+	{ "ph1-7.7b",		0x0117, 0x9a00af9a, 0 | BRF_OPT },           // 16 PLDs
+	{ "ph1-8.4b",		0x0117, 0xfb180f00, 0 | BRF_OPT },           // 17
+	{ "ph1-9.7r",		0x0117, 0x3b21d560, 0 | BRF_OPT },           // 18
 };
 
 STD_ROM_PICK(phozon)
@@ -2664,14 +2800,18 @@ static struct BurnRomInfo phozonsRomDesc[] = {
 
 	{ "5t.rom",		0x2000, 0xd50f08f8, 5 | BRF_GRA },           //  8 Sprites
 
-	{ "red.prm",		0x0100, 0xa2880667, 6 | BRF_GRA },           //  9 Color Data
-	{ "green.prm",		0x0100, 0xd6e08bef, 6 | BRF_GRA },           // 10
-	{ "blue.prm",		0x0100, 0xb2d69c72, 6 | BRF_GRA },           // 11
-	{ "chr.prm",		0x0100, 0x429e8fee, 6 | BRF_GRA },           // 12
-	{ "sprite.prm",		0x0100, 0x9061db07, 6 | BRF_GRA },           // 13
+	{ "ph1-2.1r",		0x0100, 0xa2880667, 6 | BRF_GRA },           //  9 Color Data
+	{ "ph1-1.1s",		0x0100, 0xd6e08bef, 6 | BRF_GRA },           // 10
+	{ "ph1-3.1p",		0x0100, 0xb2d69c72, 6 | BRF_GRA },           // 11
+	{ "ph1-5.5l",		0x0100, 0x429e8fee, 6 | BRF_GRA },           // 12
+	{ "ph1-6.6r",		0x0100, 0x9061db07, 6 | BRF_GRA },           // 13
 	{ "palette.prm",	0x0020, 0x60e856ed, 6 | BRF_GRA | BRF_OPT }, // 14
 
-	{ "sound.prm",		0x0100, 0xad43688f, 7 | BRF_GRA },           // 15 Sound Prom
+	{ "ph1-4.3e",		0x0100, 0xad43688f, 7 | BRF_GRA },           // 15 Sound Prom
+
+	{ "ph1-7.7b",		0x0117, 0x9a00af9a, 0 | BRF_OPT },           // 16 PLDs
+	{ "ph1-8.4b",		0x0117, 0xfb180f00, 0 | BRF_OPT },           // 17
+	{ "ph1-9.7r",		0x0117, 0x3b21d560, 0 | BRF_OPT },           // 18
 };
 
 STD_ROM_PICK(phozons)

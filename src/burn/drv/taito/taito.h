@@ -1,3 +1,7 @@
+#pragma once
+#ifndef _TAITO_H_
+#define _TAITO_H_
+
 extern UINT8 TaitoInputPort0[8];
 extern UINT8 TaitoInputPort1[8];
 extern UINT8 TaitoInputPort2[8];
@@ -86,23 +90,24 @@ extern INT32 TaitoDoReset();
 #define TAITO_SPRITESA_BYTESWAP		16
 #define TAITO_SPRITESA_BYTESWAP32	17
 #define TAITO_SPRITESA_TOPSPEED		18
-#define TAITO_SPRITESB			19
-#define TAITO_SPRITESB_BYTESWAP		20
-#define TAITO_SPRITESB_BYTESWAP32	21
-#define TAITO_ROAD			22
-#define TAITO_SPRITEMAP			23
-#define TAITO_YM2610A			24
-#define TAITO_YM2610B			25
-#define TAITO_MSM5205			26
-#define TAITO_MSM5205_BYTESWAP		27
-#define TAITO_CHARS_PIVOT		28
-#define TAITO_MSM6295			29
-#define TAITO_ES5505			30
-#define TAITO_ES5505_BYTESWAP		31
-#define TAITO_DEFAULT_EEPROM		32
-#define TAITO_CHARS_BYTESWAP32		33
-#define TAITO_CCHIP_BIOS        34
-#define TAITO_CCHIP_EEPROM      35
+#define TAITO_SPRITESA_DBLAXLEU		19
+#define TAITO_SPRITESB			20
+#define TAITO_SPRITESB_BYTESWAP		21
+#define TAITO_SPRITESB_BYTESWAP32	22
+#define TAITO_ROAD			23
+#define TAITO_SPRITEMAP			24
+#define TAITO_YM2610A			25
+#define TAITO_YM2610B			26
+#define TAITO_MSM5205			27
+#define TAITO_MSM5205_BYTESWAP		28
+#define TAITO_CHARS_PIVOT		29
+#define TAITO_MSM6295			30
+#define TAITO_ES5505			31
+#define TAITO_ES5505_BYTESWAP		32
+#define TAITO_DEFAULT_EEPROM		33
+#define TAITO_CHARS_BYTESWAP32		34
+#define TAITO_CCHIP_BIOS        35
+#define TAITO_CCHIP_EEPROM      36
 
 extern UINT8 *Taito68KRom1;
 extern UINT8 *Taito68KRom2;
@@ -252,3 +257,5 @@ void TaitoF2MakeSpriteList();
 void TaitoF2RenderSpriteList(INT32 TaitoF2SpritePriorityLevel);
 void TaitoF2RenderSpriteListPriMasks(INT32 *primasks);
 void TaitoF2HandleSpriteBuffering();
+
+#endif

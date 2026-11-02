@@ -3,9 +3,9 @@
 #include "burner.h"
 #include <process.h>
 
-// reduce the total number of sets by this number - (isgsm, neogeo, nmk004, pgm, skns, ym2608, coleco, msx_msx, spectrum, spec128, spec1282a, decocass, midssio, cchip, fdsbios, ngp, bubsys, channelf, namcoc69, namcoc70, namcoc75)
+// reduce the total number of sets by this number - (isgsm, neogeo, nmk004, pgm, skns, ym2608, coleco, msx_msx, spectrum, spec128, spec1282a, decocass, midssio, cchip, fdsbios, ngp, bubsys, channelf, namcoc69, namcoc70, namcoc75, atarisy1, snes stuff)
 // don't reduce for these as we display them in the list (neogeo, neocdz)
-#define REDUCE_TOTAL_SETS_BIOS      21
+#define REDUCE_TOTAL_SETS_BIOS      32
 
 UINT_PTR nTimer					= 0;
 UINT_PTR nInitPreviewTimer		= 0;
@@ -14,6 +14,7 @@ int nOldDlgSelected				= -1;
 bool bDialogCancel				= false;
 
 bool bDrvSelected				= false;
+static bool bSelOkay			= false;									// true: About to run the non-RomData game from the list
 
 static int nShowMVSCartsOnly	= 0;
 
@@ -38,17 +39,20 @@ static HICON hDrvIconMiss;
 static char TreeBuilding		= 0;										// if 1, ignore TVN_SELCHANGED messages
 
 static int bImageOrientation;
-static int UpdatePreview(bool bReset, TCHAR *szPath, int HorCtrl, int VerCrtl);
+static int UpdatePreview(bool bReset, bool isPreview, TCHAR *szPath, int HorCtrl, int VerCrtl);
 
 int	nIconsSize					= ICON_16x16;
 int	nIconsSizeXY				= 16;
 bool bEnableIcons				= 0;
 bool bIconsLoaded				= 0;
-bool bIconsOnlyParents          = 1;
+bool bIconsOnlyParents			= 1;
+bool bIconsByHardwares			= 0;
 int nIconsXDiff;
 int nIconsYDiff;
 static HICON *hDrvIcon;
 bool bGameInfoOpen				= false;
+
+HICON* pIconsCache              = NULL;
 
 // Dialog Sizing
 int nSelDlgWidth = 750;
@@ -61,6 +65,7 @@ static int nDlgUnavailableChbInitialPos[4];
 static int nDlgAlwaysClonesChbInitialPos[4];
 static int nDlgZipnamesChbInitialPos[4];
 static int nDlgLatinTextChbInitialPos[4];
+static int nDlgSearchSubDirsChbInitialPos[4];
 static int nDlgRomDirsBtnInitialPos[4];
 static int nDlgScanRomsBtnInitialPos[4];
 static int nDlgFilterGrpInitialPos[4];
@@ -115,6 +120,7 @@ HTREEITEM hFilterKonami				= NULL;
 HTREEITEM hFilterNeogeo				= NULL;
 HTREEITEM hFilterPacman				= NULL;
 HTREEITEM hFilterPgm				= NULL;
+HTREEITEM hFilterPgm2				= NULL;
 HTREEITEM hFilterPsikyo				= NULL;
 HTREEITEM hFilterSega				= NULL;
 HTREEITEM hFilterSeta				= NULL;
@@ -128,8 +134,11 @@ HTREEITEM hFilterPce				= NULL;
 HTREEITEM hFilterMsx				= NULL;
 HTREEITEM hFilterNes				= NULL;
 HTREEITEM hFilterFds				= NULL;
+HTREEITEM hFilterSnes				= NULL;
+HTREEITEM hFilterGba				= NULL;
 HTREEITEM hFilterNgp				= NULL;
 HTREEITEM hFilterChannelF			= NULL;
+HTREEITEM hFilterAstroHome			= NULL;
 HTREEITEM hFilterSms				= NULL;
 HTREEITEM hFilterGg					= NULL;
 HTREEITEM hFilterSg1000				= NULL;
@@ -162,6 +171,7 @@ HTREEITEM hFilterMisc				= NULL;
 HTREEITEM hFilterMahjong			= NULL;
 HTREEITEM hFilterRacing				= NULL;
 HTREEITEM hFilterShoot				= NULL;
+HTREEITEM hFilterMultiShoot			= NULL;
 HTREEITEM hFilterRungun 			= NULL;
 HTREEITEM hFilterAction				= NULL;
 HTREEITEM hFilterStrategy   		= NULL;
@@ -237,6 +247,8 @@ static UINT64 PacmanValue			= HARDWARE_PREFIX_PACMAN >> 24;
 static UINT64 MASKPACMAN			= 1 << PacmanValue;
 static UINT64 PgmValue				= HARDWARE_PREFIX_IGS_PGM >> 24;
 static UINT64 MASKPGM				= 1 << PgmValue;
+static UINT64 Pgm2Value			= HARDWARE_PREFIX_IGS_PGM2 >> 24;
+static UINT64 MASKPGM2				= (UINT64)1 << Pgm2Value;
 static UINT64 PsikyoValue			= HARDWARE_PREFIX_PSIKYO >> 24;
 static UINT64 MASKPSIKYO			= 1 << PsikyoValue;
 static UINT64 SegaValue				= HARDWARE_PREFIX_SEGA >> 24;
@@ -274,18 +286,23 @@ static UINT64 MASKMIDWAY			= 1 << MidwayValue;
 static UINT64 NesValue				= HARDWARE_PREFIX_NES >> 24;
 static UINT64 MASKNES				= 1 << NesValue;
 
+// this is where things start going above the 32bit-zone. *solved w/64bit UINT?*
 static UINT64 FdsValue				= (UINT64)HARDWARE_PREFIX_FDS >> 24;
 static UINT64 MASKFDS				= (UINT64)1 << FdsValue;            // 1 << 0x1f - needs casting or.. bonkers!
-
-// this is where things start going above the 32bit-zone. *solved w/64bit UINT?*
+static UINT64 SnesValue				= (UINT64)HARDWARE_PREFIX_SNES >> 24;
+static UINT64 MASKSNES				= (UINT64)1 << SnesValue;
+static UINT64 GbaValue				= (UINT64)HARDWARE_GBA >> 24;
+static UINT64 MASKGBA				= (UINT64)1 << GbaValue;
 static UINT64 NgpValue				= (UINT64)HARDWARE_PREFIX_NGP >> 24;
 static UINT64 MASKNGP				= (UINT64)1 << NgpValue;
-
 static UINT64 ChannelFValue			= (UINT64)HARDWARE_PREFIX_CHANNELF >> 24;
 static UINT64 MASKCHANNELF			= (UINT64)1 << ChannelFValue;
+static UINT64 AstroHValue			= (UINT64)HARDWARE_ASTROHOME >> 24;
+static UINT64 MASKASTROHOME			= (UINT64)1 << AstroHValue;
 
-static UINT64 MASKALL				= ((UINT64)MASKCAPMISC | MASKCAVE | MASKCPS | MASKCPS2 | MASKCPS3 | MASKDATAEAST | MASKGALAXIAN | MASKIREM | MASKKANEKO | MASKKONAMI | MASKNEOGEO | MASKPACMAN | MASKPGM | MASKPSIKYO | MASKSEGA | MASKSETA | MASKTAITO | MASKTECHNOS | MASKTOAPLAN | MASKMISCPRE90S | MASKMISCPOST90S | MASKMEGADRIVE | MASKPCENGINE | MASKSMS | MASKGG | MASKSG1000 | MASKCOLECO | MASKMSX | MASKSPECTRUM | MASKMIDWAY | MASKNES | MASKFDS | MASKNGP | MASKCHANNELF );
+static UINT64 MASKALL				= ((UINT64)MASKCAPMISC | MASKCAVE | MASKCPS | MASKCPS2 | MASKCPS3 | MASKDATAEAST | MASKGALAXIAN | MASKIREM | MASKKANEKO | MASKKONAMI | MASKNEOGEO | MASKPACMAN | MASKPGM | MASKPGM2 | MASKPSIKYO | MASKSEGA | MASKSETA | MASKTAITO | MASKTECHNOS | MASKTOAPLAN | MASKMISCPRE90S | MASKMISCPOST90S | MASKMEGADRIVE | MASKPCENGINE | MASKSMS | MASKGG | MASKSG1000 | MASKCOLECO | MASKMSX | MASKSPECTRUM | MASKMIDWAY | MASKNES | MASKFDS | MASKSNES | MASKNGP | MASKCHANNELF | MASKASTROHOME | MASKGBA );
 
+#define SEARCHSUBDIRS			(1 << 26)
 #define UNAVAILABLE				(1 << 27)
 #define AVAILABLE				(1 << 28)
 #define AUTOEXPAND				(1 << 29)
@@ -295,7 +312,7 @@ static UINT64 MASKALL				= ((UINT64)MASKCAPMISC | MASKCAVE | MASKCPS | MASKCPS2 
 #define MASKBOARDTYPEGENUINE	(1)
 #define MASKFAMILYOTHER			0x10000000
 
-#define MASKALLGENRE			(GBF_HORSHOOT | GBF_VERSHOOT | GBF_SCRFIGHT | GBF_VSFIGHT | GBF_BIOS | GBF_BREAKOUT | GBF_CASINO | GBF_BALLPADDLE | GBF_MAZE | GBF_MINIGAMES | GBF_PINBALL | GBF_PLATFORM | GBF_PUZZLE | GBF_QUIZ | GBF_SPORTSMISC | GBF_SPORTSFOOTBALL | GBF_MISC | GBF_MAHJONG | GBF_RACING | GBF_SHOOT | GBF_ACTION | GBF_RUNGUN | GBF_STRATEGY | GBF_RPG | GBF_SIM | GBF_ADV | GBF_CARD | GBF_BOARD)
+#define MASKALLGENRE			(GBF_HORSHOOT | GBF_VERSHOOT | GBF_SCRFIGHT | GBF_VSFIGHT | GBF_BIOS | GBF_BREAKOUT | GBF_CASINO | GBF_BALLPADDLE | GBF_MAZE | GBF_MINIGAMES | GBF_PINBALL | GBF_PLATFORM | GBF_PUZZLE | GBF_QUIZ | GBF_SPORTSMISC | GBF_SPORTSFOOTBALL | GBF_MISC | GBF_MAHJONG | GBF_RACING | GBF_SHOOT | GBF_MULTISHOOT | GBF_ACTION | GBF_RUNGUN | GBF_STRATEGY | GBF_RPG | GBF_SIM | GBF_ADV | GBF_CARD | GBF_BOARD)
 #define MASKALLFAMILY			(MASKFAMILYOTHER | FBF_MSLUG | FBF_SF | FBF_KOF | FBF_DSTLK | FBF_FATFURY | FBF_SAMSHO | FBF_19XX | FBF_SONICWI | FBF_PWRINST | FBF_SONIC | FBF_DONPACHI | FBF_MAHOU)
 #define MASKALLBOARD			(MASKBOARDTYPEGENUINE | BDF_BOOTLEG | BDF_DEMO | BDF_HACK | BDF_HOMEBREW | BDF_PROTOTYPE)
 
@@ -398,6 +415,7 @@ static void GetInitialPositions()
 	GetInititalControlPos(IDC_CHECKAUTOEXPAND, nDlgAlwaysClonesChbInitialPos);
 	GetInititalControlPos(IDC_SEL_SHORTNAME, nDlgZipnamesChbInitialPos);
 	GetInititalControlPos(IDC_SEL_ASCIIONLY, nDlgLatinTextChbInitialPos);
+	GetInititalControlPos(IDC_SEL_SUBDIRS, nDlgSearchSubDirsChbInitialPos);
 	GetInititalControlPos(IDROM, nDlgRomDirsBtnInitialPos);
 	GetInititalControlPos(IDRESCAN, nDlgScanRomsBtnInitialPos);
 	GetInititalControlPos(IDC_STATIC_SYS, nDlgFilterGrpInitialPos);
@@ -602,6 +620,7 @@ static int DoExtraFilters()
 	if ((~nLoadMenuGenreFilter & GBF_MAHJONG)				&& (BurnDrvGetGenreFlags() & GBF_MAHJONG))			bGenreOk = 1;
 	if ((~nLoadMenuGenreFilter & GBF_RACING)				&& (BurnDrvGetGenreFlags() & GBF_RACING))			bGenreOk = 1;
 	if ((~nLoadMenuGenreFilter & GBF_SHOOT)					&& (BurnDrvGetGenreFlags() & GBF_SHOOT))			bGenreOk = 1;
+	if ((~nLoadMenuGenreFilter & GBF_MULTISHOOT)			&& (BurnDrvGetGenreFlags() & GBF_MULTISHOOT))		bGenreOk = 1;
 	if ((~nLoadMenuGenreFilter & GBF_ACTION)				&& (BurnDrvGetGenreFlags() & GBF_ACTION))			bGenreOk = 1;
 	if ((~nLoadMenuGenreFilter & GBF_RUNGUN)				&& (BurnDrvGetGenreFlags() & GBF_RUNGUN))			bGenreOk = 1;
 	if ((~nLoadMenuGenreFilter & GBF_STRATEGY)				&& (BurnDrvGetGenreFlags() & GBF_STRATEGY))			bGenreOk = 1;
@@ -705,21 +724,26 @@ static int SelListMake()
 
 		if (szSearchString[0]) {
 			TCHAR *StringFound = NULL;
+			TCHAR *StringFound1 = NULL;
 			TCHAR *StringFound2 = NULL;
 			TCHAR *StringFound3 = NULL;
 			TCHAR szDriverName[256] = { _T("") };
+			TCHAR szDriverNameA[256] = { _T("") };
 			TCHAR szManufacturerName[256] = { _T("") };
 			wcscpy(szDriverName, BurnDrvGetText(DRV_FULLNAME));
+			swprintf(szDriverNameA, _T("%S"), BurnDrvGetTextA(DRV_FULLNAME));
 			swprintf(szManufacturerName, _T("%s %s"), BurnDrvGetText(DRV_MANUFACTURER), BurnDrvGetText(DRV_SYSTEM));
 			for (int k = 0; k < 256; k++) {
 				szDriverName[k] = _totlower(szDriverName[k]);
+				szDriverNameA[k] = _totlower(szDriverNameA[k]);
 				szManufacturerName[k] = _totlower(szManufacturerName[k]);
 			}
 			StringFound = wcsstr(szDriverName, szSearchString);
+			StringFound1 = wcsstr(szDriverNameA, szSearchString);
 			StringFound2 = wcsstr(BurnDrvGetText(DRV_NAME), szSearchString);
 			StringFound3 = wcsstr(szManufacturerName, szSearchString);
 
-			if (!StringFound && !StringFound2 && !StringFound3) continue;
+			if (!StringFound && !StringFound1 && !StringFound2 && !StringFound3) continue;
 		}
 
 		memset(&TvItem, 0, sizeof(TvItem));
@@ -770,21 +794,26 @@ static int SelListMake()
 
 		if (szSearchString[0]) {
 			TCHAR *StringFound = NULL;
+			TCHAR *StringFound1 = NULL;
 			TCHAR *StringFound2 = NULL;
 			TCHAR *StringFound3 = NULL;
 			TCHAR szDriverName[256] = { _T("") };
+			TCHAR szDriverNameA[256] = { _T("") };
 			TCHAR szManufacturerName[256] = { _T("") };
 			wcscpy(szDriverName, BurnDrvGetText(DRV_FULLNAME));
+			swprintf(szDriverNameA, _T("%S"), BurnDrvGetTextA(DRV_FULLNAME));
 			swprintf(szManufacturerName, _T("%s %s"), BurnDrvGetText(DRV_MANUFACTURER), BurnDrvGetText(DRV_SYSTEM));
-			for (int k =0; k < 256; k++) {
+			for (int k = 0; k < 256; k++) {
 				szDriverName[k] = _totlower(szDriverName[k]);
+				szDriverNameA[k] = _totlower(szDriverNameA[k]);
 				szManufacturerName[k] = _totlower(szManufacturerName[k]);
 			}
 			StringFound = wcsstr(szDriverName, szSearchString);
+			StringFound1 = wcsstr(szDriverNameA, szSearchString);
 			StringFound2 = wcsstr(BurnDrvGetText(DRV_NAME), szSearchString);
 			StringFound3 = wcsstr(szManufacturerName, szSearchString);
 
-			if (!StringFound && !StringFound2 && !StringFound3) continue;
+			if (!StringFound && !StringFound1 && !StringFound2 && !StringFound3) continue;
 		}
 
 		memset(&TvItem, 0, sizeof(TvItem));
@@ -913,16 +942,21 @@ static void MyEndDialog()
 		DestroyIcon(hNotFoundNonEss);
 		hNotFoundNonEss = NULL;
 	}
-	if(hDrvIconMiss) {
+	if (hDrvIconMiss) {
 		DestroyIcon(hDrvIconMiss);
 		hDrvIconMiss = NULL;
 	}
 
 	RECT rect;
 
-	GetClientRect(hSelDlg, &rect);
-	nSelDlgWidth = rect.right;
-	nSelDlgHeight = rect.bottom;
+	GetWindowRect(hSelDlg, &rect);
+	nSelDlgWidth  = rect.right - rect.left;
+	nSelDlgHeight = rect.bottom - rect.top;
+
+	if (!bSelOkay) {
+		RomDataStateRestore();
+	}
+	bSelOkay = false;
 
 	EndDialog(hSelDlg, 0);
 }
@@ -959,7 +993,8 @@ static void SelOkay()
 	}
 #endif
 	nDialogSelect = nSelect;
-	IpsPatchInit();	// Entry point : SelOkay
+	bSelOkay      = true;			// Non-RomData game will be running soon
+	IpsPatchInit();					// Entry point : SelOkay
 
 	bDialogCancel = false;
 	MyEndDialog();
@@ -983,14 +1018,16 @@ static void RefreshPanel()
 
 	GetTitlePreviewScale();
 
-	hPrevBmp = PNGLoadBitmap(hSelDlg, NULL, _213, _160, 2);
+	hPrevBmp  = PNGLoadBitmap(hSelDlg, NULL, _213, _160, 2);
 	hTitleBmp = PNGLoadBitmap(hSelDlg, NULL, _213, _160, 2);
 
 	SendDlgItemMessage(hSelDlg, IDC_SCREENSHOT_H, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hPrevBmp);
 	SendDlgItemMessage(hSelDlg, IDC_SCREENSHOT_V, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)NULL);
+	ShowWindow(GetDlgItem(hSelDlg, IDC_SCREENSHOT_H), SW_SHOW);
 
 	SendDlgItemMessage(hSelDlg, IDC_SCREENSHOT2_H, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hTitleBmp);
 	SendDlgItemMessage(hSelDlg, IDC_SCREENSHOT2_V, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)NULL);
+	ShowWindow(GetDlgItem(hSelDlg, IDC_SCREENSHOT2_H), SW_SHOW);
 
 	// Clear the things in our Info-box
 	for (int i = 0; i < 6; i++) {
@@ -998,12 +1035,13 @@ static void RefreshPanel()
 		EnableWindow(hInfoLabel[i], FALSE);
 	}
 
-    CheckDlgButton(hSelDlg, IDC_CHECKAUTOEXPAND, (nLoadMenuShowY & AUTOEXPAND) ? BST_CHECKED : BST_UNCHECKED);
-	CheckDlgButton(hSelDlg, IDC_CHECKAVAILABLE, (nLoadMenuShowY & AVAILABLE) ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hSelDlg, IDC_CHECKAUTOEXPAND,  (nLoadMenuShowY & AUTOEXPAND)  ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hSelDlg, IDC_CHECKAVAILABLE,   (nLoadMenuShowY & AVAILABLE)   ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(hSelDlg, IDC_CHECKUNAVAILABLE, (nLoadMenuShowY & UNAVAILABLE) ? BST_CHECKED : BST_UNCHECKED);
 
-	CheckDlgButton(hSelDlg, IDC_SEL_SHORTNAME, nLoadMenuShowY & SHOWSHORT ? BST_CHECKED : BST_UNCHECKED);
-	CheckDlgButton(hSelDlg, IDC_SEL_ASCIIONLY, nLoadMenuShowY & ASCIIONLY ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hSelDlg, IDC_SEL_SHORTNAME, nLoadMenuShowY & SHOWSHORT     ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hSelDlg, IDC_SEL_ASCIIONLY, nLoadMenuShowY & ASCIIONLY     ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(hSelDlg, IDC_SEL_SUBDIRS,   nLoadMenuShowY & SEARCHSUBDIRS ? BST_CHECKED : BST_UNCHECKED);
 }
 
 FILE* OpenPreview(int nIndex, TCHAR *szPath)
@@ -1047,33 +1085,119 @@ FILE* OpenPreview(int nIndex, TCHAR *szPath)
 
 static VOID CALLBACK PreviewTimerProc(HWND, UINT, UINT_PTR, DWORD)
 {
-	UpdatePreview(false, szAppPreviewsPath, IDC_SCREENSHOT_H, IDC_SCREENSHOT_V);
+	UpdatePreview(false, true, szAppPreviewsPath, IDC_SCREENSHOT_H, IDC_SCREENSHOT_V);
 }
 
 static VOID CALLBACK InitPreviewTimerProc(HWND, UINT, UINT_PTR, DWORD)
 {
-	UpdatePreview(true, szAppPreviewsPath, IDC_SCREENSHOT_H, IDC_SCREENSHOT_V);
+	UpdatePreview(true, true, szAppPreviewsPath, IDC_SCREENSHOT_H, IDC_SCREENSHOT_V);
 
 	if (GetIpsNumPatches()) {
 		if (!nShowMVSCartsOnly) {
 			EnableWindow(GetDlgItem(hSelDlg, IDC_SEL_IPSMANAGER), TRUE);
-			LoadIpsActivePatches();
+			INT32 nActivePatches = LoadIpsActivePatches();
 
 			// Whether IDC_SEL_APPLYIPS is enabled must be subordinate to IDC_SEL_IPSMANAGER
 			// to verify that xxx.dat is not removed after saving config.
 			// Reduce useless array lookups.
-			EnableWindow(GetDlgItem(hSelDlg, IDC_SEL_APPLYIPS), GetIpsNumActivePatches());
+			EnableWindow(GetDlgItem(hSelDlg, IDC_SEL_APPLYIPS), nActivePatches);
 		}
 	} else {
 		EnableWindow(GetDlgItem(hSelDlg, IDC_SEL_IPSMANAGER), FALSE);
-		EnableWindow(GetDlgItem(hSelDlg, IDC_SEL_APPLYIPS), FALSE);	// xxx.dat path not found, must be disabled.
+		EnableWindow(GetDlgItem(hSelDlg, IDC_SEL_APPLYIPS),   FALSE);	// xxx.dat path not found, must be disabled.
 	}
 
 	KillTimer(hSelDlg, nInitPreviewTimer);
 	nInitPreviewTimer = 0;
 }
 
-static int UpdatePreview(bool bReset, TCHAR *szPath, int HorCtrl, int VerCtrl)
+// NOTE: unzip()'s buf must be free()'d after use.
+
+// context-based version, keeps .zip open the entire time until closed.
+bool unzip_open_context(zip_t **zip_context, char *szZipFn)
+{
+	*zip_context = zip_open(szZipFn, 0, 'r');
+
+	return (*zip_context != NULL);
+}
+
+void unzip_close_context(zip_t **zip_context)
+{
+	zip_close(*zip_context);
+	*zip_context = NULL;
+}
+
+bool unzip_unzip_context(zip_t **zip_context, char *szFn, void **buf, size_t *bufsize)
+{
+	bool retval = false;
+
+	if (*zip_context != NULL) {
+		if (!zip_entry_open(*zip_context, szFn)) {
+			retval = zip_entry_read(*zip_context, buf, bufsize) >= 0;
+		} else {
+			//bprintf(0, _T("unzip: not found [%S][%S]\n"), szZipFn, szFn);
+		}
+		zip_entry_close(*zip_context);
+	} else {
+		//bprintf(0, _T("unzip: .zip not found [%S][%S]\n"), szZipFn, szFn);
+	}
+
+	return retval;
+}
+
+bool unzip_exists_context(zip_t **zip_context, char *szFn)
+{
+	bool retval = false;
+
+	if (*zip_context != NULL) {
+		retval = !zip_entry_open(*zip_context, szFn);
+		zip_entry_close(*zip_context);
+	}
+
+	return retval;
+}
+
+// unzip a single file from a zip
+bool unzip(char *szZipFn, char *szFn, void **buf, size_t *bufsize)
+{
+	bool retval = false;
+
+	// read ZIP
+	zip_t *zip = zip_open(szZipFn, 0, 'r');
+	if (zip != NULL) {
+		if (!zip_entry_open(zip, szFn)) {
+			retval = zip_entry_read(zip, buf, bufsize) >= 0;
+		} else {
+			//bprintf(0, _T("unzip: not found [%S][%S]\n"), szZipFn, szFn);
+		}
+		zip_entry_close(zip);
+	} else {
+		//bprintf(0, _T("unzip: .zip not found [%S][%S]\n"), szZipFn, szFn);
+	}
+	zip_close(zip);
+
+	return retval;
+}
+
+// check if a file exists in the zip
+bool unzip_file_exists(char *szZipFn, char *szFn)
+{
+	bool retval = false;
+
+	// read ZIP
+	zip_t *zip = zip_open(szZipFn, 0, 'r');
+	if (zip != NULL) {
+		if (!zip_entry_open(zip, szFn)) {
+			retval = true;
+		}
+		zip_entry_close(zip);
+	}
+	zip_close(zip);
+
+	return retval;
+}
+
+static int UpdatePreview(bool bReset, bool isPreview, TCHAR *szPath, int HorCtrl, int VerCtrl)
 {
 	static int nIndex;
 	int nOldIndex = 0;
@@ -1095,6 +1219,10 @@ static int UpdatePreview(bool bReset, TCHAR *szPath, int HorCtrl, int VerCtrl)
 	}
 
 	nBurnDrvActive = nDialogSelect;
+
+	bool bFromZip = false;
+	size_t pngbufsize = 0;
+	void *pngbuf = NULL;
 
 	if ((nIndex != nOldIndex) || (HorCtrl == IDC_SCREENSHOT2_H)) {
 		int x, y, ax, ay;
@@ -1142,7 +1270,21 @@ static int UpdatePreview(bool bReset, TCHAR *szPath, int HorCtrl, int VerCtrl)
 			nIndex = 1;
 			fp = OpenPreview(nIndex, szPath);
 		}
-		if (fp) {
+
+		if (!fp) { // no file?  dink says: get from zip!
+
+			char szImageName[MAX_PATH];
+			char szZipName[MAX_PATH];
+			char *szAnsiPath = TCHARToANSI(szPath, NULL, 0);
+
+			snprintf(szImageName, sizeof(szImageName), isPreview ? "previews/%s.png" : "titles/%s.png", BurnDrvGetTextA(DRV_NAME));
+			snprintf(szZipName, sizeof(szZipName), "%s%s", szAnsiPath, isPreview ? "previews.zip" : "titles.zip");
+			//bprintf(0, _T("szImageName [%S]  szZipName [%S]\n"), szImageName, szZipName);
+
+			bFromZip = unzip(szZipName, szImageName, &pngbuf, &pngbufsize);
+
+		}
+		if (fp || bFromZip) {
 			if (ax > 4) {
 				// Check if title/preview image is captured from 1 monitor on a
 				// multi-monitor game, then make the proper adjustments so it
@@ -1150,8 +1292,12 @@ static int UpdatePreview(bool bReset, TCHAR *szPath, int HorCtrl, int VerCtrl)
 				IMAGE img;
 				INT32 game_x, game_y;
 
-				PNGGetInfo(&img, fp);
-				rewind(fp);
+				if (fp) {
+					PNGGetInfo(&img, fp);
+					rewind(fp);
+				} else {
+					PNGGetInfoBuffer(&img, pngbuf, pngbufsize);
+				}
 
 				BurnDrvGetFullSize(&game_x, &game_y);
 
@@ -1162,12 +1308,17 @@ static int UpdatePreview(bool bReset, TCHAR *szPath, int HorCtrl, int VerCtrl)
 					y = x * ay / ax;
 				}
 			}
-			hNewImage = PNGLoadBitmap(hSelDlg, fp, x, y, 3);
+			if (fp) {
+				hNewImage = PNGLoadBitmap(hSelDlg, fp, x, y, 3);
+			} else {
+				hNewImage = PNGLoadBitmapBuffer(hSelDlg, pngbuf, pngbufsize, x, y, 3);
+				free(pngbuf);
+			}
 		}
 	}
 
-	if (fp) {
-		fclose(fp);
+	if (fp || bFromZip) {
+		if (fp) fclose(fp);
 
 		if (HorCtrl == IDC_SCREENSHOT_H) nTimer = SetTimer(hSelDlg, 1, 2500, PreviewTimerProc);
 	} else {
@@ -1300,6 +1451,10 @@ static void RebuildEverything()
 	SendMessage(hSelList, WM_SETREDRAW, (WPARAM)FALSE,(LPARAM)TVI_ROOT);	// disable redraw
 	SendMessage(hSelList, TVM_DELETEITEM, 0, (LPARAM)TVI_ROOT);				// Destory all nodes
 	SelListMake();
+
+	HTREEITEM hTvRoot = TreeView_GetRoot(hSelList); // start @ the top of the list! -dink
+	if (hTvRoot) TreeView_SelectSetFirstVisible(hSelList, hTvRoot);
+
 	SendMessage(hSelList, WM_SETREDRAW, (WPARAM)TRUE, (LPARAM)TVI_ROOT);	// enable redraw
 
 	// Clear the things in our Info-box
@@ -1428,6 +1583,7 @@ static void CreateFilters()
 	_TVCreateFiltersA(hGenre		, IDS_GENRE_RACING		, hFilterRacing			, nLoadMenuGenreFilter & GBF_RACING					);
 	_TVCreateFiltersA(hGenre		, IDS_GENRE_RUNGUN		, hFilterRungun			, nLoadMenuGenreFilter & GBF_RUNGUN 				);
 	_TVCreateFiltersA(hGenre		, IDS_GENRE_SHOOT		, hFilterShoot			, nLoadMenuGenreFilter & GBF_SHOOT					);
+	_TVCreateFiltersA(hGenre		, IDS_GENRE_MULTISHOOT	, hFilterMultiShoot		, nLoadMenuGenreFilter & GBF_MULTISHOOT				);
 	_TVCreateFiltersA(hGenre		, IDS_GENRE_HORSHOOT	, hFilterHorshoot		, nLoadMenuGenreFilter & GBF_HORSHOOT				);
 	_TVCreateFiltersA(hGenre		, IDS_GENRE_VERSHOOT	, hFilterVershoot		, nLoadMenuGenreFilter & GBF_VERSHOOT				);
 	_TVCreateFiltersA(hGenre		, IDS_GENRE_SPORTSMISC	, hFilterSportsmisc		, nLoadMenuGenreFilter & GBF_SPORTSMISC				);
@@ -1459,6 +1615,7 @@ static void CreateFilters()
 	_TVCreateFiltersA(hHardware		, IDS_SEL_NEOGEO		, hFilterNeogeo			, nLoadMenuShowX & MASKNEOGEO						);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_PACMAN		, hFilterPacman			, nLoadMenuShowX & MASKPACMAN						);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_PGM			, hFilterPgm			, nLoadMenuShowX & MASKPGM							);
+	_TVCreateFiltersA(hHardware		, IDS_SEL_PGM2			, hFilterPgm2			, nLoadMenuShowX & MASKPGM2							);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_PSIKYO		, hFilterPsikyo			, nLoadMenuShowX & MASKPSIKYO						);
 
 	_TVCreateFiltersD(hHardware		, IDS_SEL_SEGA_GRP		, hFilterSegaGrp				, nLoadMenuShowX & MASKSEGAGRP				);
@@ -1479,8 +1636,11 @@ static void CreateFilters()
 	_TVCreateFiltersA(hHardware		, IDS_SEL_SPECTRUM		, hFilterSpectrum		, nLoadMenuShowX & MASKSPECTRUM						);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_NES			, hFilterNes			, nLoadMenuShowX & MASKNES							);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_FDS			, hFilterFds			, nLoadMenuShowX & MASKFDS							);
+	_TVCreateFiltersA(hHardware		, IDS_SEL_SNES			, hFilterSnes			, nLoadMenuShowX & MASKSNES							);
+	_TVCreateFiltersA(hHardware		, IDS_SEL_GBA			, hFilterGba			, nLoadMenuShowX & MASKGBA							);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_NGP			, hFilterNgp			, nLoadMenuShowX & MASKNGP							);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_CHANNELF		, hFilterChannelF		, nLoadMenuShowX & MASKCHANNELF						);
+	_TVCreateFiltersA(hHardware		, IDS_SEL_ASTROHOME		, hFilterAstroHome		, nLoadMenuShowX & MASKASTROHOME					);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_MISCPRE90S	, hFilterMiscPre90s		, nLoadMenuShowX & MASKMISCPRE90S					);
 	_TVCreateFiltersA(hHardware		, IDS_SEL_MISCPOST90S	, hFilterMiscPost90s	, nLoadMenuShowX & MASKMISCPOST90S					);
 
@@ -1496,196 +1656,503 @@ static void CreateFilters()
 	TreeView_SelectSetFirstVisible(hFilterList, hFavorites);
 }
 
-#define ICON_MAXCONSOLES 12
-
 enum {
-	ICON_MEGADRIVE = 0,
-	ICON_PCEFAM = 1,
-	ICON_SG1000 = 2,
-	ICON_COLECO = 3,
-	ICON_SMS = 4,
-	ICON_GG = 5,
-	ICON_MSX = 6,
-	ICON_SPECTRUM = 7,
-	ICON_NES = 8,
-	ICON_FDS = 9,
-	ICON_NGP = 10,
-	ICON_CHANNELF = 11
+	ICON_MEGADRIVE,
+	ICON_PCE,
+	ICON_SGX,
+	ICON_TG16,
+	ICON_SG1000,
+	ICON_COLECO,
+	ICON_SMS,
+	ICON_GG,
+	ICON_MSX,
+	ICON_SPECTRUM,
+	ICON_NES,
+	ICON_FDS,
+	ICON_SNES,
+	ICON_GBA,
+	ICON_NGPC,
+	ICON_NGP,
+	ICON_CHANNELF,
+	ICON_ASTROHOME,
+	ICON_ENUMEND	// arcade
 };
 
-static HICON hConsDrvIcon[ICON_MAXCONSOLES];
+static HWND hIconDlg      = NULL;
+static HANDLE hICThread   = NULL;	// IconsCache
+static HANDLE hICEvent    = NULL;
+
+static CRITICAL_SECTION cs;
+
+static INT32 xClick, yClick;
+
+// LoadIconFromMemory(), returns HICON.
+// Very fast!, 4-6x faster than LoadImage() winapi,
+// even you factor in the fopen/fread stuff. (or unzip)
+
+#pragma pack(push, 1)
+typedef struct {
+    WORD idReserved;   // must be 0
+    WORD idType;       // 1 for icons
+    WORD idCount;      // number of images in .ico
+} ICONDIR;
+
+typedef struct {
+    BYTE  bWidth;
+    BYTE  bHeight;
+    BYTE  bColorCount;
+    BYTE  bReserved;
+    WORD  wPlanes;
+    WORD  wBitCount;
+    DWORD dwBytesInRes;
+    DWORD dwImageOffset;
+} ICONDIRENTRY;
+#pragma pack(pop)
+
+HICON LoadIconFromMemory(const void *buffer, size_t size, int desired_cx, int desired_cy)
+{
+    if (!buffer || size < sizeof(ICONDIR))
+        return NULL;
+
+    const ICONDIR *dir = (const ICONDIR *)buffer;
+
+    if (dir->idReserved != 0 || dir->idType != 1 || dir->idCount == 0)
+        return NULL;
+
+    const ICONDIRENTRY *entries = (const ICONDIRENTRY *)(dir + 1);
+
+    // Pick the best match (very basic: first entry or closest size)
+    int best = 0;
+    for (int i = 0; i < dir->idCount; i++) {
+        int w = entries[i].bWidth ? entries[i].bWidth : 256;
+        int h = entries[i].bHeight ? entries[i].bHeight : 256;
+
+        if (desired_cx && desired_cy) {
+            if (w == desired_cx && h == desired_cy) {
+                best = i;
+                break;
+            }
+        }
+    }
+
+    const ICONDIRENTRY *e = &entries[best];
+
+    if (e->dwImageOffset + e->dwBytesInRes > size)
+        return NULL;
+
+    const BYTE *image = (const BYTE *)buffer + e->dwImageOffset;
+
+    return CreateIconFromResourceEx(
+        (PBYTE)image,
+        e->dwBytesInRes,
+        TRUE,              // icon (not cursor)
+        0x00030000,        // version
+        desired_cx,
+        desired_cy,
+        LR_DEFAULTCOLOR
+    );
+}
+
+static bool LoadFileToBuffer(TCHAR *szName, void **buf, size_t *bufsize)
+{
+	bool retval = false;
+
+	FILE *fp = _tfopen(szName, _T("rb"));
+
+	if (fp) {
+		// get size
+		fseek(fp, 0, SEEK_END);
+		UINT32 nLen = ftell(fp);
+		rewind(fp);
+		if (nLen > 0) {
+			// alloc & load it up!
+			*bufsize = nLen;
+			*buf = (char*)malloc(nLen);
+			fread(*buf, 1, nLen, fp);
+			retval = true;
+		}
+		fclose(fp);
+	}
+
+	return retval;
+}
+
+static UINT32 __stdcall CacheDrvIconsProc(void* lpParam)
+{
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+
+	HICON* pCache = (HICON*)lpParam;
+	TCHAR szIcon[MAX_PATH] = { 0 };
+
+	switch (nIconsSize) {
+		case ICON_16x16: nIconsSizeXY = 16;	nIconsYDiff =  2;	break;
+		case ICON_24x24: nIconsSizeXY = 24;	nIconsYDiff =  6;	break;
+		case ICON_32x32: nIconsSizeXY = 32;	nIconsYDiff = 10;	break;
+	}
+
+	const UINT32 nDrvCount = nBurnDrvCount;
+	const UINT32 nAllCount = nDrvCount + ICON_ENUMEND + 1;
+
+	char *szAnsiPath = TCHARToANSI(szAppIconsPath, NULL, 0);
+	char szImageName[MAX_PATH];
+	char szZipName[MAX_PATH];
+	snprintf(szZipName, sizeof(szZipName), "%s%s", szAnsiPath, "icons.zip");
+
+	zip_t *zip_icon = NULL;
+	bool bUsingZip = unzip_open_context(&zip_icon, szZipName);
+
+	for (UINT32 nDrvIndex = 0; nDrvIndex < nAllCount; nDrvIndex++) {
+		// See if we need to abort
+		if (WaitForSingleObject(hICEvent, 0) == WAIT_OBJECT_0) {
+			ExitThread(0);
+		}
+
+		SendDlgItemMessage(hIconDlg, IDC_WAIT_PROG, PBM_STEPIT, 0, 0);
+
+		// By games
+		if (nDrvIndex < nDrvCount) {
+			// Occasional anomaly in debugging, suspected resource contention
+			EnterCriticalSection(&cs);
+			const UINT32 nBackup  = nBurnDrvActive;
+
+			// Prevents nBurnDrvActive from being modified externally under certain circumstances
+			nBurnDrvActive        = nDrvIndex;
+
+			const INT32 nFlag     = BurnDrvGetFlags();
+			const char* pszParent = BurnDrvGetTextA(DRV_PARENT);
+			const TCHAR* pszName  = BurnDrvGetText(DRV_NAME);
+			snprintf(szImageName, sizeof(szImageName), "icons/%s.ico", BurnDrvGetTextA(DRV_NAME));
+
+			// Now we can safely restore the data (if modified)
+			nBurnDrvActive        = nBackup;
+			LeaveCriticalSection(&cs);
+
+			// GDI limits the number of objects and does not cache Clone.
+			if ((NULL != pszParent) && (nFlag & BDF_CLONE)) {
+				pCache[nDrvIndex] = NULL; continue;
+			}
+
+			_stprintf(szIcon, _T("%s%s.ico"), szAppIconsPath, pszName);
+
+			// Faster method:
+			void *mBuffer = NULL;
+			size_t mBufferSize = 0;
+			bool bLoadOK = false;
+
+			if (bUsingZip) {
+				bLoadOK = unzip_unzip_context(&zip_icon, szImageName, &mBuffer, &mBufferSize);
+			} else {
+				bLoadOK = LoadFileToBuffer(szIcon, &mBuffer, &mBufferSize);
+			}
+
+			pCache[nDrvIndex] = NULL;	// default to NULL if load fails
+
+			if (bLoadOK) {
+				pCache[nDrvIndex] = LoadIconFromMemory(mBuffer, mBufferSize, nIconsSizeXY, nIconsSizeXY);
+				free(mBuffer);
+			}
+		}
+		// By hardware
+		// The start of the hardwares icon is immediately after the end of the games icon
+		else {
+			const TCHAR szConsIcon[ICON_ENUMEND + 1][20] = {
+				_T("icon_md"),
+				_T("icon_pce"),
+				_T("icon_sgx"),
+				_T("icon_tg"),
+				_T("icon_sg1k"),
+				_T("icon_cv"),
+				_T("icon_sms"),
+				_T("icon_gg"),
+				_T("icon_msx"),
+				_T("icon_spec"),
+				_T("icon_nes"),
+				_T("icon_fds"),
+				_T("icon_snes"),
+				_T("icon_gba"),
+				_T("icon_ngpc"),
+				_T("icon_ngp"),
+				_T("icon_chf"),
+				_T("icon_astro"),
+				_T("icon_arc")
+			};
+
+			const INT32 nConsIndex = nDrvIndex - nDrvCount;
+
+			_stprintf(szIcon, _T("%s%s.ico"), szAppIconsPath, szConsIcon[nConsIndex]);
+			snprintf(szImageName, sizeof(szImageName), "icons/%s.ico", TCHARToANSI(szConsIcon[nConsIndex], NULL, 0));
+
+			// Slow method:
+			//pCache[nDrvIndex] = (HICON)LoadImage(NULL, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE | LR_SHARED);
+
+			// Fast method:
+			void *mBuffer = NULL;
+			size_t mBufferSize = 0;
+			bool bLoadOK = false;
+
+			if (bUsingZip) {
+				bLoadOK = unzip_unzip_context(&zip_icon, szImageName, &mBuffer, &mBufferSize);
+			} else {
+				bLoadOK = LoadFileToBuffer(szIcon, &mBuffer, &mBufferSize);
+			}
+			
+			pCache[nDrvIndex] = NULL;	// default to NULL if load fails
+
+			if (bLoadOK) {
+				pCache[nDrvIndex] = LoadIconFromMemory(mBuffer, mBufferSize, nIconsSizeXY, nIconsSizeXY);
+				free(mBuffer);
+			}
+
+		}
+	}
+
+	unzip_close_context(&zip_icon);
+
+	PostMessage(hIconDlg, WM_CLOSE, 0, 0);
+	return 0;
+}
+
+static void IconsCacheThreadExit()
+{
+	DWORD dwExitCode = 0;
+	GetExitCodeThread(hICThread, &dwExitCode);
+
+	if (dwExitCode == STILL_ACTIVE) {
+
+		// Signal the scan thread to abort
+		SetEvent(hICEvent);
+
+		// Wait for the thread to finish
+		if (WaitForSingleObject(hICThread, 10000) != WAIT_OBJECT_0) {
+			// If the thread doesn't finish within 10 seconds, forcibly kill it
+			TerminateThread(hICThread, 1);
+		}
+	}
+
+	DeleteCriticalSection(&cs);
+	CloseHandle(hICThread); hICThread = NULL;
+	CloseHandle(hICEvent);  hICEvent  = NULL;
+	dwExitCode = 0;
+}
+
+static INT_PTR CALLBACK CacheDrvIconsWaitProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)		// LPARAM lParam
+{
+	switch (Msg) {
+		case WM_INITDIALOG: {
+			hIconDlg = hDlg;
+			SendDlgItemMessage(hDlg, IDC_WAIT_PROG, PBM_SETRANGE, 0, MAKELPARAM(0, nBurnDrvCount + ICON_ENUMEND + 1));
+			SendDlgItemMessage(hDlg, IDC_WAIT_PROG, PBM_SETSTEP, (WPARAM)1, 0);
+
+			ShowWindow( GetDlgItem(hDlg, IDC_WAIT_LABEL_A), TRUE);
+			SendMessage(GetDlgItem(hDlg, IDC_WAIT_LABEL_A), WM_SETTEXT, (WPARAM)0, (LPARAM)FBALoadStringEx(hAppInst, IDS_CACHING_ICONS, true));
+			ShowWindow( GetDlgItem(hDlg, IDCANCEL),         TRUE);
+
+			hICThread = (HANDLE)_beginthreadex(NULL, 0, CacheDrvIconsProc, pIconsCache, 0, NULL);
+			hICEvent  = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+			WndInMid(hDlg, hParent);
+			SetFocus(hDlg);	// Enable Esc=close
+			break;
+		}
+
+		case WM_LBUTTONDOWN: {
+			SetCapture(hDlg);
+
+			xClick = GET_X_LPARAM(lParam);
+			yClick = GET_Y_LPARAM(lParam);
+			break;
+		}
+
+		case WM_LBUTTONUP: {
+			ReleaseCapture();
+			break;
+		}
+
+		case WM_MOUSEMOVE: {
+			if (GetCapture() == hDlg) {
+				RECT rcWindow;
+				GetWindowRect(hDlg, &rcWindow);
+
+				INT32 xMouse = GET_X_LPARAM(lParam);
+				INT32 yMouse = GET_Y_LPARAM(lParam);
+				INT32 xWindow = rcWindow.left + xMouse - xClick;
+				INT32 yWindow = rcWindow.top  + yMouse - yClick;
+
+				SetWindowPos(hDlg, NULL, xWindow, yWindow, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+			}
+			break;
+		}
+
+		case WM_COMMAND: {
+			if (LOWORD(wParam) == IDCANCEL) {
+				PostMessage(hDlg, WM_CLOSE, 0, 0);
+			}
+			break;
+		}
+
+		case WM_CLOSE: {
+			IconsCacheThreadExit();
+			EndDialog(hDlg, 0);
+			hIconDlg = hParent = NULL;
+			LoadDrvIcons();
+		}
+	}
+
+	return 0;
+}
+
+void DestroyDrvIconsCache()
+{
+	if (NULL == pIconsCache) return;
+
+	for (UINT32 i = 0; i < (nBurnDrvCount + ICON_ENUMEND + 1); i++) {
+		if (NULL == pIconsCache[i]) continue;	// LoadImage failed and returned NULL.
+		DestroyIcon(pIconsCache[i]);
+	}
+	free(pIconsCache); pIconsCache = NULL;
+	nIconsSizeXY = 16; nIconsYDiff = 2;
+}
+
+void CreateDrvIconsCache()
+{
+	if (!bEnableIcons) {
+//		nIconsSize   = ICON_16x16;
+		nIconsSizeXY = 16;
+		nIconsYDiff  = 2;
+		return;
+	}
+
+	if (NULL != pIconsCache) DestroyDrvIconsCache();
+	pIconsCache = (HICON*)malloc((nBurnDrvCount + ICON_ENUMEND + 1) * sizeof(HICON));
+
+	InitializeCriticalSection(&cs);
+	FBADialogBox(hAppInst, MAKEINTRESOURCE(IDD_WAIT), hParent, (DLGPROC)CacheDrvIconsWaitProc);
+}
 
 void LoadDrvIcons()
 {
-	TCHAR szIcon[MAX_PATH];
+	if (!bEnableIcons) return;
 
-	hDrvIcon = (HICON *)malloc((nBurnDrvCount + 256) * sizeof(HICON));
+	bIconsLoaded = 0;
 
-	if(nIconsSize == ICON_16x16) {
-		nIconsSizeXY	= 16;
-		nIconsYDiff		= 4;
-	}
-	if(nIconsSize == ICON_24x24) {
-		nIconsSizeXY	= 24;
-		nIconsYDiff		= 8;
-	}
-	if(nIconsSize == ICON_32x32) {
-		nIconsSizeXY	= 32;
-		nIconsYDiff		= 12;
+	if (NULL == hDrvIcon) {
+		hDrvIcon = (HICON*)malloc((nBurnDrvCount + ICON_ENUMEND + 1) * sizeof(HICON));
 	}
 
-	{ // load default console images
-		_stprintf(szIcon, _T("%smegadrive_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_MEGADRIVE] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
+	const UINT32 nDrvCount = nBurnDrvCount;
 
-		_stprintf(szIcon, _T("%spce_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_PCEFAM] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
+	for (UINT32 nDrvIndex = 0; nDrvIndex < nDrvCount; nDrvIndex++) {
+		const UINT32 nBackup = nBurnDrvActive;
+		nBurnDrvActive       = nDrvIndex;
+		const INT32 nFlag    = BurnDrvGetFlags();
+		const INT32 nCode    = BurnDrvGetHardwareCode();
+		char* pszParent      = BurnDrvGetTextA(DRV_PARENT);
+		nBurnDrvActive       = nBackup;
 
-		_stprintf(szIcon, _T("%ssg1000_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_SG1000] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%scolecovision_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_COLECO] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%ssms_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_SMS] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%sgamegear_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_GG] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%smsx_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_MSX] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%sspectrum_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_SPECTRUM] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%snes_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_NES] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%sfds_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_FDS] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%sngp_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_NGP] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		_stprintf(szIcon, _T("%schannelf_icon.ico"), szAppIconsPath);
-		hConsDrvIcon[ICON_CHANNELF] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-	}
-
-	unsigned int nOldDrvSel = nBurnDrvActive;
-
-	for(unsigned int nDrvIndex = 0; nDrvIndex < nBurnDrvCount; nDrvIndex++)
-	{
-		nBurnDrvActive = nDrvIndex;
-#if 0
-		if ((((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_MEGADRIVE)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_PCENGINE)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_TG16)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_SGX)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_SG1000)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_COLECO)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_MASTER_SYSTEM)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_GAME_GEAR)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_MSX)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SPECTRUM)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_NES)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_FDS)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SNK_NGP)
-			 || ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_CHANNELF)
-			)) {
-			continue; // Skip everything but arcade
-		}
-#endif
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_MEGADRIVE) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_MEGADRIVE];
-			continue;
+		// Skip Clone when only the parent item is selected nBurnDrvCount + ICON_ENUMEND
+		if (bIconsOnlyParents && (NULL != pszParent) && (nFlag & BDF_CLONE)) {
+			hDrvIcon[nDrvIndex] = NULL;											continue;
 		}
 
-		if (((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_PCENGINE) ||
-			((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_TG16) ||
-			((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_SGX)) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_PCEFAM];
-			continue;
+		// By hardwares
+		if (bIconsByHardwares) {
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_MEGADRIVE) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_MEGADRIVE];	continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_PCENGINE) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_PCE];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_TG16) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_TG16];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_PCENGINE_SGX) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_SGX];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_SG1000) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_SG1000];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_COLECO) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_COLECO];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_MASTER_SYSTEM) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_SMS];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_GAME_GEAR) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_GG];			continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_MSX) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_MSX];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_SPECTRUM) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_SPECTRUM];	continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_NES) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_NES];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_FDS) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_FDS];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_SNES) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_SNES];		continue;
+			}
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_GBA) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_GBA];	continue;
+			}
+			else
+			if ((nCode & HARDWARE_SNK_NGPC)    == HARDWARE_SNK_NGPC) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_NGPC];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_SNK_NGP) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_NGP];		continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_CHANNELF) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_CHANNELF];	continue;
+			}
+			else
+			if ((nCode & HARDWARE_PUBLIC_MASK) == HARDWARE_ASTROHOME) {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_ASTROHOME];	continue;
+			}
+			else {
+				hDrvIcon[nDrvIndex] = pIconsCache[nDrvCount + ICON_ENUMEND];	continue;
+			}
 		}
+		// By games
+		else {
+			// When allowed and Clone is checked, loads the icon of the parent item when checking that the icon file does not exist
+			if ((NULL != pszParent) && (nFlag & BDF_CLONE)) {
+				INT32 nParentDrv = BurnDrvGetIndex(pszParent);
 
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_SG1000) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_SG1000];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_COLECO) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_COLECO];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_MASTER_SYSTEM) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_SMS];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_GAME_GEAR) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_GG];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_MSX) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_MSX];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SPECTRUM) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_SPECTRUM];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_NES) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_NES];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_FDS) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_FDS];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SNK_NGP) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_NGP];
-			continue;
-		}
-
-		if ((BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_CHANNELF) {
-			hDrvIcon[nDrvIndex] = hConsDrvIcon[ICON_CHANNELF];
-			continue;
-		}
-
-		if (bIconsOnlyParents && BurnDrvGetText(DRV_PARENT) != NULL && (BurnDrvGetFlags() & BDF_CLONE)) {	// Skip clones
-			continue;
-		}
-
-		_stprintf(szIcon, _T("%s%s.ico"), szAppIconsPath, BurnDrvGetText(DRV_NAME));
-		hDrvIcon[nDrvIndex] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
-
-		if(!hDrvIcon[nDrvIndex] && BurnDrvGetText(DRV_PARENT)) {
-			_stprintf(szIcon, _T("%s%s.ico"), szAppIconsPath, BurnDrvGetText(DRV_PARENT));
-			hDrvIcon[nDrvIndex] = (HICON)LoadImage(hAppInst, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
+				// Clone icon file does not exist, use parent item icon
+				// Icons are reused and do not take up GDI resources
+				hDrvIcon[nDrvIndex] = pIconsCache[nParentDrv];
+				continue;
+			}
+			// Associate all non-Clone icons
+			hDrvIcon[nDrvIndex] = pIconsCache[nDrvIndex];
 		}
 	}
 
-	nBurnDrvActive = nOldDrvSel;
+	bIconsLoaded = 1;
 }
 
-void UnloadDrvIcons() {
-
-	nIconsSizeXY	= 16;
-	nIconsYDiff		= 4;
-
-	for(unsigned int nDrvIndex = 0; nDrvIndex < nBurnDrvCount; nDrvIndex++)
-	{
-		DestroyIcon(hDrvIcon[nDrvIndex]);
-		hDrvIcon[nDrvIndex] = NULL;
-	}
-
-	free(hDrvIcon);
+void UnloadDrvIcons()
+{
+	free(hDrvIcon); hDrvIcon = NULL;
+	bIconsLoaded = 0;
 }
 
 #define UM_CHECKSTATECHANGE (WM_USER + 100)
@@ -1700,9 +2167,6 @@ void UnloadDrvIcons() {
 static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
 	if (Msg == WM_INITDIALOG) {
-
-		InitCommonControls();
-
 		hSelDlg = hDlg;
 
 		// add WS_MAXIMIZEBOX button;
@@ -1768,7 +2232,6 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 		TreeView_SetItemHeight(hSelList, cyItem);
 
 		SetFocus(hSelList);
-
 		RebuildEverything();
 
 		TreeView_SetItemHeight(hSelList, cyItem);
@@ -1815,8 +2278,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 	}
 
 	if(Msg == UM_CHECKSTATECHANGE) {
-
-		HTREEITEM   hItemChanged = (HTREEITEM)lParam;
+		HTREEITEM hItemChanged = (HTREEITEM)lParam;
 
 		if (hItemChanged == hHardware) {
 			if ((nLoadMenuShowX & MASKALL) == 0) {
@@ -1837,6 +2299,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 				_TreeView_SetCheckState(hFilterList, hFilterNeogeo, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterPacman, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterPgm, FALSE);
+				_TreeView_SetCheckState(hFilterList, hFilterPgm2, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterPsikyo, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterSega, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterSeta, FALSE);
@@ -1855,8 +2318,11 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 				_TreeView_SetCheckState(hFilterList, hFilterSpectrum, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterNes, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterFds, FALSE);
+				_TreeView_SetCheckState(hFilterList, hFilterSnes, FALSE);
+				_TreeView_SetCheckState(hFilterList, hFilterGba, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterNgp, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterChannelF, FALSE);
+				_TreeView_SetCheckState(hFilterList, hFilterAstroHome, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterMidway, FALSE);
 
 				nLoadMenuShowX |= MASKALL;
@@ -1878,6 +2344,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 				_TreeView_SetCheckState(hFilterList, hFilterNeogeo, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterPacman, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterPgm, TRUE);
+				_TreeView_SetCheckState(hFilterList, hFilterPgm2, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterPsikyo, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterSega, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterSeta, TRUE);
@@ -1896,8 +2363,11 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 				_TreeView_SetCheckState(hFilterList, hFilterSpectrum, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterNes, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterFds, TRUE);
+				_TreeView_SetCheckState(hFilterList, hFilterSnes, TRUE);
+				_TreeView_SetCheckState(hFilterList, hFilterGba, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterNgp, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterChannelF, TRUE);
+				_TreeView_SetCheckState(hFilterList, hFilterAstroHome, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterMidway, TRUE);
 
 				nLoadMenuShowX &= ~MASKALL; //0xf8000000; make this dynamic for future hardware additions -dink
@@ -2053,6 +2523,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 				_TreeView_SetCheckState(hFilterList, hFilterMahjong, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterRacing, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterShoot, FALSE);
+				_TreeView_SetCheckState(hFilterList, hFilterMultiShoot, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterAction, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterRungun, FALSE);
 				_TreeView_SetCheckState(hFilterList, hFilterStrategy, FALSE);
@@ -2086,6 +2557,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 				_TreeView_SetCheckState(hFilterList, hFilterMahjong, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterRacing, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterShoot, TRUE);
+				_TreeView_SetCheckState(hFilterList, hFilterMultiShoot, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterAction, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterRungun, TRUE);
 				_TreeView_SetCheckState(hFilterList, hFilterStrategy, TRUE);
@@ -2123,6 +2595,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 		if (hItemChanged == hFilterNeogeo)			_ToggleGameListing(nLoadMenuShowX, MASKNEOGEO);
 		if (hItemChanged == hFilterPacman)			_ToggleGameListing(nLoadMenuShowX, MASKPACMAN);
 		if (hItemChanged == hFilterPgm)				_ToggleGameListing(nLoadMenuShowX, MASKPGM);
+		if (hItemChanged == hFilterPgm2)			_ToggleGameListing(nLoadMenuShowX, MASKPGM2);
 		if (hItemChanged == hFilterPsikyo)			_ToggleGameListing(nLoadMenuShowX, MASKPSIKYO);
 		if (hItemChanged == hFilterSega)			_ToggleGameListing(nLoadMenuShowX, MASKSEGA);
 		if (hItemChanged == hFilterSeta)			_ToggleGameListing(nLoadMenuShowX, MASKSETA);
@@ -2141,8 +2614,11 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 		if (hItemChanged == hFilterSpectrum)		_ToggleGameListing(nLoadMenuShowX, MASKSPECTRUM);
 		if (hItemChanged == hFilterNes)				_ToggleGameListing(nLoadMenuShowX, MASKNES);
 		if (hItemChanged == hFilterFds)				_ToggleGameListing(nLoadMenuShowX, MASKFDS);
+		if (hItemChanged == hFilterSnes)			_ToggleGameListing(nLoadMenuShowX, MASKSNES);
+		if (hItemChanged == hFilterGba)				_ToggleGameListing(nLoadMenuShowX, MASKGBA);
 		if (hItemChanged == hFilterNgp)				_ToggleGameListing(nLoadMenuShowX, MASKNGP);
 		if (hItemChanged == hFilterChannelF)		_ToggleGameListing(nLoadMenuShowX, MASKCHANNELF);
+		if (hItemChanged == hFilterAstroHome)		_ToggleGameListing(nLoadMenuShowX, MASKASTROHOME);
 		if (hItemChanged == hFilterMidway)			_ToggleGameListing(nLoadMenuShowX, MASKMIDWAY);
 
 		if (hItemChanged == hFilterBootleg)			_ToggleGameListing(nLoadMenuBoardTypeFilter, BDF_BOOTLEG);
@@ -2186,6 +2662,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 		if (hItemChanged == hFilterMahjong)			_ToggleGameListing(nLoadMenuGenreFilter, GBF_MAHJONG);
 		if (hItemChanged == hFilterRacing)			_ToggleGameListing(nLoadMenuGenreFilter, GBF_RACING);
 		if (hItemChanged == hFilterShoot)			_ToggleGameListing(nLoadMenuGenreFilter, GBF_SHOOT);
+		if (hItemChanged == hFilterMultiShoot)		_ToggleGameListing(nLoadMenuGenreFilter, GBF_MULTISHOOT);
 		if (hItemChanged == hFilterAction)			_ToggleGameListing(nLoadMenuGenreFilter, GBF_ACTION);
 		if (hItemChanged == hFilterRungun)			_ToggleGameListing(nLoadMenuGenreFilter, GBF_RUNGUN);
 		if (hItemChanged == hFilterStrategy)		_ToggleGameListing(nLoadMenuGenreFilter, GBF_STRATEGY);
@@ -2220,6 +2697,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 					RebuildEverything();
 					break;
 				case IDRESCAN:
+					LookupSubDirThreads();
 					bRescanRoms = true;
 					CreateROMInfo(hSelDlg);
 					RebuildEverything();
@@ -2248,6 +2726,10 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 					nLoadMenuShowY ^= ASCIIONLY;
 					RebuildEverything();
 					break;
+				case IDC_SEL_SUBDIRS:
+					nLoadMenuShowY ^= SEARCHSUBDIRS;
+					LookupSubDirThreads();
+					break;
 				case IDGAMEINFO:
 					if (bDrvSelected) {
 						GameInfoDialogCreate(hSelDlg, nBurnDrvActive);
@@ -2257,17 +2739,13 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 					}
 					break;
 				case IDC_SEL_IPSMANAGER:
-                    if (bDrvSelected) {
-                        int nOldnBurnDrvActive = nBurnDrvActive;
+					if (bDrvSelected) {
+						UINT32 nOldnBurnDrvActive = nBurnDrvActive;
 						IpsManagerCreate(hSelDlg);
-                        nBurnDrvActive = nOldnBurnDrvActive; // due to some weird bug in sel.cpp, nBurnDrvActive can sometimes change when clicking in new dialogs.
-						LoadIpsActivePatches();
-						if (GetIpsNumActivePatches()) {
-							EnableWindow(GetDlgItem(hDlg, IDC_SEL_APPLYIPS), TRUE);
-						} else {
-							EnableWindow(GetDlgItem(hDlg, IDC_SEL_APPLYIPS), FALSE);
-						}
-                        SetFocus(hSelList);
+						nBurnDrvActive = nOldnBurnDrvActive; // due to some weird bug in sel.cpp, nBurnDrvActive can sometimes change when clicking in new dialogs.
+						INT32 nActivePatches = LoadIpsActivePatches();
+						EnableWindow(GetDlgItem(hDlg, IDC_SEL_APPLYIPS), nActivePatches);
+						SetFocus(hSelList);
 					} else {
 						MessageBox(hSelDlg, FBALoadStringEx(hAppInst, IDS_ERR_NO_DRIVER_SELECTED, true), FBALoadStringEx(hAppInst, IDS_ERR_ERROR, true), MB_OK);
 					}
@@ -2318,6 +2796,17 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 
 				break;
 			}
+
+			case GAMESEL_MENU_ROMDATA: { // Export to RomData template
+				if (bDrvSelected) {
+					RomDataExportTemplate(hSelDlg, nDialogSelect);
+				}
+				else {
+					MessageBox(hSelDlg, FBALoadStringEx(hAppInst, IDS_ERR_NO_DRIVER_SELECTED, true), FBALoadStringEx(hAppInst, IDS_ERR_ERROR, true), MB_OK);
+				}
+
+				break;
+			}
 		}
 	}
 
@@ -2354,7 +2843,11 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 		return 0;
 	}
 
-	if (Msg == WM_WINDOWPOSCHANGED) {
+#if 0
+	if (Msg == WM_WINDOWPOSCHANGED) {	// All controls blink when dragging the window
+#endif // 0
+
+	if (Msg == WM_SIZE) {
 		RECT rc;
 		int xDelta;
 		int yDelta;
@@ -2375,6 +2868,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 		SetControlPosAlignTopRight(IDC_CHECKAUTOEXPAND, nDlgAlwaysClonesChbInitialPos);
 		SetControlPosAlignTopRight(IDC_SEL_SHORTNAME, nDlgZipnamesChbInitialPos);
 		SetControlPosAlignTopRight(IDC_SEL_ASCIIONLY, nDlgLatinTextChbInitialPos);
+		SetControlPosAlignTopRight(IDC_SEL_SUBDIRS, nDlgSearchSubDirsChbInitialPos);
 		SetControlPosAlignTopRight(IDROM, nDlgRomDirsBtnInitialPos);
 		SetControlPosAlignTopRight(IDRESCAN, nDlgScanRomsBtnInitialPos);
 
@@ -2451,8 +2945,8 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 			{
 				nLoadMenuExpand &= ~TvhFilterToBitmask(curItem.hItem);
 			}
-            else if (pnmtv->action == TVE_EXPAND)
-            {
+			else if (pnmtv->action == TVE_EXPAND)
+			{
 				nLoadMenuExpand |= TvhFilterToBitmask(curItem.hItem);
 			}
 		}
@@ -2488,7 +2982,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 			TreeView_HitTest(pNmHdr->hwndFrom, &thi);
 
 			HTREEITEM hSelectHandle = thi.hItem;
-         		if(hSelectHandle == NULL) return 1;
+			if(hSelectHandle == NULL) return 1;
 
 			TreeView_SelectItem(hSelList, hSelectHandle);
 
@@ -2512,20 +3006,30 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 		}
 
 		if (pNmHdr->code == NM_CUSTOMDRAW && LOWORD(wParam) == IDC_TREE1) {
-			LPNMLVCUSTOMDRAW lplvcd = (LPNMLVCUSTOMDRAW)lParam;
+			LPNMTVCUSTOMDRAW lptvcd = (LPNMTVCUSTOMDRAW)lParam;
 			int nGetTextFlags = nLoadMenuShowY & ASCIIONLY ? DRV_ASCIIONLY : 0;
 			HTREEITEM hSelectHandle;
 
-			switch (lplvcd->nmcd.dwDrawStage) {
+			switch (lptvcd->nmcd.dwDrawStage) {
 				case CDDS_PREPAINT: {
 					SetWindowLongPtr(hSelDlg, DWLP_MSGRESULT, CDRF_NOTIFYITEMDRAW);
 					return 1;
 				}
 
 				case CDDS_ITEMPREPAINT:	{
-					hSelectHandle = (HTREEITEM)(lplvcd->nmcd.dwItemSpec);
-					HBRUSH hBackBrush;
+					hSelectHandle = (HTREEITEM)(lptvcd->nmcd.dwItemSpec);
 					RECT rect;
+
+					{
+						RECT rcClip;
+						TreeView_GetItemRect(lptvcd->nmcd.hdr.hwndFrom, hSelectHandle, &rect, TRUE);
+
+						// Check if the current item is in the area to be redrawn(only the visible part is drawn)
+						if (!IntersectRect(&rcClip, &lptvcd->nmcd.rc, &rect)) {
+//							SetWindowLongPtr(hSelDlg, DWLP_MSGRESULT, CDRF_SKIPDEFAULT);
+							return 1;
+						}
+					}
 
 					// TVITEM (msdn.microsoft.com) This structure is identical to the TV_ITEM structure, but it has been renamed to
 					// follow current naming conventions. New applications should use this structure.
@@ -2533,66 +3037,104 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 					//TV_ITEM TvItem;
 					TVITEM TvItem;
 					TvItem.hItem = hSelectHandle;
-					TvItem.mask = TVIF_PARAM | TVIF_STATE | TVIF_CHILDREN;
+					TvItem.mask  = TVIF_PARAM | TVIF_STATE | TVIF_CHILDREN;
 					SendMessage(hSelList, TVM_GETITEM, 0, (LPARAM)&TvItem);
 
-//					dprintf(_T("  - Item (%i×%i) - (%i×%i) %hs\n"), lplvcd->nmcd.rc.left, lplvcd->nmcd.rc.top, lplvcd->nmcd.rc.right, lplvcd->nmcd.rc.bottom, ((NODEINFO*)TvItem.lParam)->pszROMName);
+//					dprintf(_T("  - Item (%i?i) - (%i?i) %hs\n"), lptvcd->nmcd.rc.left, lptvcd->nmcd.rc.top, lptvcd->nmcd.rc.right, lptvcd->nmcd.rc.bottom, ((NODEINFO*)TvItem.lParam)->pszROMName);
 
 					// Set the foreground and background colours unless the item is highlighted
 					if (!(TvItem.state & (TVIS_SELECTED | TVIS_DROPHILITED))) {
 
 						// Set less contrasting colours for clones
 						if (!((NODEINFO*)TvItem.lParam)->bIsParent) {
-							lplvcd->clrTextBk = RGB(0xD7, 0xD7, 0xD7);
-							lplvcd->clrText = RGB(0x3F, 0x3F, 0x3F);
+							lptvcd->clrTextBk = RGB(0xD7, 0xD7, 0xD7);
+							lptvcd->clrText   = RGB(0x3F, 0x3F, 0x3F);
 						}
 
 						// For parents, change the colour of the background, for clones, change only the text colour
 						if (!CheckWorkingStatus(((NODEINFO*)TvItem.lParam)->nBurnDrvNo)) {
-							lplvcd->clrText = RGB(0x7F, 0x7F, 0x7F);
+							lptvcd->clrText = RGB(0x7F, 0x7F, 0x7F);
+						}
+
+						// Slightly different color for favorites (key lime pie anyone?)
+						if (CheckFavorites(((NODEINFO*)TvItem.lParam)->pszROMName) != -1) {
+							if (!((NODEINFO*)TvItem.lParam)->bIsParent) {
+								lptvcd->clrTextBk = RGB(0xd7, 0xe7, 0xd7);
+							} else {
+								lptvcd->clrTextBk = RGB(0xe6, 0xff, 0xe6);
+
+								// Both parent and clone are in favorites
+								if (!(TvItem.state & TVIS_EXPANDED) && TvItem.cChildren) {
+									HTREEITEM hChild = TreeView_GetChild(hSelList, TvItem.hItem);
+									while (NULL != hChild) {
+										TVITEM tvi = { 0 };
+										tvi.mask   = TVIF_PARAM | TVIF_HANDLE;
+										tvi.hItem  = hChild;
+										if (TreeView_GetItem(hSelList, &tvi)) {
+											if (-1 != CheckFavorites(((NODEINFO*)tvi.lParam)->pszROMName)) {
+												lptvcd->clrTextBk = RGB(0xe6, 0xe6, 0xfa);		// Lavender
+												break;
+											}
+										}
+										hChild = TreeView_GetNextSibling(hSelList, hChild);
+									}
+								}
+							}
+						} else {
+							// Only clones are favorites
+							if (((NODEINFO*)TvItem.lParam)->bIsParent) {
+								if (!(TvItem.state & TVIS_EXPANDED) && TvItem.cChildren) {
+									HTREEITEM hChild = TreeView_GetChild(hSelList, TvItem.hItem);
+									while (NULL != hChild) {
+										TVITEM tvi = { 0 };
+										tvi.mask   = TVIF_PARAM | TVIF_HANDLE;
+										tvi.hItem  = hChild;
+										if (TreeView_GetItem(hSelList, &tvi)) {
+											if (-1 != CheckFavorites(((NODEINFO*)tvi.lParam)->pszROMName)) {
+												lptvcd->clrTextBk = RGB(0xff, 0xf0, 0xf5);		// Lavender blush
+												break;
+											}
+										}
+										hChild = TreeView_GetNextSibling(hSelList, hChild);
+									}
+								}
+							}
 						}
 					}
 
-					rect.left	= lplvcd->nmcd.rc.left;
-					rect.right	= lplvcd->nmcd.rc.right;
-					rect.top	= lplvcd->nmcd.rc.top;
-					rect.bottom = lplvcd->nmcd.rc.bottom;
-
-					hBackBrush = CreateSolidBrush(lplvcd->clrTextBk);
+					rect.left   = lptvcd->nmcd.rc.left;
+					rect.right  = lptvcd->nmcd.rc.right;
+					rect.top    = lptvcd->nmcd.rc.top;
+					rect.bottom = lptvcd->nmcd.rc.bottom;
 
 					nBurnDrvActive = ((NODEINFO*)TvItem.lParam)->nBurnDrvNo;
 
 					{
 						// Fill background
-						FillRect(lplvcd->nmcd.hdc, &lplvcd->nmcd.rc, hBackBrush);
+						HBRUSH hBackBrush = CreateSolidBrush(lptvcd->clrTextBk);
+						FillRect(lptvcd->nmcd.hdc, &lptvcd->nmcd.rc, hBackBrush);
+						DeleteObject(hBackBrush);
 					}
 
 					{
 						// Draw plus and minus buttons
-						if (((NODEINFO*)TvItem.lParam)->bIsParent) {
-							if (TvItem.state & TVIS_EXPANDED) {
-								DrawIconEx(lplvcd->nmcd.hdc, rect.left + 4, rect.top + nIconsYDiff, hCollapse, 16, 16, 0, NULL, DI_NORMAL);
-							} else {
-								if (TvItem.cChildren) {
-									DrawIconEx(lplvcd->nmcd.hdc, rect.left + 4, rect.top + nIconsYDiff, hExpand, 16, 16, 0, NULL, DI_NORMAL);
-								}
-							}
+						if (((NODEINFO*)TvItem.lParam)->bIsParent && TvItem.cChildren) {
+							HICON hIcon = (TvItem.state & TVIS_EXPANDED) ? hCollapse : hExpand;
+							DrawIconEx(lptvcd->nmcd.hdc, rect.left + 4, rect.top + nIconsYDiff, hIcon, 16, 16, 0, NULL, DI_NORMAL);
 						}
 						rect.left += 16 + 8;
 					}
 
-					rect.top += 2;
-
 					{
 						// Draw text
 
-						TCHAR szText[1024];
+						TCHAR  szText[1024];
 						TCHAR* pszPosition = szText;
 						TCHAR* pszName;
-						SIZE size = { 0, 0 };
+						SIZE   size = { 0, 0 };
 
-						SetTextColor(lplvcd->nmcd.hdc, lplvcd->clrText);
-						SetBkMode(lplvcd->nmcd.hdc, TRANSPARENT);
+						SetTextColor(lptvcd->nmcd.hdc, lptvcd->clrText);
+						SetBkMode(lptvcd->nmcd.hdc, TRANSPARENT);
 
 						// Display the short name if needed
 						if (nLoadMenuShowY & SHOWSHORT) {
@@ -2604,38 +3146,84 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 							const int EXPAND_ICON_SIZE = 16 + 8;
 							const int temp_right = rect.right;
 							rect.right = EXPAND_ICON_SIZE + FIELD_SIZE - 2;
-							DrawText(lplvcd->nmcd.hdc, BurnDrvGetText(DRV_NAME), -1, &rect, DT_NOPREFIX | DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-							rect.right = temp_right;
 
+							DrawText(lptvcd->nmcd.hdc, BurnDrvGetText(DRV_NAME), -1, &rect, DT_NOPREFIX | DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+							rect.right = temp_right;
 							rect.left += FIELD_SIZE;
+						}
+
+						rect.top += 2;
+
+						bool bParentExp = false;	// If true, Item is clone and parent is expanded
+						if (!((NODEINFO*)TvItem.lParam)->bIsParent) {
+							HTREEITEM hParentTmp = TreeView_GetParent(hSelList, TvItem.hItem);
+							if (NULL != hParentTmp) {
+								bParentExp = (TreeView_GetItemState(hSelList, hParentTmp, TVIS_EXPANDED) & TVIS_EXPANDED);
+							}
 						}
 
 						{
 							// Draw icons if needed
-							if (!CheckWorkingStatus(((NODEINFO*)TvItem.lParam)->nBurnDrvNo)) {
-								DrawIconEx(lplvcd->nmcd.hdc, rect.left, rect.top, hNotWorking, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
-								rect.left += nIconsSizeXY + 4;
-							} else {
-								if (!(gameAv[((NODEINFO*)TvItem.lParam)->nBurnDrvNo]) && !bSkipStartupCheck) {
-									DrawIconEx(lplvcd->nmcd.hdc, rect.left, rect.top, hNotFoundEss, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
+							if (((NODEINFO*)TvItem.lParam)->bIsParent || bParentExp) {
+								if (!CheckWorkingStatus(nBurnDrvActive)) {
+									DrawIconEx(lptvcd->nmcd.hdc, rect.left, rect.top, hNotWorking, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
 									rect.left += nIconsSizeXY + 4;
 								} else {
-									if (!(nLoadMenuShowY & AVAILABLE) && !(gameAv[((NODEINFO*)TvItem.lParam)->nBurnDrvNo] & 2)) {
-										DrawIconEx(lplvcd->nmcd.hdc, rect.left, rect.top, hNotFoundNonEss, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
+									if (!(gameAv[nBurnDrvActive]) && !bSkipStartupCheck) {
+										DrawIconEx(lptvcd->nmcd.hdc, rect.left, rect.top, hNotFoundEss, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
 										rect.left += nIconsSizeXY + 4;
+									} else {
+										if (!(nLoadMenuShowY & AVAILABLE) && !(gameAv[nBurnDrvActive] & 2)) {
+											DrawIconEx(lptvcd->nmcd.hdc, rect.left, rect.top, hNotFoundNonEss, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
+											rect.left += nIconsSizeXY + 4;
+										}
 									}
 								}
 							}
 						}
 
 						// Driver Icon drawing code...
-						if(bEnableIcons && bIconsLoaded) {
-							if(hDrvIcon[nBurnDrvActive]) {
-								DrawIconEx(lplvcd->nmcd.hdc, rect.left, rect.top, hDrvIcon[nBurnDrvActive], nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
+						if (bEnableIcons && bIconsLoaded && (((NODEINFO*)TvItem.lParam)->bIsParent || bParentExp)) {
+							// Windows GDI limitation, can not cache all icons, can only cache the following icons
+							// All hardware icon exist (By hardware)
+							// All non-Clone icon exist (By game)
+							// When the Clone icon option is turned on, the parent item has an icon and Clone does not (By game, They do not take up GDI resources)
+							if (hDrvIcon[nBurnDrvActive]) {
+								DrawIconEx(lptvcd->nmcd.hdc, rect.left, rect.top, hDrvIcon[nBurnDrvActive], nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
 							}
 
-							if(!hDrvIcon[nBurnDrvActive]) {
-								DrawIconEx(lplvcd->nmcd.hdc, rect.left, rect.top, hDrvIconMiss, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
+							if (!hDrvIcon[nBurnDrvActive]) {
+								// Non-Clone
+								if ((NULL == BurnDrvGetText(DRV_PARENT)) && !(BurnDrvGetFlags() & BDF_CLONE)) {
+									DrawIconEx(lptvcd->nmcd.hdc, rect.left, rect.top, hDrvIconMiss, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
+								}
+								// Clone
+								else {
+									if (!bIconsOnlyParents) {
+										// By hardware
+										if (bIconsByHardwares) {
+											DrawIconEx(lptvcd->nmcd.hdc, rect.left, rect.top, hDrvIconMiss, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
+										}
+										// By game
+										else {
+											TCHAR szIcon[MAX_PATH] = { 0 };
+											_stprintf(szIcon, _T("%s%s.ico"), szAppIconsPath, BurnDrvGetText(DRV_NAME));
+
+											// Find the icons that meet the conditions, load and redraw them one by one and then recycle the resources to avoid memory leakage due to GDI resource overflow
+											// Exclude all parent set
+											// Exclude all hardware icons
+											// All the Clones where you can find icons
+											// Creates a temporary HICON object, which is destroyed immediately upon completion of the redraw.
+											HICON hTempIcon = (HICON)LoadImage(NULL, szIcon, IMAGE_ICON, nIconsSizeXY, nIconsSizeXY, LR_LOADFROMFILE);
+											HICON hGameIcon = (NULL != hTempIcon) ? hTempIcon : hDrvIconMiss;
+											DrawIconEx(lptvcd->nmcd.hdc, rect.left, rect.top, hGameIcon, nIconsSizeXY, nIconsSizeXY, 0, NULL, DI_NORMAL);
+
+											if (NULL != hTempIcon) {	// Clone icon exist (By game)
+												DestroyIcon(hTempIcon); hTempIcon = NULL;
+											}
+										}
+									}
+								}
 							}
 							rect.left += nIconsSizeXY + 4;
 						}
@@ -2643,9 +3231,9 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 						_tcsncpy(szText, MangleGamename(BurnDrvGetText(nGetTextFlags | DRV_FULLNAME), false), 1024);
 						szText[1023] = _T('\0');
 
-						GetTextExtentPoint32(lplvcd->nmcd.hdc, szText, _tcslen(szText), &size);
+						GetTextExtentPoint32(lptvcd->nmcd.hdc, szText, _tcslen(szText), &size);
 
-						DrawText(lplvcd->nmcd.hdc, szText, -1, &rect, DT_NOPREFIX | DT_SINGLELINE | DT_LEFT | DT_VCENTER);
+						DrawText(lptvcd->nmcd.hdc, szText, -1, &rect, DT_NOPREFIX | DT_SINGLELINE | DT_LEFT | DT_VCENTER);
 
 						// Display extra info if needed
 						szText[0] = _T('\0');
@@ -2660,17 +3248,15 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 						if (szText[0]) {
 							szText[255] = _T('\0');
 
-							unsigned int r = ((lplvcd->clrText >> 16 & 255) * 2 + (lplvcd->clrTextBk >> 16 & 255)) / 3;
-							unsigned int g = ((lplvcd->clrText >>  8 & 255) * 2 + (lplvcd->clrTextBk >>  8 & 255)) / 3;
-							unsigned int b = ((lplvcd->clrText >>  0 & 255) * 2 + (lplvcd->clrTextBk >>  0 & 255)) / 3;
+							unsigned int r = ((lptvcd->clrText >> 16 & 255) * 2 + (lptvcd->clrTextBk >> 16 & 255)) / 3;
+							unsigned int g = ((lptvcd->clrText >>  8 & 255) * 2 + (lptvcd->clrTextBk >>  8 & 255)) / 3;
+							unsigned int b = ((lptvcd->clrText >>  0 & 255) * 2 + (lptvcd->clrTextBk >>  0 & 255)) / 3;
 
 							rect.left += size.cx;
-							SetTextColor(lplvcd->nmcd.hdc, (r << 16) | (g <<  8) | (b <<  0));
-							DrawText(lplvcd->nmcd.hdc, szText, -1, &rect, DT_NOPREFIX | DT_SINGLELINE | DT_LEFT | DT_VCENTER);
+							SetTextColor(lptvcd->nmcd.hdc, (r << 16) | (g <<  8) | (b <<  0));
+							DrawText(lptvcd->nmcd.hdc, szText, -1, &rect, DT_NOPREFIX | DT_SINGLELINE | DT_LEFT | DT_VCENTER);
 						}
 					}
-
-					DeleteObject(hBackBrush);
 
 					SetWindowLongPtr(hSelDlg, DWLP_MSGRESULT, CDRF_SKIPDEFAULT);
 					return 1;
@@ -2698,27 +3284,27 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 					nBurnDrvActive	= nBurnDrv[i].nBurnDrvNo;
 					nDialogSelect	= nBurnDrvActive;
 					bDrvSelected	= true;
-					UpdatePreview(true, szAppPreviewsPath, IDC_SCREENSHOT_H, IDC_SCREENSHOT_V);
-					UpdatePreview(false, szAppTitlesPath, IDC_SCREENSHOT2_H, IDC_SCREENSHOT2_V);
+					UpdatePreview(true, true, szAppPreviewsPath, IDC_SCREENSHOT_H, IDC_SCREENSHOT_V);
+					UpdatePreview(false, false, szAppTitlesPath, IDC_SCREENSHOT2_H, IDC_SCREENSHOT2_V);
 					break;
 				}
 			}
 
-            CheckDlgButton(hDlg, IDC_SEL_APPLYIPS, BST_UNCHECKED);
+			CheckDlgButton(hDlg, IDC_SEL_APPLYIPS, BST_UNCHECKED);
 
-            if (GetIpsNumPatches()) {
+			if (GetIpsNumPatches()) {
 				if (!nShowMVSCartsOnly) {
 					EnableWindow(GetDlgItem(hDlg, IDC_SEL_IPSMANAGER), TRUE);
-					LoadIpsActivePatches();
+					INT32 nActivePatches = LoadIpsActivePatches();
 
 					// Whether IDC_SEL_APPLYIPS is enabled must be subordinate to IDC_SEL_IPSMANAGER
 					// to verify that xxx.dat is not removed after saving config.
 					// Reduce useless array lookups.
-					EnableWindow(GetDlgItem(hDlg, IDC_SEL_APPLYIPS), GetIpsNumActivePatches());
+					EnableWindow(GetDlgItem(hDlg, IDC_SEL_APPLYIPS), nActivePatches);
 				}
 			} else {
 				EnableWindow(GetDlgItem(hDlg, IDC_SEL_IPSMANAGER), FALSE);
-				EnableWindow(GetDlgItem(hDlg, IDC_SEL_APPLYIPS), FALSE);	// xxx.dat path not found, must be disabled.
+				EnableWindow(GetDlgItem(hDlg, IDC_SEL_APPLYIPS),   FALSE);	// xxx.dat path not found, must be disabled.
 			}
 
 			// Get the text from the drivers via BurnDrvGetText()
@@ -2869,7 +3455,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 			TreeView_HitTest(pNmHdr->hwndFrom, &thi);
 
 			HTREEITEM hSelectHandle = thi.hItem;
-         	if(hSelectHandle == NULL) return 1;
+			if(hSelectHandle == NULL) return 1;
 
 			TreeView_SelectItem(hSelList, hSelectHandle);
 
@@ -2883,8 +3469,8 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 
 			nDialogSelect	= nBurnDrvSelect[0];
 			bDrvSelected	= true;
-			UpdatePreview(true, szAppPreviewsPath, IDC_SCREENSHOT_H, IDC_SCREENSHOT_V);
-			UpdatePreview(false, szAppTitlesPath, IDC_SCREENSHOT2_H, IDC_SCREENSHOT2_V);
+			UpdatePreview(true, true, szAppPreviewsPath, IDC_SCREENSHOT_H, IDC_SCREENSHOT_V);
+			UpdatePreview(false, false, szAppTitlesPath, IDC_SCREENSHOT2_H, IDC_SCREENSHOT2_V);
 
 			// Menu
 			POINT oPoint;
@@ -2914,8 +3500,7 @@ int SelDialog(int nMVSCartsOnly, HWND hParentWND)
 
 	hParent = hParentWND;
 	nShowMVSCartsOnly = nMVSCartsOnly;
-
-	InitCommonControls();
+	RomDataStateBackup();
 
 	FBADialogBox(hAppInst, MAKEINTRESOURCE(IDD_SELNEW), hParent, (DLGPROC)DialogProc);
 
@@ -3067,10 +3652,34 @@ static int MVSpreviewUpdateSlot(int nSlot, HWND hDlg)
 		nBurnDrvActive = nBurnDrvSelect[nSlot];
 		if (nBurnDrvActive < nBurnDrvCount) {
 
+			bool bFromZip = false;
+			size_t pngbufsize = 0;
+			void *pngbuf = NULL;
+
 			FILE* fp = OpenPreview(0, szAppTitlesPath);
-			if (fp) {
-				hMVSpreview[nSlot] = PNGLoadBitmap(hDlg, fp, 72, 54, 5);
-				fclose(fp);
+
+			if (!fp) { // no file?  dink says: get from zip!
+				char szImageName[MAX_PATH];
+				char szZipName[MAX_PATH];
+				char *szAnsiPath = TCHARToANSI(szAppTitlesPath, NULL, 0);
+
+				snprintf(szImageName, sizeof(szImageName), "titles/%s.png", BurnDrvGetTextA(DRV_NAME));
+				snprintf(szZipName, sizeof(szZipName), "%s%s", szAnsiPath, "titles.zip");
+				//bprintf(0, _T("szImageName [%S]  szZipName [%S]\n"), szImageName, szZipName);
+
+				bFromZip = unzip(szZipName, szImageName, &pngbuf, &pngbufsize);
+			}
+
+
+			if (fp || bFromZip) {
+				if (fp) {
+					hMVSpreview[nSlot] = PNGLoadBitmap(hDlg, fp, 72, 54, 5);
+					fclose(fp);
+				} else {
+					hMVSpreview[nSlot] = PNGLoadBitmapBuffer(hDlg, pngbuf, pngbufsize, 72, 54, 5);
+					free(pngbuf);
+				}
+
 			} else {
 				hMVSpreview[nSlot] = PNGLoadBitmap(hDlg, NULL, 72, 54, 4);
 			}
@@ -3120,7 +3729,7 @@ static INT_PTR CALLBACK MVSpreviewProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARA
 			return TRUE;
 		}
 		case WM_COMMAND:
-			if (LOWORD(wParam) == ID_VALUE_CLOSE) {
+			if (LOWORD(wParam) == IDC_VALUE_CLOSE) {
 				SendMessage(hDlg, WM_CLOSE, 0, 0);
 				break;
 			}

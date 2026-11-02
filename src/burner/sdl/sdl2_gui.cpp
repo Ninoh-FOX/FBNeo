@@ -6,7 +6,7 @@
 extern char videofiltering[3];
 
 // reduce the total number of sets by the number of romsets flagged with BDF_BOARDROM
-#define REDUCE_TOTAL_SETS_BIOS		21
+#define REDUCE_TOTAL_SETS_BIOS		31
 #define MAX_STRING_SIZE 300
 // Limit CPU usage
 #define maxfps 20
@@ -474,6 +474,9 @@ static void SystemToCheck()
 		case HARDWARE_PREFIX_CHANNELF:
 			snprintf(systemName, MAX_STRING_SIZE, "Fairchild Channel F");
 			break;
+		case HARDWARE_SNES:
+			snprintf(systemName, MAX_STRING_SIZE, "Super Nintendo Entertainment System / Famicom");
+			break;
 		default:
 			snprintf(systemName, MAX_STRING_SIZE, "Everything");
 			break;
@@ -577,6 +580,9 @@ static void SwapSystemToCheck()
 			break;
 		case HARDWARE_NES:
 			nSystemToCheckMask = HARDWARE_FDS;
+			break;
+		case HARDWARE_FDS:
+			nSystemToCheckMask = HARDWARE_SNES;
 			break;
 		default:
 			nSystemToCheckMask = HARDWARE_PUBLIC_MASK;
@@ -1141,7 +1147,7 @@ int gui_process()
 							gamesperscreen_halfway = gamesperscreen / 2;
 
 							listoffsetY = 0;
-							listwidthY = thirdscreenwidth * 2;								
+							listwidthY = thirdscreenwidth * 2;
 							break;
 					}
 					break;

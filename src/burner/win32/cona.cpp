@@ -1,9 +1,15 @@
 // Burner Config file module
 #include "burner.h"
+#include <process.h>
 
 #ifdef _UNICODE
  #include <locale.h>
 #endif
+
+#define IS_STRING_EMPTY(s) (NULL == (s) || (s)[0] == _T('\0'))
+
+static HANDLE hLSDThreads[DIRS_MAX] = { 0 };
+SubDirInfo _SubDirInfo[DIRS_MAX];
 
 int nIniVersion = 0;
 
@@ -23,6 +29,168 @@ struct VidPresetDataVer VidPresetVer[4] = {
 	// last one set at desktop resolution
 };
 
+static void HardFXLoadDefaults()
+{
+	int totalHardFX = MENU_DX9_ALT_HARD_FX_LAST - MENU_DX9_ALT_HARD_FX_NONE;
+
+	for (int thfx = 0; thfx < totalHardFX; thfx++) {
+		HardFXConfigs[thfx].hardfx_config_load_defaults();
+	}
+}
+
+static int ends_with_slash(const TCHAR* dirPath)
+{
+	UINT32 len = _tcslen(dirPath);
+	if (0 == len) return 0;
+
+	TCHAR last_char = dirPath[len - 1];
+	return (last_char == _T('/') || last_char == _T('\\'));
+}
+
+static void TraverseDirectory(const TCHAR* dirPath, TCHAR*** pszArray, UINT32* pnCount)
+{
+	if (IS_STRING_EMPTY(dirPath)) return;
+
+	TCHAR searchPath[MAX_PATH];
+
+	const TCHAR* szFormatA = ends_with_slash(dirPath) ? _T("%s*")  : _T("%s\\*");
+	const TCHAR* szFormatB = ends_with_slash(dirPath) ? _T("%s%s") : _T("%s\\%s");
+
+	_stprintf(searchPath, szFormatA, dirPath);
+
+	WIN32_FIND_DATA findFileData;
+	HANDLE hFind = FindFirstFile(searchPath, &findFileData);
+	if (INVALID_HANDLE_VALUE == hFind) return;
+
+	do {
+		if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+			if (0 == _tcscmp(findFileData.cFileName, _T(".")) || 0 == _tcscmp(findFileData.cFileName, _T("..")))
+				continue;
+
+			// like: c:\1st_dir + '\' + 2nd_dir + '\' + "1.zip" + '\0' = 8 chars
+			if ((_tcslen(dirPath) + _tcslen(findFileData.cFileName)) > (MAX_PATH - 8))
+				continue;
+
+			TCHAR subDirPath[MAX_PATH] = { 0 };
+			_stprintf(subDirPath, szFormatB, dirPath, findFileData.cFileName);
+
+			bool bSkip = false;
+			TCHAR szCmpA[MAX_PATH] = { 0 }, szCmpB[MAX_PATH] = { 0 };
+			if (!ends_with_slash(subDirPath)) {
+				// The slash bar changes when the user reselects the ROMs directory
+				_stprintf(szCmpA, _T("%s/"),  subDirPath);
+				_stprintf(szCmpB, _T("%s\\"), subDirPath);
+			} else {
+				// After szFormatB formatting, there is almost no possibility to get to this step, reserved
+				INT32 nLen = _tcslen(subDirPath);
+				_tcscpy(szCmpA, subDirPath);
+				_tcscpy(szCmpB, subDirPath);
+				szCmpA[nLen - 1] = _T('/');
+				szCmpB[nLen - 1] = _T('\\');
+			}
+
+			// Ignore the default ROMs path
+			for (INT32 i = 0; i < sizeof(szAppRomPaths) / sizeof(szAppRomPaths[0]); i++) {
+				if ((0 == _tcscmp(szCmpA, szAppRomPaths[i])) || (0 == _tcscmp(szCmpB, szAppRomPaths[i]))) {
+					bSkip = true; break;
+				}
+			}
+			if (!bSkip) {
+				TCHAR** newArray = (TCHAR**)realloc(*pszArray, (*pnCount + 1) * sizeof(TCHAR*));
+				*pszArray = newArray;
+				(*pszArray)[*pnCount] = (TCHAR*)malloc(MAX_PATH * sizeof(TCHAR));
+				_stprintf((*pszArray)[(*pnCount)++], _T("%s\\"), subDirPath);
+			}
+
+			TraverseDirectory(subDirPath, pszArray, pnCount);
+		}
+	} while (FindNextFile(hFind, &findFileData));
+
+	FindClose(hFind);
+}
+
+#undef IS_STRING_EMPTY
+
+static UINT32 __stdcall TraverseDirsProc(void* lpParam)
+{
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+
+	SubDirInfo* pSubDirInfo = (SubDirInfo*)lpParam;
+	TraverseDirectory(pSubDirInfo->BaseDir, &(pSubDirInfo->SubDirs), &(pSubDirInfo->nCount));
+
+	return 0;
+}
+
+void SubDirThreadExit()
+{
+	INT32 nFinished = 0, i = 0;;
+
+	// Threads are not started
+	for (i = 0; i < DIRS_MAX; i++) {
+		if (NULL == hLSDThreads[i]) nFinished++;
+		if (DIRS_MAX == nFinished)  return;
+	}
+
+	// Threads have been started
+	nFinished = 0;
+
+	while (nFinished < DIRS_MAX) {
+		for (i = 0; i < DIRS_MAX; i++) {
+			if (NULL == hLSDThreads[i]) continue;
+
+			DWORD dwExitCode = 0;
+			GetExitCodeThread(hLSDThreads[i], &dwExitCode);
+
+			if (STILL_ACTIVE != dwExitCode) {
+				CloseHandle(hLSDThreads[i]); hLSDThreads[i] = NULL;
+				nFinished++;
+			} else {
+				WaitForSingleObject(hLSDThreads[i], 100);
+			}
+		}
+	}
+}
+
+static void FreeSubDirsInfo()
+{
+	for (INT32 i = 0; i < DIRS_MAX; i++) {
+		if (NULL != _SubDirInfo[i].SubDirs) {
+			for (UINT32 j = 0; j < _SubDirInfo[i].nCount; j++) {
+				if (NULL != _SubDirInfo[i].SubDirs[j]) {
+					free(_SubDirInfo[i].SubDirs[j]);
+					_SubDirInfo[i].SubDirs[j] = NULL;
+				}
+			}
+			free(_SubDirInfo[i].SubDirs);
+			_SubDirInfo[i].SubDirs = NULL;
+			_SubDirInfo[i].nCount = 0;
+		}
+	}
+}
+
+void DestroySubDir()
+{
+	SubDirThreadExit();
+	FreeSubDirsInfo();
+}
+
+INT32 LookupSubDirThreads()
+{
+	DestroySubDir();
+
+	if (!(nLoadMenuShowY & (1 << 26)))	// SEARCHSUBDIRS
+		return 1;
+
+	for (INT32 i = 0; i < DIRS_MAX; i++) {
+		memset(&(_SubDirInfo[i]), 0, sizeof(SubDirInfo));
+		_tcscpy(_SubDirInfo[i].BaseDir, szAppRomPaths[i]);
+		hLSDThreads[i] = (HANDLE)_beginthreadex(NULL, 0, TraverseDirsProc, &_SubDirInfo[i], 0, NULL);
+	}
+
+
+	return 0;
+}
+
 static void CreateConfigName(TCHAR* szConfig)
 {
 	_stprintf(szConfig, _T("config/%s.ini"), szAppExeName);
@@ -39,6 +207,8 @@ int ConfigAppLoad()
 #ifdef _UNICODE
 	setlocale(LC_ALL, "");
 #endif
+
+	HardFXLoadDefaults();
 
 	CreateConfigName(szConfig);
 
@@ -68,8 +238,10 @@ int ConfigAppLoad()
   if (szValue) x = _tcstod(szValue, NULL); }
 #define STR(x) { TCHAR* szValue = LabelCheck(szLine,_T(#x) _T(" "));	\
   if (szValue) _tcscpy(x,szValue); }
+#if 0
 #define PAT(x) { TCHAR* szValue = LabelCheck(szLine,_T(#x) _T(" "));	\
 	if (szValue) { _tcscpy(x, szValue); UpdatePath(x); } }
+#endif
 #define DRV(x) { TCHAR* szValue = LabelCheck(szLine,_T(#x) _T(" "));	\
   if (szValue) x = NameToDriver(szValue); }
 
@@ -107,6 +279,7 @@ int ConfigAppLoad()
 		VAR(nScreenSizeVer);
 
 		VAR(nWindowSize);
+		VAR(bVidIntegerScale);
 		VAR(nWindowPosX); VAR(nWindowPosY);
 		VAR(bDoGamma);
 		VAR(bVidUseHardwareGamma);
@@ -123,6 +296,7 @@ int ConfigAppLoad()
 		VAR(bVidDX9WinFullscreen);
 		VAR(bVidVSync);
 		VAR(bVidDWMSync);
+		VAR(bVidVRR);
 
 		VAR(bVidScanlines);
 		VAR(nVidScanIntensity);
@@ -137,6 +311,16 @@ int ConfigAppLoad()
 		VAR(nVidBlitterOpt[2]);
 		VAR(nVidBlitterOpt[3]);
 		VAR(nVidBlitterOpt[4]);
+		VAR(nVidBlitterOpt[5]);
+		STR(szVidD3D11Shader);
+		STR(szVidD3D11ShaderMRU[0]);
+		STR(szVidD3D11ShaderMRU[1]);
+		STR(szVidD3D11ShaderMRU[2]);
+		STR(szVidD3D11ShaderMRU[3]);
+		STR(szVidD3D11ShaderMRU[4]);
+		STR(szVidD3D11ShaderMRU[5]);
+		STR(szVidD3D11ShaderMRU[6]);
+		STR(szVidD3D11ShaderMRU[7]);
 
 		// DirectDraw blitter
 		VAR(bVidScanHalf);
@@ -165,6 +349,24 @@ int ConfigAppLoad()
 		VAR(bVidMotionBlur);
 		VAR(bVidForce16bitDx9Alt);
 
+		{
+			int totalHardFX = MENU_DX9_ALT_HARD_FX_LAST - MENU_DX9_ALT_HARD_FX_NONE;
+
+			for (int thfx = 0; thfx < totalHardFX; thfx++) {
+				// for each fx, check if it has settings that needs to be saved
+				for (int thfx_option = 0; thfx_option < HardFXConfigs[thfx].nOptions; thfx_option++) {
+					TCHAR szLabel[64];
+					_stprintf(szLabel, _T("HardFXOption[%d][%d]"), thfx, thfx_option);
+
+					TCHAR* szValue = LabelCheck(szLine, szLabel);
+					if (szValue) HardFXConfigs[thfx].fOptions[thfx_option] = _tcstod(szValue, NULL);
+				}
+			}
+		}
+
+		// Input
+		VAR(nInputSelect);
+
 		// Sound
 		VAR(nAudSelect);
 		VAR(nAudVolume);
@@ -175,6 +377,8 @@ int ConfigAppLoad()
 		VAR(nAudDSPModule[0]);
 		VAR(nAudSampleRate[1]);
 		VAR(nAudDSPModule[1]);
+		VAR(nAudSampleRate[2]);
+		VAR(nAudDSPModule[2]);
 
 		// Other
 		STR(szPlaceHolder);
@@ -187,6 +391,7 @@ int ConfigAppLoad()
 		VAR(nMaxChatFontSize);
 
 		VAR(bModelessMenu);
+		VAR(bAdaptivepopup);
 
 		VAR(nSplashTime);
 
@@ -199,9 +404,18 @@ int ConfigAppLoad()
 		VAR(bAlwaysProcessKeyboardInput);
 		VAR(bAutoPause);
 		VAR(bSaveInputs);
+		VAR(nKailleraCheatEnableHack);
 
 		VAR(nCDEmuSelect);
-		PAT(CDEmuImage);
+
+		// Note: was PAT(CDEmuImage) - but this caused slow startup when cd images are on a flash drive, and CDEmuImage points there
+		STR(CDEmuImage);
+
+		VAR(nRomsDlgWidth);
+		VAR(nRomsDlgHeight);
+
+		VAR(nSupportDlgWidth);
+		VAR(nSupportDlgHeight);
 
 		VAR(nSelDlgWidth);
 		VAR(nSelDlgHeight);
@@ -243,11 +457,14 @@ int ConfigAppLoad()
 		STR(szAppSamplesPath);
 		STR(szAppHDDPath);
 		STR(szAppIpsPath);
+		STR(szAppRomdataPath);
 		STR(szAppIconsPath);
 		STR(szNeoCDCoverDir);
+		STR(szNeoCDPreviewDir);
 		STR(szAppBlendPath);
 		STR(szAppSelectPath);
 		STR(szAppVersusPath);
+		STR(szAppHowtoPath);
 		STR(szAppScoresPath);
 		STR(szAppBossesPath);
 		STR(szAppGameoverPath);
@@ -257,6 +474,7 @@ int ConfigAppLoad()
 		STR(szAppCabinetsPath);
 		STR(szAppPCBsPath);
 		STR(szAppHistoryPath);
+		STR(szAppCommandPath);
 		STR(szAppEEPROMPath);
 
 		VAR(bEnableHighResTimer);
@@ -285,8 +503,11 @@ int ConfigAppLoad()
 		VAR(nIpsSelectedLanguage);
 
 		VAR(bEnableIcons);
+		VAR(uiOwnerDrawActive);
+		VAR(nUiColorTheme);
 		VAR(bIconsOnlyParents);
 		VAR(nIconsSize);
+		VAR(bIconsByHardwares);
 
 		STR(szPrevGames[0]);
 		STR(szPrevGames[1]);
@@ -308,7 +529,8 @@ int ConfigAppLoad()
 		DRV(nBurnDrvSelect[5]);
 
 		VAR(bNeoCDListScanSub);
-		VAR(bNeoCDListScanOnlyISO);
+		
+		VAR(bRDListScanSub);
 
 		// Default Controls
 		VAR(nPlayerDefaultControls[0]);
@@ -320,6 +542,17 @@ int ConfigAppLoad()
 		VAR(nPlayerDefaultControls[3]);
 		STR(szPlayerDefaultIni[3]);
 
+		// SOCD
+		VAR(nSocd[0]);
+		VAR(nSocd[1]);
+		VAR(nSocd[2]);
+		VAR(nSocd[3]);
+		VAR(nSocd[4]);
+		VAR(nSocd[5]);
+
+		// Emulator hotkeys
+		HotkeysConfigLoadLine(szLine);
+
 #undef DRV
 #undef PAT
 #undef STR
@@ -330,6 +563,9 @@ int ConfigAppLoad()
 	}
 
 	fclose(h);
+
+	HotkeysApply();
+
 	return 0;
 }
 
@@ -422,6 +658,8 @@ int ConfigAppSave()
 	VAR(nVidRotationAdjust);
 	_ftprintf(h, _T("\n// Initial window size (0 = autosize)\n"));
 	VAR(nWindowSize);
+	_ftprintf(h, _T("\n// Use integer scaling? (1 on, 0 off)\n"));
+	VAR(bVidIntegerScale);
 	_ftprintf(h, _T("\n// Window position\n"));
 	VAR(nWindowPosX); VAR(nWindowPosY);
 	_ftprintf(h, _T("\n// If non-zero, perform gamma correction\n"));
@@ -450,6 +688,8 @@ int ConfigAppSave()
 	VAR(bVidVSync);
 	_ftprintf(h, _T("\n// If non-zero, try to synchronise to DWM on Windows 7+, this fixes frame stuttering problems.\n"));
 	VAR(bVidDWMSync);
+	_ftprintf(h, _T("\n// If non-zero, use variable refresh rate (G-Sync/FreeSync) with the DX11 blitter on Windows 10+\n"));
+	VAR(bVidVRR);
 	_ftprintf(h, _T("\n// Transfer method:  0 = blit from system memory / use driver/DirectX texture management;\n"));
 	_ftprintf(h, _T("//                   1 = copy to a video memory surface, then use bltfast();\n"));
 	_ftprintf(h, _T("//                  -1 = autodetect for DirectDraw, equals 1 for Direct3D\n"));
@@ -468,6 +708,17 @@ int ConfigAppSave()
 	VAR(nVidBlitterOpt[2]);
 	VAR(nVidBlitterOpt[3]);
 	VAR(nVidBlitterOpt[4]);
+	VAR(nVidBlitterOpt[5]);
+	_ftprintf(h, _T("\n// Direct3D 11 blitter: shader / preset, and recently used shaders\n"));
+	STR(szVidD3D11Shader);
+	STR(szVidD3D11ShaderMRU[0]);
+	STR(szVidD3D11ShaderMRU[1]);
+	STR(szVidD3D11ShaderMRU[2]);
+	STR(szVidD3D11ShaderMRU[3]);
+	STR(szVidD3D11ShaderMRU[4]);
+	STR(szVidD3D11ShaderMRU[5]);
+	STR(szVidD3D11ShaderMRU[6]);
+	STR(szVidD3D11ShaderMRU[7]);
 	_ftprintf(h, _T("\n// If non-zero, attempt to auto-detect the monitor resolution and aspect ratio\n"));
 	VAR(bMonitorAutoCheck);
 	_ftprintf(h, _T("\n// If non-zero, force all games to use a 60Hz refresh rate\n"));
@@ -519,9 +770,26 @@ int ConfigAppSave()
 	_ftprintf(h, _T("\n// If non-zero, force 16 bit emulation even in 32-bit screenmodes\n"));
 	VAR(bVidForce16bitDx9Alt);
 
+	_ftprintf(h, _T("\n// HardFX shader options\n"));
+
+	{
+		int totalHardFX = MENU_DX9_ALT_HARD_FX_LAST - MENU_DX9_ALT_HARD_FX_NONE;
+
+		for (int thfx = 0; thfx < totalHardFX; thfx++) {
+			// for each fx, check if it has settings that needs to be saved
+			for (int thfx_option = 0; thfx_option < HardFXConfigs[thfx].nOptions; thfx_option++) {
+				_ftprintf(h, _T("HardFXOption[%d][%d] %lf\n"), thfx, thfx_option, HardFXConfigs[thfx].fOptions[thfx_option]);
+			}
+		}
+	}
+
 	_ftprintf(h, _T("\n\n\n"));
+	_ftprintf(h, _T("// --- Input ------------------------------------------------------------------\n"));
+	_ftprintf(h, _T("\n// The selected input plugin (0 = DirectInput, 1 = XInput + DirectInput)\n"));
+	VAR(nInputSelect);
+	_ftprintf(h, _T("\n"));
 	_ftprintf(h, _T("// --- Sound ------------------------------------------------------------------\n"));
-	_ftprintf(h, _T("\n// The selected audio plugin\n"));
+	_ftprintf(h, _T("\n// The selected audio plugin (0 = DirectSound, 1 = XAudio2, 2 = WASAPI)\n"));
 	VAR(nAudSelect);
 	_ftprintf(h, _T("\n// Audio Volume\n"));
 	VAR(nAudVolume);
@@ -543,6 +811,12 @@ int ConfigAppSave()
 	VAR(nAudSampleRate[1]);
 	_ftprintf(h, _T("\n// DSP module to use for sound enhancement: 0 = none, 1 = low-pass filter, 2 = reverb\n"));
 	VAR(nAudDSPModule[1]);
+	_ftprintf(h, _T("\n"));
+	_ftprintf(h, _T("// --- WASAPI plugin settings -------------------------------------------------\n"));
+	_ftprintf(h, _T("\n// Sample rate\n"));
+	VAR(nAudSampleRate[2]);
+	_ftprintf(h, _T("\n// DSP module to use for sound enhancement: 0 = none, 1 = low-pass filter\n"));
+	VAR(nAudDSPModule[2]);
 
 	_ftprintf(h, _T("\n\n\n"));
 	_ftprintf(h, _T("// --- UI ---------------------------------------------------------------------\n"));
@@ -569,6 +843,9 @@ int ConfigAppSave()
 	_ftprintf(h, _T("\n// Make the menu modeless\n"));
 	VAR(bModelessMenu);
 
+	_ftprintf(h, _T("\n// Automatically determines the direction of the popup menu\n"));
+	VAR(bAdaptivepopup);
+
 	_ftprintf(h, _T("\n// Minimum length of time to display the splash screen (in milliseconds)\n"));
 	VAR(nSplashTime);
 
@@ -587,6 +864,8 @@ int ConfigAppSave()
 	VAR(bAutoPause);
 	_ftprintf(h, _T("\n// If non-zero, save the inputs for each game\n"));
 	VAR(bSaveInputs);
+	_ftprintf(h, _T("\n// If non-zero, Allow cheats in Kaillera.  Experimental & might cause desyncs!  Both sides must enable the same cheat at the same time, usually on titlescreen before starting game.\n"));
+	VAR(nKailleraCheatEnableHack);
 
 	_ftprintf(h, _T("\n\n\n"));
 	_ftprintf(h, _T("// --- CD emulation -----------------------------------------------------------\n"));
@@ -594,6 +873,18 @@ int ConfigAppSave()
 	VAR(nCDEmuSelect);
 	_ftprintf(h, _T("\n // The path to the CD image to use (.cue or .iso)\n"));
 	STR(CDEmuImage);
+
+	_ftprintf(h, _T("\n\n\n"));
+	_ftprintf(h, _T("// --- Edit ROMs Paths Dialogs ------------------------------------------------\n"));
+	_ftprintf(h, _T("\n// Edit roms path dialog dimensions (in win32 client co-ordinates)\n"));
+	VAR(nRomsDlgWidth);
+	VAR(nRomsDlgHeight);
+
+	_ftprintf(h, _T("\n\n\n"));
+	_ftprintf(h, _T("// --- Edit support file paths Dialogs ----------------------------------------\n"));
+	_ftprintf(h, _T("\n// Edit support file paths dialog dimensions (in win32 client co-ordinates)\n"));
+	VAR(nSupportDlgWidth);
+	VAR(nSupportDlgHeight);
 
 	_ftprintf(h, _T("\n\n\n"));
 	_ftprintf(h, _T("// --- Load Game Dialogs ------------------------------------------------------\n"));
@@ -651,11 +942,14 @@ int ConfigAppSave()
 	STR(szAppSamplesPath);
 	STR(szAppHDDPath);
 	STR(szAppIpsPath);
+	STR(szAppRomdataPath);
 	STR(szAppIconsPath);
 	STR(szNeoCDCoverDir);
+	STR(szNeoCDPreviewDir);
 	STR(szAppBlendPath);
 	STR(szAppSelectPath);
 	STR(szAppVersusPath);
+	STR(szAppHowtoPath);
 	STR(szAppScoresPath);
 	STR(szAppBossesPath);
 	STR(szAppGameoverPath);
@@ -665,6 +959,7 @@ int ConfigAppSave()
 	STR(szAppCabinetsPath);
 	STR(szAppPCBsPath);
 	STR(szAppHistoryPath);
+	STR(szAppCommandPath);
 	STR(szAppEEPROMPath);
 
 	_ftprintf(h, _T("\n// The cartridges to use for emulation of an MVS system\n"));
@@ -677,7 +972,9 @@ int ConfigAppSave()
 
 	_ftprintf(h, _T("\n// Neo Geo CD Load Game Dialog options\n"));
 	VAR(bNeoCDListScanSub);
-	VAR(bNeoCDListScanOnlyISO);
+
+	_ftprintf(h, _T("\n// RomData Load Game Dialog options\n"));
+	VAR(bRDListScanSub);
 
 	_ftprintf(h, _T("\n\n\n"));
 	_ftprintf(h, _T("// --- miscellaneous ---------------------------------------------------------\n"));
@@ -732,6 +1029,12 @@ int ConfigAppSave()
 	_ftprintf(h, _T("\n// The language index to use for the IPS Patch Manager dialog.\n"));
 	VAR(nIpsSelectedLanguage);
 
+	_ftprintf(h, _T("\n// The reference to determine which ui Mode is being used True (1) activates the Owner Draw menus False (0) lets Windows handle them\n"));
+	VAR(uiOwnerDrawActive);
+
+	_ftprintf(h, _T("\n// The reference to determine which ui color mode is to be used 0 - Light Mode and 1 - Dark Mode\n"));
+	VAR(nUiColorTheme);
+
 	_ftprintf(h, _T("\n// If non-zero, display drivers icons.\n"));
 	VAR(bEnableIcons);
 
@@ -740,6 +1043,9 @@ int ConfigAppSave()
 
 	_ftprintf(h, _T("\n// Specify icons display size, 0 = 16x16 , 1 = 24x24, 2 = 32x32.\n"));
 	VAR(nIconsSize);
+
+	_ftprintf(h, _T("\n// If non-zero, display icons by hardwares.\n"));
+	VAR(bIconsByHardwares);
 
 	_ftprintf(h, _T("\n// Previous games list.\n"));
 	STR(szPrevGames[0]);
@@ -762,6 +1068,16 @@ int ConfigAppSave()
 	STR(szPlayerDefaultIni[2]);
 	VAR(nPlayerDefaultControls[3]);
 	STR(szPlayerDefaultIni[3]);
+
+	_ftprintf(h, _T("\n// Index of SOCD settings for each player.\n"));
+	VAR(nSocd[0]);
+	VAR(nSocd[1]);
+	VAR(nSocd[2]);
+	VAR(nSocd[3]);
+	VAR(nSocd[4]);
+	VAR(nSocd[5]);
+
+	HotkeysConfigSave(h);
 
 	_ftprintf(h, _T("\n\n\n"));
 

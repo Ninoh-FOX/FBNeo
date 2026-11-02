@@ -447,6 +447,249 @@ bool VidSGetArcaderes(int* pWidth, int* pHeight)
 	return true;
 }
 
+/*! IntegerScaling by Marat Tanalin | http://tanalin.com/en/projects/integer-scaling/ */
+// Converted to C (dink, 2025)
+struct Ratios {
+    UINT32 x, y;
+};
+
+struct Size {
+    UINT32 width, height;
+};
+
+static UINT32 calculateRatio(UINT32 areaWidth, UINT32 areaHeight,
+                        UINT32 imageWidth, UINT32 imageHeight);
+
+static Ratios calculateRatios(UINT32 areaWidth, UINT32 areaHeight,
+                              UINT32 imageWidth, UINT32 imageHeight,
+                              double aspectX, double aspectY);
+
+static Size calculateSize(UINT32 areaWidth, UINT32 areaHeight,
+                          UINT32 imageWidth, UINT32 imageHeight);
+
+static Size calculateSizeCorrected(UINT32 areaWidth, UINT32 areaHeight,
+                                   UINT32 imageWidth, UINT32 imageHeight,
+                                   double aspectX, double aspectY);
+
+static Size calculateSizeCorrectedPerfectY(
+    UINT32 areaWidth,  UINT32 areaHeight,
+    UINT32 imageHeight,
+    double aspectX, double aspectY);
+
+
+/**
+ * Calculates an integer scaling ratio common for X/Y axes (square pixels).
+ */
+static UINT32 calculateRatio(UINT32 areaWidth, UINT32 areaHeight,
+                      UINT32 imageWidth, UINT32 imageHeight)
+{
+    UINT32 areaSize, imageSize;
+
+    if ((unsigned long long)areaHeight * imageWidth < (unsigned long long)areaWidth * imageHeight) {
+        areaSize  = areaHeight;
+        imageSize = imageHeight;
+    }
+    else {
+        areaSize  = areaWidth;
+        imageSize = imageWidth;
+    }
+
+    UINT32 ratio = areaSize / imageSize;
+
+    if (ratio < 1) {
+        ratio = 1;
+    }
+
+    return ratio;
+}
+
+/**
+ * Calculates integer scaling ratios potentially different for X/Y axes
+ * as a result of aspect-ratio correction (rectangular pixels).
+ */
+static Ratios calculateRatios(UINT32 areaWidth, UINT32 areaHeight,
+                              UINT32 imageWidth, UINT32 imageHeight,
+                              double aspectX, double aspectY)
+{
+    struct Ratios ratios;
+
+    if (imageWidth * aspectY == imageHeight * aspectX) {
+        UINT32 ratio = calculateRatio(areaWidth, areaHeight, imageWidth, imageHeight);
+        ratios.x = ratio;
+        ratios.y = ratio;
+        return ratios;
+    }
+
+    UINT32 maxRatioX = areaWidth  / imageWidth;
+    UINT32 maxRatioY = areaHeight / imageHeight;
+    UINT32 maxWidth  = imageWidth  * maxRatioX;
+    UINT32 maxHeight = imageHeight * maxRatioY;
+
+    double maxWidthAspectY  = (double)maxWidth  * aspectY;
+    double maxHeightAspectX = (double)maxHeight * aspectX;
+
+    UINT32 ratioX, ratioY;
+
+    if (maxWidthAspectY == maxHeightAspectX) {
+        ratioX = maxRatioX;
+        ratioY = maxRatioY;
+    }
+    else {
+        int maxAspectLessThanTarget = (maxWidthAspectY < maxHeightAspectX);
+
+        UINT32 ratioA, maxSizeA, imageSizeB;
+        double aspectA, aspectB;
+
+        if (maxAspectLessThanTarget) {
+            ratioA     = maxRatioX;
+            maxSizeA   = maxWidth;
+            imageSizeB = imageHeight;
+            aspectA    = aspectX;
+            aspectB    = aspectY;
+        }
+        else {
+            ratioA     = maxRatioY;
+            maxSizeA   = maxHeight;
+            imageSizeB = imageWidth;
+            aspectA    = aspectY;
+            aspectB    = aspectX;
+        }
+
+        double ratioBFract = maxSizeA * aspectB / aspectA / imageSizeB;
+        double ratioBFloor = floor(ratioBFract);
+        double ratioBCeil  = ceil(ratioBFract);
+        double parFloor = ratioBFloor / ratioA;
+        double parCeil  = ratioBCeil  / ratioA;
+
+        if (maxAspectLessThanTarget) {
+            parFloor = 1.0 / parFloor;
+            parCeil  = 1.0 / parCeil;
+        }
+
+        double commonFactor = imageWidth * aspectY / aspectX / imageHeight;
+        double errorFloor   = fabs(1.0 - commonFactor * parFloor);
+        double errorCeil    = fabs(1.0 - commonFactor * parCeil);
+
+        UINT32 ratioB;
+
+        if (fabs(errorFloor - errorCeil) < 0.001) {
+            ratioB = (fabs((double)ratioA - ratioBFloor) < fabs((double)ratioA - ratioBCeil))
+                   ? (UINT32)ratioBFloor
+                   : (UINT32)ratioBCeil;
+        }
+        else {
+            ratioB = (errorFloor < errorCeil)
+                   ? (UINT32)ratioBFloor
+                   : (UINT32)ratioBCeil;
+        }
+
+        // Assign the calculated ratios to ratioX and ratioY based on which dimension was limiting
+        if (maxAspectLessThanTarget) {
+            ratioX = ratioA;
+            ratioY = ratioB;
+        }
+        else {
+            ratioX = ratioB;
+            ratioY = ratioA;
+        }
+    }
+
+    // Ensure final ratios are at least 1
+    if (ratioX < 1) {
+        ratioX = 1;
+    }
+
+    if (ratioY < 1) {
+        ratioY = 1;
+    }
+
+    ratios.x = ratioX;
+    ratios.y = ratioY;
+
+    return ratios;
+}
+
+/**
+ * Calculates size (width and height) of scaled image
+ * without aspect-ratio correction (square pixels).
+ */
+static Size calculateSize(UINT32 areaWidth, UINT32 areaHeight,
+                          UINT32 imageWidth, UINT32 imageHeight)
+{
+    struct Size size;
+    UINT32 ratio = calculateRatio(areaWidth, areaHeight, imageWidth, imageHeight);
+
+    size.width  = imageWidth  * ratio;
+    size.height = imageHeight * ratio;
+
+    return size;
+}
+
+/**
+ * Calculates size (width and height) of scaled image
+ * with aspect-ratio correction (rectangular pixels).
+ */
+static Size calculateSizeCorrected(UINT32 areaWidth, UINT32 areaHeight,
+                                   UINT32 imageWidth, UINT32 imageHeight,
+                                   double aspectX, double aspectY)
+{
+    struct Size size;
+    struct Ratios ratios = calculateRatios(areaWidth, areaHeight, imageWidth, imageHeight, aspectX, aspectY);
+    // printf("ratios.x/y: %d %d\n", ratios.x, ratios.y); // Debug print, can be removed
+
+    size.width  = imageWidth  * ratios.x;
+    size.height = imageHeight * ratios.y;
+
+    return size;
+}
+
+/**
+ * Calculates size (width and height) of scaled image with aspect-ratio
+ * correction with integer vertical scaling ratio, but fractional horizontal
+ * scaling ratio for the purpose of achieving precise aspect ratio while
+ * still having integer vertical scaling e.g. for uniform scanlines.
+ */
+static Size calculateSizeCorrectedPerfectY(
+    UINT32 areaWidth,  UINT32 areaHeight,
+    UINT32 imageHeight,
+    double aspectX, double aspectY)
+{
+    struct Size size;
+
+    double idealImageWidth = (double)imageHeight * aspectX / aspectY;
+
+    double imageSize;
+    UINT32 areaSize;
+
+    if (areaHeight * idealImageWidth < (double)areaWidth * imageHeight) {
+         areaSize  = areaHeight;
+         imageSize = imageHeight;
+    }
+    else {
+         areaSize  = areaWidth;
+         imageSize = idealImageWidth;
+    }
+
+    UINT32 ratio = areaSize / imageSize;
+
+    if (ratio < 1) {
+        ratio = 1;
+    }
+
+    UINT32 width = (UINT32)round(idealImageWidth * ratio);
+
+	if (width > areaWidth) {
+		width--;
+	}
+
+    size.width = width;
+    size.height = imageHeight * ratio;
+
+    return size;
+}
+
+// End of Marat Tanilin's Integer Scaling code
+
 // This function takes a rectangle and scales it to either:
 // - The largest possible multiple of both X and Y;
 // - The largest possible multiple of Y, modifying X to ensure the correct aspect ratio;
@@ -495,6 +738,25 @@ int VidSScaleImage(RECT* pRect, int nGameWidth, int nGameHeight, bool bVertScanl
 		nScrnWidth = SystemWorkArea.right - SystemWorkArea.left;
 		nScrnHeight = SystemWorkArea.bottom - SystemWorkArea.top;
 	}
+
+	//bprintf(0, _T("nWidth %d  nHeight %d    nScrnWidth %d  nScrnHeight %d    nGameWidth %d  nGameHeight %d\n"), nWidth, nHeight, nScrnWidth, nScrnHeight, nGameWidth, nGameHeight);
+
+	if (bVidIntegerScale) {
+		if (bVidCorrectAspect) {
+			Size reso = calculateSizeCorrected(nScrnWidth, nScrnHeight, nGameWidth, nGameHeight, nGameAspectX, nGameAspectY);
+			nWidth = reso.width;
+			nHeight = reso.height;
+
+			//bprintf(0, _T("(aspect)integer reso: %d x %d\n"), nWidth, nHeight);
+		} else {
+			Size reso = calculateSize(nScrnWidth, nScrnHeight, nGameWidth, nGameHeight);
+			nWidth = reso.width;
+			nHeight = reso.height;
+
+			//bprintf(0, _T("integer reso: %d x %d\n"), nWidth, nHeight);
+		}
+	}
+	else
 
 	if (bVidCorrectAspect && bVidScanlines && ((ym >= 2 && xm) || (ym && xm >= 2 && bVertScanlines))) {	// Correct aspect ratio with scanlines
 		float nWidthScratch, nHeightScratch;
@@ -624,14 +886,144 @@ static int nCursorState = 0;
 static int nEditSize;
 static int nEditShadowOffset;
 
-static IDirectDrawSurface7* pShortMsgSurf = NULL;
-static IDirectDrawSurface7* pStatusSurf = NULL;
-static IDirectDrawSurface7* pChatSurf = NULL;
-static IDirectDrawSurface7* pEditSurf = NULL;
-static IDirectDrawSurface7* pTinyMsgSurf = NULL;
-static IDirectDrawSurface7* pJoystickMsgSurf = NULL;
-
 static unsigned int nKeyColour = 0x000001;
+
+// ---------------------------------------------------------------------------
+// OSD surfaces: either a DirectDraw surface, or a surface owned by an external
+// backend (see VidSSetOSDBackend()), so blitters that don't use DirectDraw can
+// share the OSD code. The method names mirror IDirectDrawSurface7 so the
+// drawing code below works unchanged with either kind.
+
+static VidSOSDBackend* pOSDBackend = NULL;
+
+void VidSSetOSDBackend(VidSOSDBackend* pBackend)
+{
+	pOSDBackend = pBackend;
+}
+
+class OSDSurface {
+public:
+	IDirectDrawSurface7* pDDS;
+	void* pExt;
+	VidSOSDBackend* pBackend;
+
+	OSDSurface() : pDDS(NULL), pExt(NULL), pBackend(NULL) { }
+
+	void Release()
+	{
+		if (pDDS) {
+			pDDS->Release();
+		}
+		if (pExt && pBackend) {
+			pBackend->pReleaseSurface(pExt);
+		}
+		delete this;
+	}
+
+	HRESULT GetDC(HDC* phDC)
+	{
+		if (pDDS) {
+			return pDDS->GetDC(phDC);
+		}
+		*phDC = pBackend->pGetDC(pExt);
+		return (*phDC) ? DD_OK : E_FAIL;
+	}
+
+	HRESULT ReleaseDC(HDC hDC)
+	{
+		if (pDDS) {
+			return pDDS->ReleaseDC(hDC);
+		}
+		pBackend->pReleaseDC(pExt, hDC);
+		return DD_OK;
+	}
+
+	HRESULT IsLost()  { return pDDS ? pDDS->IsLost()  : DD_OK; }
+	HRESULT Restore() { return pDDS ? pDDS->Restore() : DD_OK; }
+};
+
+static OSDSurface* OSDCreateSurface(int nWidth, int nHeight)
+{
+	OSDSurface* pSurf = NULL;
+
+	if (pOSDBackend) {
+		void* pExt = pOSDBackend->pCreateSurface(nWidth, nHeight);
+		if (pExt == NULL) {
+			return NULL;
+		}
+		pSurf = new OSDSurface;
+		pSurf->pExt = pExt;
+		pSurf->pBackend = pOSDBackend;
+
+		return pSurf;
+	}
+
+	if (pDD == NULL) {
+		return NULL;
+	}
+
+	DDSURFACEDESC2 ddsd;
+	IDirectDrawSurface7* pDDS = NULL;
+
+	memset(&ddsd, 0, sizeof(ddsd));
+	ddsd.dwSize = sizeof(ddsd);
+	ddsd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_CKSRCBLT;
+
+	ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;
+
+	ddsd.dwWidth = nWidth;
+	ddsd.dwHeight = nHeight;
+
+	ddsd.ddckCKSrcBlt.dwColorSpaceLowValue = nKeyColour;
+	ddsd.ddckCKSrcBlt.dwColorSpaceHighValue = nKeyColour;
+
+	if (FAILED(pDD->CreateSurface(&ddsd, &pDDS, NULL))) {
+		return NULL;
+	}
+
+	pSurf = new OSDSurface;
+	pSurf->pDDS = pDDS;
+
+	return pSurf;
+}
+
+static int VidSClearSurface(OSDSurface* pSurf, unsigned int nColour, RECT* pRect)
+{
+	if (pSurf == NULL) {
+		return 1;
+	}
+
+	if (pSurf->pDDS) {
+		return VidSClearSurface(pSurf->pDDS, nColour, pRect);
+	}
+
+	pSurf->pBackend->pFill(pSurf->pExt, nColour, pRect);
+
+	return 0;
+}
+
+// Blit an OSD surface onto pDest (or the backend's render target), using the colour key
+static void OSDBlt(IDirectDrawSurface7* pDest, RECT* pDestRect, OSDSurface* pSurf, RECT* pSrcRect)
+{
+	if (pSurf == NULL) {
+		return;
+	}
+
+	if (pSurf->pDDS) {
+		if (pDest) {
+			pDest->Blt(pDestRect, pSurf->pDDS, pSrcRect, DDBLT_ASYNC | DDBLT_KEYSRC, NULL);
+		}
+	} else {
+		pSurf->pBackend->pBlit(pDestRect, pSurf->pExt, pSrcRect);
+	}
+}
+
+static OSDSurface* pShortMsgSurf = NULL;
+static OSDSurface* pStatusSurf = NULL;
+static OSDSurface* pChatSurf = NULL;
+static OSDSurface* pEditSurf = NULL;
+static OSDSurface* pTinyMsgSurf = NULL;
+static OSDSurface* pJoystickMsgSurf = NULL;
 
 static int nStatus = 0;
 static int nPrevStatus = -1;
@@ -803,27 +1195,14 @@ void VidSExitOSD()
 
 static int VidSInitTinyMsg(int /*nFlags*/)
 {
-	DDSURFACEDESC2 ddsd;
-
 	VidSExitTinyMsg();
 
 	TinyMsgFont = CreateFont(12, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, 0, 0, 0, ANTIALIASED_QUALITY, FF_SWISS, _T("MS Sans Serif"));
 	VidSTinyMsg.nTimer = 0;
 
 	// create surface to display the text
-	memset(&ddsd, 0, sizeof(ddsd));
-	ddsd.dwSize = sizeof(ddsd);
-	ddsd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_CKSRCBLT;
-
-	ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;
-
-	ddsd.dwWidth = 300;
-	ddsd.dwHeight = 20;
-
-	ddsd.ddckCKSrcBlt.dwColorSpaceLowValue = nKeyColour;
-	ddsd.ddckCKSrcBlt.dwColorSpaceHighValue = nKeyColour;
-
-	if (FAILED(pDD->CreateSurface(&ddsd, &pTinyMsgSurf, NULL))) {
+	pTinyMsgSurf = OSDCreateSurface(300, 20);
+	if (pTinyMsgSurf == NULL) {
 #ifdef PRINT_DEBUG_INFO
 		printf("  * Error: Couldn't create OSD texture.\n");
 #endif
@@ -837,8 +1216,6 @@ static int VidSInitTinyMsg(int /*nFlags*/)
 
 static int VidSInitJoystickMsg(int /*nFlags*/)
 {
-	DDSURFACEDESC2 ddsd;
-
 	VidSExitJoystickMsg();
 
 	//JoystickMsgFont = CreateFont(12, 0, 0, 0, FW_DEMIBOLD, 0, 0, 0, 0, 0, 0, ANTIALIASED_QUALITY, FF_SWISS, _T("Courier New"));
@@ -846,19 +1223,8 @@ static int VidSInitJoystickMsg(int /*nFlags*/)
 	VidSJoystickMsg.nTimer = 0;
 
 	// create surface to display the text
-	memset(&ddsd, 0, sizeof(ddsd));
-	ddsd.dwSize = sizeof(ddsd);
-	ddsd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_CKSRCBLT;
-
-	ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;
-
-	ddsd.dwWidth = 300;
-	ddsd.dwHeight = 60;
-
-	ddsd.ddckCKSrcBlt.dwColorSpaceLowValue = nKeyColour;
-	ddsd.ddckCKSrcBlt.dwColorSpaceHighValue = nKeyColour;
-
-	if (FAILED(pDD->CreateSurface(&ddsd, &pJoystickMsgSurf, NULL))) {
+	pJoystickMsgSurf = OSDCreateSurface(300, 60);
+	if (pJoystickMsgSurf == NULL) {
 #ifdef PRINT_DEBUG_INFO
 		printf("  * Error: Couldn't create OSD texture.\n");
 #endif
@@ -872,8 +1238,6 @@ static int VidSInitJoystickMsg(int /*nFlags*/)
 
 static int VidSInitShortMsg(int nFlags)
 {
-	DDSURFACEDESC2 ddsd;
-
 	VidSExitShortMsg();
 
 	nShortMsgFlags = nFlags;
@@ -882,19 +1246,8 @@ static int VidSInitShortMsg(int nFlags)
 	VidSShortMsg.nTimer = 0;
 
 	// create surface to display the text
-	memset(&ddsd, 0, sizeof(ddsd));
-	ddsd.dwSize = sizeof(ddsd);
-	ddsd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_CKSRCBLT;
-
-	ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;
-
-	ddsd.dwWidth = 256;
-	ddsd.dwHeight = 32;
-
-	ddsd.ddckCKSrcBlt.dwColorSpaceLowValue = nKeyColour;
-	ddsd.ddckCKSrcBlt.dwColorSpaceHighValue = nKeyColour;
-
-	if (FAILED(pDD->CreateSurface(&ddsd, &pShortMsgSurf, NULL))) {
+	pShortMsgSurf = OSDCreateSurface(256, 32);
+	if (pShortMsgSurf == NULL) {
 #ifdef PRINT_DEBUG_INFO
 		dprintf(_T("  * Error: Couldn't create OSD texture.\n"));
 #endif
@@ -908,8 +1261,6 @@ static int VidSInitShortMsg(int nFlags)
 
 static int VidSInitStatus(int nFlags)
 {
-	DDSURFACEDESC2 ddsd;
-
 	VidSExitStatus();
 
 	nStatusFlags = nFlags;
@@ -919,19 +1270,8 @@ static int VidSInitStatus(int nFlags)
 	nPrevStatus = -1;
 
 	// create surface to display the text
-	memset(&ddsd, 0, sizeof(ddsd));
-	ddsd.dwSize = sizeof(ddsd);
-	ddsd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_CKSRCBLT;
-
-	ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;
-
-	ddsd.dwWidth = 192;
-	ddsd.dwHeight = 50;
-
-	ddsd.ddckCKSrcBlt.dwColorSpaceLowValue = nKeyColour;
-	ddsd.ddckCKSrcBlt.dwColorSpaceHighValue = nKeyColour;
-
-	if (FAILED(pDD->CreateSurface(&ddsd, &pStatusSurf, NULL))) {
+	pStatusSurf = OSDCreateSurface(192, 50);
+	if (pStatusSurf == NULL) {
 #ifdef PRINT_DEBUG_INFO
 		dprintf(_T("  * Error: Couldn't create OSD texture.\n"));
 #endif
@@ -945,8 +1285,6 @@ static int VidSInitStatus(int nFlags)
 
 static int VidSInitChat(int /*nFlags*/)
 {
-	DDSURFACEDESC2 ddsd;
-
 	if (bChatInitialised) {
 		VidSExitChat();
 	} else {
@@ -973,26 +1311,18 @@ static int VidSInitChat(int /*nFlags*/)
 	bDrawChat = false;
 
 	// create surface to display the text
-	memset(&ddsd, 0, sizeof(ddsd));
-	ddsd.dwSize = sizeof(ddsd);
-	ddsd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_CKSRCBLT;
-
-	ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;
-
+	int nSurfWidth;
 	if (nVidFullscreen) {
 		RECT rect;
 		GetClientScreenRect(hScrnWnd, &rect);
-		ddsd.dwWidth = rect.right - rect.left;
+		nSurfWidth = rect.right - rect.left;
 	} else {
 		extern RECT SystemWorkArea;
-		ddsd.dwWidth = SystemWorkArea.right - SystemWorkArea.left;
+		nSurfWidth = SystemWorkArea.right - SystemWorkArea.left;
 	}
-	ddsd.dwHeight = nChatFontSize * (CHAT_SIZE + (CHAT_SIZE >> 1));
 
-	ddsd.ddckCKSrcBlt.dwColorSpaceLowValue = nKeyColour;
-	ddsd.ddckCKSrcBlt.dwColorSpaceHighValue = nKeyColour;
-
-	if (FAILED(pDD->CreateSurface(&ddsd, &pChatSurf, NULL))) {
+	pChatSurf = OSDCreateSurface(nSurfWidth, nChatFontSize * (CHAT_SIZE + (CHAT_SIZE >> 1)));
+	if (pChatSurf == NULL) {
 #ifdef PRINT_DEBUG_INFO
 		dprintf(_T("  * Error: Couldn't create Chat texture.\n"));
 #endif
@@ -1008,8 +1338,6 @@ static int VidSInitChat(int /*nFlags*/)
 
 static int VidSInitEdit(int nFlags)
 {
-	DDSURFACEDESC2 ddsd;
-
 	VidSExitEdit();
 
 	nEditSize = nMaxChatFontSize + 8 - ((nMaxChatFontSize - nMinChatFontSize) * nFlags) / 4;
@@ -1020,26 +1348,18 @@ static int VidSInitEdit(int nFlags)
 	nEditShadowOffset = ((nEditSize - 8) / 16) + 1;
 
 	// create surface to display the text
-	memset(&ddsd, 0, sizeof(ddsd));
-	ddsd.dwSize = sizeof(ddsd);
-	ddsd.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_CKSRCBLT;
-
-	ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;
-
+	int nSurfWidth;
 	if (nVidFullscreen) {
 		RECT rect;
 		GetClientScreenRect(hScrnWnd, &rect);
-		ddsd.dwWidth = rect.right - rect.left;
+		nSurfWidth = rect.right - rect.left;
 	} else {
 		extern RECT SystemWorkArea;
-		ddsd.dwWidth = SystemWorkArea.right - SystemWorkArea.left;
+		nSurfWidth = SystemWorkArea.right - SystemWorkArea.left;
 	}
-	ddsd.dwHeight = nEditSize;
 
-	ddsd.ddckCKSrcBlt.dwColorSpaceLowValue = nKeyColour;
-	ddsd.ddckCKSrcBlt.dwColorSpaceHighValue = nKeyColour;
-
-	if (FAILED(pDD->CreateSurface(&ddsd, &pEditSurf, NULL))) {
+	pEditSurf = OSDCreateSurface(nSurfWidth, nEditSize);
+	if (pEditSurf == NULL) {
 #ifdef PRINT_DEBUG_INFO
 		dprintf(_T("  * Error: Couldn't create OSD texture.\n"));
 #endif
@@ -1057,7 +1377,7 @@ int VidSInitOSD(int nFlags)
 //	dprintf(_T(" ** OSD initialised.\n"));
 #endif
 
-	if (pDD == NULL) {
+	if (pDD == NULL && pOSDBackend == NULL) {
 		return 1;
 	}
 
@@ -1192,7 +1512,7 @@ static void VidSDisplayTinyMsg(IDirectDrawSurface7* pSurf, RECT* pRect)
 		}
 
 		// Blit the message to the surface using a colourkey
-		pSurf->Blt(&dest, pTinyMsgSurf, &src, DDBLT_ASYNC | DDBLT_KEYSRC, NULL);
+		OSDBlt(pSurf, &dest, pTinyMsgSurf, &src);
 	}
 }
 
@@ -1220,7 +1540,7 @@ static void VidSDisplayJoystickMsg(IDirectDrawSurface7* pSurf, RECT* pRect)
 		}
 
 		// Blit the message to the surface using a colourkey
-		pSurf->Blt(&dest, pJoystickMsgSurf, &src, DDBLT_ASYNC | DDBLT_KEYSRC, NULL);
+		OSDBlt(pSurf, &dest, pJoystickMsgSurf, &src);
 	}
 }
 
@@ -1260,7 +1580,7 @@ static void VidSDisplayShortMsg(IDirectDrawSurface7* pSurf, RECT* pRect)
 		}
 
 		// Blit the message to the surface using a colourkey
-		pSurf->Blt(&dest, pShortMsgSurf, &src, DDBLT_ASYNC | DDBLT_KEYSRC, NULL);
+		OSDBlt(pSurf, &dest, pShortMsgSurf, &src);
 	}
 }
 
@@ -1370,7 +1690,7 @@ static void VidSDisplayStatus(IDirectDrawSurface7* pSurf, RECT* pRect)
 		}
 
 		// Blit the message to the surface using a colourkey
-		pSurf->Blt(&dest, pStatusSurf, &src, DDBLT_ASYNC  | DDBLT_KEYSRC, NULL);
+		OSDBlt(pSurf, &dest, pStatusSurf, &src);
 	}
 }
 
@@ -1498,7 +1818,7 @@ static void VidSDisplayChat(IDirectDrawSurface7* pSurf, RECT* pRect)
 				dest.right <<= 1;
 			}
 
-			pSurf->Blt(&dest, pChatSurf, &src, DDBLT_ASYNC | DDBLT_KEYSRC, NULL);
+			OSDBlt(pSurf, &dest, pChatSurf, &src);
 		}
 
 		// Scroll message if needed
@@ -1635,7 +1955,7 @@ static void VidSDisplayEdit(IDirectDrawSurface7* pSurf, RECT* pRect)
 		}
 
 		// Blit the message to the surface using a colourkey
-		pSurf->Blt(&dest, pEditSurf, &src, DDBLT_ASYNC | DDBLT_KEYSRC, NULL);
+		OSDBlt(pSurf, &dest, pEditSurf, &src);
 	}
 }
 

@@ -1,6 +1,8 @@
 #include "cps.h"
 // CPS - Read/Write
 
+CpsRwGetInpCallback CpsRwGetInpCallbackFunction = NULL;
+
 // Input bits
 #define INP(nnn) UINT8 CpsInp##nnn[8];
 CPSINPSET
@@ -11,11 +13,13 @@ CPSINPSET
 CPSINPSET
 #undef  INP
 
-// forgottn dials
+// forgottn, ecofght dials
 UINT16 CpsInp055 = 0;
 UINT16 CpsInp05d = 0;
-UINT8 CpsDigUD[4] = {0, 0, 0, 0};
 INT32 nDial055, nDial05d;
+INT32 nDial055_dir, nDial05d_dir;
+// forgottn digital rotate
+UINT8 CpsDigUD[4] = {0, 0, 0, 0};
 
 // puzloop paddles
 INT16 CpsInpPaddle1 = 0;
@@ -45,13 +49,13 @@ INT32 Ssf2tb = 0;
 INT32 Dinohunt = 0;
 INT32 Port6SoundWrite = 0;
 INT32 CpsBootlegEEPROM = 0;
-INT32 Cps2Turbo = 0;
 INT32 Jurassic99 = 0;
 INT32 Dinoh = 0;
 INT32 Wofhfh = 0;
 INT32 Wofsgzb = 0;
 INT32 Wof3js = 0;
 INT32 Knightsh = 0;
+INT32 Ecofght = 0;
 
 ClearOpposite<4, UINT8> clear_opposite;
 
@@ -90,6 +94,13 @@ void CpsRwScan()
 		SCAN_VAR(nDial05d);
 	}
 
+	if (Ecofght) {
+		SCAN_VAR(nDial055);
+		SCAN_VAR(nDial05d);
+		SCAN_VAR(nDial055_dir);
+		SCAN_VAR(nDial05d_dir);
+	}
+
 	if (Ghouls) {
 		SCAN_VAR(nPrevInp000);
 		SCAN_VAR(nPrevInp001);
@@ -102,6 +113,22 @@ void CpsRwScan()
 	SCAN_VAR(nRasterLine);
 }
 
+static UINT8 ecofght_readpaddle(UINT8 data, INT32 plr)
+{
+	if (ReadPaddle) {
+		switch (plr) {
+			case 0: return nDial055 & 0xff;
+			case 1: return nDial05d & 0xff;
+		}
+	} else {
+		data &= ~0x20;
+		switch (plr) {
+			case 0: data |= nDial055_dir << 5; break;
+			case 1: data |= nDial05d_dir << 5; break;
+		}
+	}
+	return data;
+}
 // Read input port 0x000-0x1ff
 static UINT8 CpsReadPort(const UINT32 ia)
 {
@@ -109,6 +136,9 @@ static UINT8 CpsReadPort(const UINT32 ia)
 
 	if (ia == 0x000) {
 		d = (UINT8)~Inp000;
+		if (Ecofght && (~fFakeDip & 0x20)) {
+			d = ecofght_readpaddle(d, 1);
+		}
 		if (Pzloop2) {
 			if (ReadPaddle) {
 				d -= CpsPaddle2Value;
@@ -120,6 +150,9 @@ static UINT8 CpsReadPort(const UINT32 ia)
 	}
 	if (ia == 0x001) {
 		d = (UINT8)~Inp001;
+		if (Ecofght && (~fFakeDip & 0x20)) {
+			d = ecofght_readpaddle(d, 0);
+		}
 		if (Pzloop2) {
 			if (ReadPaddle) {
 				d -= CpsPaddle1Value;
@@ -141,6 +174,7 @@ static UINT8 CpsReadPort(const UINT32 ia)
 	}
 	if (ia == 0x011) {
 		d = (UINT8)~Inp011;
+		if (Ecofght && (~fFakeDip & 0x20)) d &= 0xef; // select analog spinner
 		return d;
 	}
 	if (ia == 0x012) {
@@ -331,7 +365,7 @@ static UINT8 CpsReadPort(const UINT32 ia)
 			if (ia == 0x05D) {
 				return (nDial05d >> 8) & 0x0f;
 			}
-		}	
+		}
 	}
 	
 //	bprintf(PRINT_NORMAL, _T("Read Port %x\n"), ia);
@@ -401,6 +435,10 @@ void CpsWritePort(const UINT32 ia, UINT8 d)
 	if (Cps == 2) {
 		if (ia == 0x40) {
 			EEPROMWrite(d & 0x20, d& 0x40, d & 0x10);
+
+			if (Ecofght) {
+				ReadPaddle = d & 0x01;
+			}
 			return;
 		}
 
@@ -466,20 +504,9 @@ void __fastcall CpsWriteByte(UINT32 a,UINT8 d)
 	
 	if (Cps == 2) {
 		// 0x400000 registers
-		if (Cps2Turbo) {
-			if ((a & 0xFFFFF0) == 0x665000)	{
-				CpsFrg[a & 0x0F] = d;
-				return;
-			}
-			if ((a & 0xFFFFF0) == 0xfffff0)	{
-				CpsFrg[a & 0x0F] = d;
-				return;
-			}
-		} else {
-			if ((a & 0xFFFFF0) == 0x400000)	{
-				CpsFrg[a & 0x0F] = d;
-				return;
-			}
+		if ((a & 0xFFFFF0) == 0x400000) {
+			CpsFrg[a & 0x0F] = d;
+			return;
 		}
 		if ((a & 0xFF8000) == 0x660000) {
 			if (a == 0x664001) {
@@ -563,6 +590,7 @@ INT32 CpsRwInit()
 
 INT32 CpsRwExit()
 {
+	CpsRwGetInpCallbackFunction = NULL;
 	InpBlank();
 	CpsRWSoundCommandCallbackFunction = NULL;
 	return 0;
@@ -570,6 +598,8 @@ INT32 CpsRwExit()
 
 INT32 CpsRwGetInp()
 {
+	INT32 nPortPlayers = CpsRwGetInpCallbackFunction ? CpsRwGetInpCallbackFunction() : nMaxPlayers;
+
 	// Compile separate buttons into Inpxxx
 #define INP(nnn) \
   { INT32 i = 0; Inp##nnn = 0; \
@@ -607,7 +637,7 @@ INT32 CpsRwGetInp()
 			if (CpsDigUD[3]) nDial05d += 0x40;
 		}
 	}
-	
+
 	if (Pzloop2) {
 		if (ReadPaddle) {
 			CpsPaddle1Value = 0;
@@ -649,8 +679,8 @@ INT32 CpsRwGetInp()
 		CpsPaddle1 += CpsInpPaddle1 / 0x80; // add +-8 maximum to paddle-accumulator
 	}
 
-	clear_opposite.check(0, Inp000, 0x0c, 0x03);
-	clear_opposite.check(1, Inp001, 0x0c, 0x03);
+	clear_opposite.check(0, Inp000, 0x08, 0x04, 0x02, 0x01, nSocd[0]);
+	clear_opposite.check(1, Inp001, 0x08, 0x04, 0x02, 0x01, nSocd[1]);
 
 	// Ghouls uses a 4-way stick
 	if (Ghouls) {
@@ -679,21 +709,21 @@ INT32 CpsRwGetInp()
 		}
 	}
 
-	if (nMaxPlayers > 2) {
+	if (nPortPlayers > 2) {
 		if (Cps == 2) {
-			clear_opposite.check(2, Inp011, 0x0c, 0x03);
-			if (nMaxPlayers == 4) {
-				clear_opposite.check(3, Inp010, 0x0c, 0x03);
+			clear_opposite.check(2, Inp011, 0x08, 0x04, 0x02, 0x01, nSocd[2]);
+			if (nPortPlayers == 4) {
+				clear_opposite.check(3, Inp010, 0x08, 0x04, 0x02, 0x01, nSocd[3]);
 			}
 		} else {
-			clear_opposite.check(4, Inp177, 0x0c, 0x03);
-			if (nMaxPlayers == 4) {
-				clear_opposite.check(5, Inp179, 0x0c, 0x03);
+			clear_opposite.check(2, Inp177, 0x08, 0x04, 0x02, 0x01, nSocd[2]);
+			if (nPortPlayers == 4) {
+				clear_opposite.check(3, Inp179, 0x08, 0x04, 0x02, 0x01, nSocd[3]);
 			}
 			if (Cps1Qs) {
-				clear_opposite.check(6, Inpc001, 0x0c, 0x03);
-				if (nMaxPlayers == 4) {
-					clear_opposite.check(7, Inpc003, 0x0c, 0x03);
+				clear_opposite.check(2, Inpc001, 0x08, 0x04, 0x02, 0x01, nSocd[2]);
+				if (nPortPlayers == 4) {
+					clear_opposite.check(3, Inpc003, 0x08, 0x04, 0x02, 0x01, nSocd[3]);
 				}
 			}
 		}

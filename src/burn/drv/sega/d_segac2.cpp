@@ -71,7 +71,7 @@ static INT32 is_ribbit = 0;
 
 static INT32 has_dial = 0;
 
-struct PicoVideo {
+struct SegaC2PicoVideo {
 	UINT8 reg[0x20];
 	UINT32 command;		// 32-bit Command
 	UINT8 pending;		// 1 if waiting for second half of 32-bit command
@@ -120,7 +120,7 @@ struct PicoVideo {
 
 static UINT8 HighLnSpr[240][3 + MAX_LINE_SPRITES]; // sprite_count, ^flags, tile_count, [spritep]...
 
-struct TileStrip
+struct SegaC2TileStrip
 {
 	INT32 nametab; // Position in VRAM of name table (for this tile line)
 	INT32 line;    // Line number in pixels 0x000-0x3ff within the virtual tilemap
@@ -133,7 +133,7 @@ struct TileStrip
 static UINT16 *RamPal;
 static UINT16 *RamVid;
 static UINT16 *RamSVid;
-static struct PicoVideo *RamVReg;
+static struct SegaC2PicoVideo *RamVReg;
 
 static UINT16 *HighCol;
 static UINT16 *HighColFull;
@@ -1342,7 +1342,7 @@ static void DmaSlow(INT32 len)
       a |= RamVReg->addr_u << 16;
       for(; len; len--)
       {
-        VideoWrite128(a, *pd++);
+        VideoWrite128(a, BURN_ENDIAN_SWAP_INT16(*pd++));
         // AutoIncrement
         a = (a + inc) & 0x1ffff;
       }
@@ -1422,7 +1422,7 @@ static void DmaFill(INT32 data)
 
 static void CommandChange()
 {
-	//struct PicoVideo *pvid=&Pico.video;
+	//struct SegaC2PicoVideo *pvid=&Pico.video;
 	UINT32 cmd = RamVReg->command;
 	UINT32 addr = 0;
 
@@ -1965,7 +1965,7 @@ static INT32 DrvDoReset()
 	irq6_line = 224;
 
 	// default VDP register values (based on Fusion)
-	memset(RamVReg, 0, sizeof(struct PicoVideo));
+	memset(RamVReg, 0, sizeof(struct SegaC2PicoVideo));
 	RamVReg->reg[0x00] = 0x04;
 	RamVReg->reg[0x01] = 0x04;
 	RamVReg->reg[0x0c] = 0x81;
@@ -2003,7 +2003,7 @@ static INT32 MemIndex()
 	RamPal		= (UINT16 *) Next; Next += 0x000040 * sizeof(UINT16);
 	RamSVid		= (UINT16 *) Next; Next += 0x000040 * sizeof(UINT16);	// VSRam
 	RamVid		= (UINT16 *) Next; Next += 0x010000 * sizeof(UINT16);	// Video Ram
-	RamVReg		= (struct PicoVideo *)Next; Next += sizeof(struct PicoVideo);
+	RamVReg		= (struct SegaC2PicoVideo *)Next; Next += sizeof(struct SegaC2PicoVideo);
 
 	RamEnd		= Next;
 
@@ -2133,6 +2133,9 @@ static INT32 DrvExit()
 // Megadrive Draw
 //---------------------------------------------------------------
 
+// vram / vsram hold little-endian words (see the data port writes): the renderer reads
+// them with BURN_ENDIAN_SWAP_INT16/32 so it also works on big-endian hosts
+
 #define TileNormMaker_(pix_func)                             \
 {                                                            \
   unsigned int t;                                            \
@@ -2253,7 +2256,7 @@ TileFlipMaker(TileFlip_and, pix_and)
 // --------------------------------------------
 
 
-static void DrawStrip(struct TileStrip *ts, int lflags, int cellskip)
+static void DrawStrip(struct SegaC2TileStrip *ts, int lflags, int cellskip)
 {
   UINT16 *pd = HighCol;
   int tilex,dx,ty,code=0,addr=0,cells;
@@ -2273,7 +2276,7 @@ static void DrawStrip(struct TileStrip *ts, int lflags, int cellskip)
   {
     unsigned int pack;
 
-    code = RamVid[ts->nametab + (tilex & ts->xmask)];
+    code = BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab + (tilex & ts->xmask)]);
     if (code == blank)
       continue;
 	if ((code >> 15) | (lflags & LF_FORCE)) { // high priority tile
@@ -2293,7 +2296,7 @@ static void DrawStrip(struct TileStrip *ts, int lflags, int cellskip)
       pal=((code>>9)&0x30)|sh;
     }
 
-    pack = *(unsigned int *)(RamVid + addr);
+    pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr));
     if (!pack) {
       blank = code;
       continue;
@@ -2311,7 +2314,7 @@ static void DrawStrip(struct TileStrip *ts, int lflags, int cellskip)
   if (oldcode == -1) RamVReg->rendstatus |= PDRAW_PLANE_HI_PRIO;
 }
 
-static void DrawStripVSRam(struct TileStrip *ts, int plane_sh, int cellskip)
+static void DrawStripVSRam(struct SegaC2TileStrip *ts, int plane_sh, int cellskip)
 {
   UINT16 *pd = HighCol;
   int tilex,dx,code=0,addr=0,cell=0;
@@ -2338,7 +2341,7 @@ static void DrawStripVSRam(struct TileStrip *ts, int plane_sh, int cellskip)
     //if((cell&1)==0)
     {
       int line,vscroll;
-      vscroll=RamSVid[(plane_sh&1)+(cell&~1)];
+      vscroll=BURN_ENDIAN_SWAP_INT16(RamSVid[(plane_sh&1)+(cell&~1)]);
 
       // Find the line in the name table
       line=(vscroll+scan)&ts->line&0xffff; // ts->line is really ymask ..
@@ -2346,7 +2349,7 @@ static void DrawStripVSRam(struct TileStrip *ts, int plane_sh, int cellskip)
       ty=(line&7)<<1; // Y-Offset into tile
     }
 
-    code=RamVid[ts->nametab+nametabadd+(tilex&ts->xmask)];
+    code=BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab+nametabadd+(tilex&ts->xmask)]);
     if (code==blank) continue;
     if (code>>15) { // high priority tile
       int cval = code | (dx<<16) | (ty<<25);
@@ -2364,7 +2367,7 @@ static void DrawStripVSRam(struct TileStrip *ts, int plane_sh, int cellskip)
       pal=((code>>9)&0x30)|((plane_sh<<5)&0x40);
     }
 
-    pack = *(unsigned int *)(RamVid + addr);
+    pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr));
     if (!pack) {
       blank = code;
       continue;
@@ -2381,7 +2384,7 @@ static void DrawStripVSRam(struct TileStrip *ts, int plane_sh, int cellskip)
   if (oldcode == -1) RamVReg->rendstatus |= PDRAW_PLANE_HI_PRIO;
 }
 
-void DrawStripInterlace(struct TileStrip *ts)
+void DrawStripInterlace(struct SegaC2TileStrip *ts)
 {
   UINT16 *pd = HighCol;
   int tilex=0,dx=0,ty=0,code=0,addr=0,cells;
@@ -2399,7 +2402,7 @@ void DrawStripInterlace(struct TileStrip *ts)
   {
     unsigned int pack;
 
-    code = RamVid[ts->nametab + (tilex & ts->xmask)];
+    code = BURN_ENDIAN_SWAP_INT16(RamVid[ts->nametab + (tilex & ts->xmask)]);
     if (code==blank) continue;
     if (code>>15) { // high priority tile
       int cval = (code&0xfc00) | (dx<<16) | (ty<<25);
@@ -2419,7 +2422,7 @@ void DrawStripInterlace(struct TileStrip *ts)
       pal=((code>>9)&0x30);
     }
 
-    pack = *(unsigned int *)(RamVid + addr);
+    pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr));
     if (!pack) {
       blank = code;
       continue;
@@ -2440,14 +2443,14 @@ static void DrawLayer(int plane_sh, int *hcache, int cellskip, int maxcells)
 {
   const char shift[4]={5,6,5,7}; // 32,64 or 128 sized tilemaps (2 is invalid)
   const unsigned char h_masks[4] = { 0x00, 0x07, 0xf8, 0xff };
-  struct TileStrip ts;
+  struct SegaC2TileStrip ts;
   int width, height, ymask;
   int vscroll, htab;
 
   ts.hc=hcache;
   ts.cells=maxcells;
 
-  // Work out the TileStrip to draw
+  // Work out the SegaC2TileStrip to draw
 
   // Work out the name table size: 32 64 or 128 tiles (0-3)
   width=RamVReg->reg[16];
@@ -2470,11 +2473,11 @@ static void DrawLayer(int plane_sh, int *hcache, int cellskip, int maxcells)
   htab+=plane_sh&1; // A or B
 
   // Get horizontal scroll value, will be masked later
-  ts.hscroll = RamVid[htab & 0x7fff];
+  ts.hscroll = BURN_ENDIAN_SWAP_INT16(RamVid[htab & 0x7fff]);
 
   if((RamVReg->reg[12]&6) == 6) {
     // interlace mode 2
-    vscroll = RamSVid[plane_sh & 1]; // Get vertical scroll value
+    vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane_sh & 1]); // Get vertical scroll value
 
     // Find the line in the name table
     ts.line=(vscroll+(Scanline<<1))&((ymask<<1)|1);
@@ -2487,7 +2490,7 @@ static void DrawLayer(int plane_sh, int *hcache, int cellskip, int maxcells)
     ts.line=ymask|(shift[width]<<24); // save some stuff instead of line
     DrawStripVSRam(&ts, plane_sh, cellskip);
   } else {
-    vscroll = RamSVid[plane_sh & 1]; // Get vertical scroll value
+    vscroll = BURN_ENDIAN_SWAP_INT16(RamSVid[plane_sh & 1]); // Get vertical scroll value
 
     // Find the line in the name table
     ts.line=(vscroll+Scanline)&ymask;
@@ -2524,7 +2527,7 @@ static void DrawWindow(int tstart, int tend, int prio, int sh)
 
   if (!(RamVReg->rendstatus & PDRAW_WND_DIFF_PRIO)) {
     // check the first tile code
-    code = RamVid[nametab + tilex];
+    code = BURN_ENDIAN_SWAP_INT16(RamVid[nametab + tilex]);
     // if the whole window uses same priority (what is often the case), we may be able to skip this field
     if ((code>>15) != prio) return;
   }
@@ -2541,7 +2544,7 @@ static void DrawWindow(int tstart, int tend, int prio, int sh)
       int dx, addr;
       int pal;
 
-      code = RamVid[nametab + tilex];
+      code = BURN_ENDIAN_SWAP_INT16(RamVid[nametab + tilex]);
       if (code==blank) continue;
       if ((code>>15) != prio) {
         RamVReg->rendstatus |= PDRAW_WND_DIFF_PRIO;
@@ -2552,7 +2555,7 @@ static void DrawWindow(int tstart, int tend, int prio, int sh)
       addr=(code&0x7ff)<<4;
       if (code&0x1000) addr+=14-ty; else addr+=ty; // Y-flip
 
-      pack = *(unsigned int *)(RamVid + addr);
+      pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr));
       if (!pack) {
         blank = code;
         continue;
@@ -2573,7 +2576,7 @@ static void DrawWindow(int tstart, int tend, int prio, int sh)
       int dx, addr;
       int pal;
 
-      code = RamVid[nametab + tilex];
+      code = BURN_ENDIAN_SWAP_INT16(RamVid[nametab + tilex]);
       if(code==blank) continue;
       if((code>>15) != prio) {
         RamVReg->rendstatus |= PDRAW_WND_DIFF_PRIO;
@@ -2600,7 +2603,7 @@ static void DrawWindow(int tstart, int tend, int prio, int sh)
       addr=(code&0x7ff)<<4;
       if (code&0x1000) addr+=14-ty; else addr+=ty; // Y-flip
 
-      pack = *(unsigned int *)(RamVid + addr);
+      pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr));
       if (!pack) {
         blank = code;
         continue;
@@ -2659,7 +2662,7 @@ static void DrawTilesFromCache(int *hc, int sh, int rlim)
       addr = (code & 0x7ff) << 4;
       addr += code >> 25; // y offset into tile
 
-      pack = *(unsigned int *)(RamVid + addr);
+      pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr));
       if (!pack) {
         blank = (short)code;
         continue;
@@ -2688,7 +2691,7 @@ static void DrawTilesFromCache(int *hc, int sh, int rlim)
       *zb++ &= 0x00bf; *zb++ &= 0x00bf; *zb++ &= 0x00bf; *zb++ &= 0x00bf;
       *zb++ &= 0x00bf; *zb++ &= 0x00bf; *zb++ &= 0x00bf; *zb++ &= 0x00bf;
 
-      pack = *(unsigned int *)(RamVid + addr);
+      pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr));
       if (!pack)
         continue;
 
@@ -2791,7 +2794,7 @@ static void DrawSprite(int *sprite, int sh)
     if(sx<=0)   continue;
     if(sx>=328) break; // Offscreen
 
-    pack = *(unsigned int *)(RamVid + (tile & 0x7fff));
+    pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + (tile & 0x7fff)));
     fTileFunc(pd + sx, pack, pal);
   }
 }
@@ -2811,7 +2814,7 @@ static void DrawTilesFromCacheForced(const int *hc)
 
     dx = (code >> 16) & 0x1ff;
     pal = ((code >> 9) & 0x30);
-    pack = *(unsigned int *)(RamVid + addr);
+    pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + addr));
 
     if (code & 0x0800) TileFlip_and(pd + dx, pack, pal);
     else               TileNorm_and(pd + dx, pack, pal);
@@ -2832,7 +2835,7 @@ static void DrawSpriteInterlace(unsigned int *sprite)
   if (~nSpriteEnable & 0x02) return;
 
   // parse the sprite data
-  sy=sprite[0];
+  sy=BURN_ENDIAN_SWAP_INT32(sprite[0]);
   height=sy>>24;
   sy=(sy&0x3ff)-0x100; // Y
   width=(height>>2)&3; height&=3;
@@ -2840,7 +2843,7 @@ static void DrawSpriteInterlace(unsigned int *sprite)
 
   row=(Scanline<<1)-sy; // Row of the sprite we are on
 
-  code=sprite[1];
+  code=BURN_ENDIAN_SWAP_INT32(sprite[1]);
   sx=((code>>16)&0x1ff)-0x78; // X
 
   if (code&0x1000) row^=(16<<height)-1; // Flip Y
@@ -2862,7 +2865,7 @@ static void DrawSpriteInterlace(unsigned int *sprite)
     if(sx<=0)   continue;
     if(sx>=328) break; // Offscreen
 
-    pack = *(unsigned int *)(RamVid + (tile & 0x7fff));
+    pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + (tile & 0x7fff)));
     if (code & 0x0800) TileFlip(pd + sx, pack, pal);
     else               TileNorm(pd + sx, pack, pal);
   }
@@ -2886,8 +2889,8 @@ static void DrawAllSpritesInterlace(int pri, int sh)
     sprite=(unsigned int *)(RamVid+((table+(link<<2))&0x7ffc)); // Find sprite
 
     // get sprite info
-    code = sprite[0];
-    sx = sprite[1];
+    code = BURN_ENDIAN_SWAP_INT32(sprite[0]);
+    sx = BURN_ENDIAN_SWAP_INT32(sprite[1]);
     if(((sx>>15)&1) != pri) goto nextsprite; // wrong priority sprite
 
     // check if it is on this line
@@ -2988,7 +2991,7 @@ static void DrawSpritesSHi(unsigned char *sprited)
       if(sx<=0)   continue;
       if(sx>=328) break; // Offscreen
 
-      pack = *(unsigned int *)(RamVid + (tile & 0x7fff));
+      pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + (tile & 0x7fff)));
       fTileFunc(pd + sx, pack, pal|0x8000);
     }
   }
@@ -3068,7 +3071,7 @@ static void DrawSpritesHiAS(unsigned char *sprited, int sh)
       if(sx<=0)   continue;
       if(sx>=328) break; // Offscreen
 
-      pack = *(unsigned int *)(RamVid + (tile & 0x7fff));
+      pack = BURN_ENDIAN_SWAP_INT32(*(unsigned int *)(RamVid + (tile & 0x7fff)));
       fTileFunc(pd + sx, mb + sx, pack, pal|0x8000);
     }
   }
@@ -3113,7 +3116,7 @@ static void PrepareSprites(int full)
       sprite=(unsigned int *)(RamVid+((table+(link<<2))&0x7ffc)); // Find sprite
 
       // parse sprite info
-      code2 = sprite[1];
+      code2 = BURN_ENDIAN_SWAP_INT32(sprite[1]);
       sx = (code2>>16)&0x1ff;
       sx -= 0x78; // Get X coordinate + 8
       sy = (pack << 16) >> 16;
@@ -3149,7 +3152,7 @@ found:;
       pd[1] = code2;
 
       // Find next sprite
-      link=(sprite[0]>>16)&0x7f;
+      link=(BURN_ENDIAN_SWAP_INT32(sprite[0])>>16)&0x7f;
       if (!link) break; // End of sprites
     }
   }
@@ -3166,13 +3169,13 @@ found:;
       sprite=(unsigned int *)(RamVid+((table+(link<<2))&0x7ffc)); // Find sprite
 
       // parse sprite info
-      code = sprite[0];
+      code = BURN_ENDIAN_SWAP_INT32(sprite[0]);
       sy = (code&0x1ff)-0x80;
       hv = (code>>24)&0xf;
       height = (hv&3)+1;
 
       width  = (hv>>2)+1;
-      code2 = sprite[1];
+      code2 = BURN_ENDIAN_SWAP_INT32(sprite[1]);
       sx = (code2>>16)&0x1ff;
       sx -= 0x78; // Get X coordinate + 8
 
@@ -3675,18 +3678,12 @@ static INT32 DrvFrame()
 
 static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 {
-	struct BurnArea ba;
-	
 	if (pnMin != NULL) {
 		*pnMin = 0x029709;
 	}
 
 	if (nAction & ACB_MEMORY_RAM) {
-		memset(&ba, 0, sizeof(ba));
-		ba.Data	  = AllRam;
-		ba.nLen	  = RamEnd-AllRam;
-		ba.szName = "All Ram";
-		BurnAcb(&ba);
+		ScanVar(AllRam, RamEnd-AllRam, "All Ram");
 	}
 
 	if (nAction & ACB_DRIVER_DATA) {
@@ -4802,6 +4799,28 @@ struct BurnDriver BurnDrvwwanpanm = {
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING, 1, HARDWARE_SEGA_MISC, GBF_MISC, 0,
 	NULL, wwanpanmRomInfo, wwanpanmRomName, NULL, NULL, NULL, NULL, WwmarineInputInfo, WwmarineDIPInfo,
+	WwmarineInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x1800,
+	320, 224, 4, 3
+};
+
+// Waku Waku Anpanman
+
+static struct BurnRomInfo wwanpanmoRomDesc[] = {
+	{ "epr-14123.ic32",			0x40000, 0x0e4f38c6, 1 | BRF_PRG | BRF_ESS }, //  0 68K Code
+	{ "epr-14122.ic31",			0x40000, 0x20c0db3b, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "epr-14121.ic4",			0x40000, 0x69adf3a1, 2 | BRF_SND },           //  2 UPD Samples
+};
+
+STD_ROM_PICK(wwanpanmo)
+STD_ROM_FN(wwanpanmo)
+
+struct BurnDriver BurnDrvwwanpanmo = {
+	"wwanpanmo", "wwanpanm", NULL, NULL, "1992",
+	"Waku Waku Anpanman\0", NULL, "Sega", "C2",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE, 1, HARDWARE_SEGA_MISC, GBF_MISC, 0,
+	NULL, wwanpanmoRomInfo, wwanpanmoRomName, NULL, NULL, NULL, NULL, WwmarineInputInfo, WwmarineDIPInfo,
 	WwmarineInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0x1800,
 	320, 224, 4, 3
 };

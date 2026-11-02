@@ -2281,12 +2281,12 @@ static void mcu_run(UINT8 dsw_setting)
 
 	if(start_helper & 1 && BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0x9000/2]) & 0x0200) // start 1
 	{
-		nmk16_mainram[0xef00/2]--;
+		nmk16_mainram[0xef00/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef00/2]) - 1);
 		start_helper = start_helper & 2;
 	}
 	if(start_helper & 2 && BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0x9000/2]) & 0x0100) // start 2
 	{
-		nmk16_mainram[0xef00/2]--;
+		nmk16_mainram[0xef00/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef00/2]) - 1);
 		start_helper = start_helper & 1;
 	}
 
@@ -2338,15 +2338,15 @@ static void mcu_run(UINT8 dsw_setting)
 		{
 			if(coin_count_frac[0] != 1)
 			{
-				nmk16_mainram[0xef02/2]+=coin_count[0];
-				if(coin_count_frac[0] == nmk16_mainram[0xef02/2])
+				nmk16_mainram[0xef02/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef02/2]) + coin_count[0]);
+				if(coin_count_frac[0] == BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef02/2]))
 				{
-					nmk16_mainram[0xef00/2]+=coin_count[0];
+					nmk16_mainram[0xef00/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef00/2]) + coin_count[0]);
 					nmk16_mainram[0xef02/2] = 0;
 				}
 			}
 			else
-				nmk16_mainram[0xef00/2]+=coin_count[0];
+				nmk16_mainram[0xef00/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef00/2]) + coin_count[0]);
 		}
 		input_pressed = (input_pressed & 0xfe) | 1;
 	}
@@ -2359,15 +2359,15 @@ static void mcu_run(UINT8 dsw_setting)
 		{
 			if(coin_count_frac[1] != 1)
 			{
-				nmk16_mainram[0xef02/2]+=coin_count[1];
-				if(coin_count_frac[1] == nmk16_mainram[0xef02/2])
+				nmk16_mainram[0xef02/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef02/2]) + coin_count[1]);
+				if(coin_count_frac[1] == BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef02/2]))
 				{
-					nmk16_mainram[0xef00/2]+=coin_count[1];
+					nmk16_mainram[0xef00/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef00/2]) + coin_count[1]);
 					nmk16_mainram[0xef02/2] = 0;
 				}
 			}
 			else
-				nmk16_mainram[0xef00/2]+=coin_count[1];
+				nmk16_mainram[0xef00/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef00/2]) + coin_count[1]);
 		}
 		input_pressed = (input_pressed & 0xfd) | 2;
 	}
@@ -2377,17 +2377,17 @@ static void mcu_run(UINT8 dsw_setting)
 	if(coin_input & 0x04) // service 1
 	{
 		if((input_pressed & 0x04) == 0)
-			nmk16_mainram[0xef00/2]++;
+			nmk16_mainram[0xef00/2] = BURN_ENDIAN_SWAP_INT16(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0xef00/2]) + 1);
 		input_pressed = (input_pressed & 0xfb) | 4;
 	}
 	else
 		input_pressed = (input_pressed & 0xfb);
 
-	if(nmk16_mainram[0xef00/2] > 0 && nmk16_mainram[0x9000/2] & 0x8000) //enable start button
+	if(nmk16_mainram[0xef00/2] > 0 && BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0x9000/2]) & 0x8000) //enable start button
 	{
 		if(coin_input & 0x08) // start 1
 		{
-			if((input_pressed & 0x08) == 0 && (!(nmk16_mainram[0x9000/2] & 0x0200))) // start 1
+			if((input_pressed & 0x08) == 0 && (!(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0x9000/2]) & 0x0200))) // start 1
 				start_helper = 1;
 
 			input_pressed = (input_pressed & 0xf7) | 8;
@@ -2397,8 +2397,8 @@ static void mcu_run(UINT8 dsw_setting)
 
 		if(coin_input & 0x10) // start 2
 		{
-			if((input_pressed & 0x10) == 0 && (!(nmk16_mainram[0x9000/2] & 0x0100))) // start 2
-				start_helper = (nmk16_mainram[0x9000/2] == 0x8000) ? (3) : (2);
+			if((input_pressed & 0x10) == 0 && (!(BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0x9000/2]) & 0x0100))) // start 2
+				start_helper = (BURN_ENDIAN_SWAP_INT16(nmk16_mainram[0x9000/2]) == 0x8000) ? (3) : (2);
 
 			input_pressed = (input_pressed & 0xef) | 0x10;
 		}
@@ -3563,11 +3563,11 @@ static void __fastcall vandykeb_main_write_word(UINT32 address, UINT16 data)
 	switch (address)
 	{
 		case 0x080010:
-			*((UINT16 *)(DrvScrollRAM + 0x06)) = data;
+			*((UINT16 *)(DrvScrollRAM + 0x06)) = BURN_ENDIAN_SWAP_INT16(data);
 		return;
 
 		case 0x080012:
-			*((UINT16 *)(DrvScrollRAM + 0x04)) = data;
+			*((UINT16 *)(DrvScrollRAM + 0x04)) = BURN_ENDIAN_SWAP_INT16(data);
 		return;
 
 		case 0x080014:
@@ -3581,11 +3581,11 @@ static void __fastcall vandykeb_main_write_word(UINT32 address, UINT16 data)
 		return;
 
 		case 0x08001a:
-			*((UINT16 *)(DrvScrollRAM + 0x02)) = data;
+			*((UINT16 *)(DrvScrollRAM + 0x02)) = BURN_ENDIAN_SWAP_INT16(data);
 		return;
 
 		case 0x08001c:
-			*((UINT16 *)(DrvScrollRAM + 0x00)) = data;
+			*((UINT16 *)(DrvScrollRAM + 0x00)) = BURN_ENDIAN_SWAP_INT16(data);
 		return;
 
 		case 0x08001e:
@@ -3690,7 +3690,7 @@ static UINT16 __fastcall hachamf_main_read_word(UINT32 address)
 static void __fastcall hachamf_main_write_word(UINT32 address, UINT16 data)
 {
 	if ((address & 0xffff0000) == 0xf0000) {
-		*((UINT16*)(Drv68KRAM + (address & 0xfffe))) = data;
+		*((UINT16*)(Drv68KRAM + (address & 0xfffe))) = BURN_ENDIAN_SWAP_INT16(data);
 		HachaRAMProt((address & 0xffff) >> 1);
 		return;
 	}
@@ -5199,7 +5199,7 @@ static INT32 TharrierDraw()
 		UINT16 *f3310 = (UINT16*)&Drv68KRAM[0x3310>>0];
 		UINT16 *f3410 = (UINT16*)&Drv68KRAM[0x3410>>0];
 
-		TharrierShakey = (f3310[0] == 0x100 && f3410[0] == 0x100);
+		TharrierShakey = (BURN_ENDIAN_SWAP_INT16(f3310[0]) == 0x100 && BURN_ENDIAN_SWAP_INT16(f3410[0]) == 0x100);
 	}
 
 	common_draw(1, scrollx, 0, 0, 0, 0, 0);
@@ -5245,7 +5245,7 @@ static INT32 MustangDraw()
 	UINT16 *scrollx = (UINT16*)DrvScrollRAM;
 	INT32 scrolly = 0;
 
-	common_draw(-1, *scrollx, scrolly, 0, 0, 0x200, 1);
+	common_draw(-1, BURN_ENDIAN_SWAP_INT16(*scrollx), scrolly, 0, 0, 0x200, 1);
 
 	return 0;
 }
@@ -5323,7 +5323,7 @@ static INT32 Macross2Draw()
 	INT32 scrollx = ((BURN_ENDIAN_SWAP_INT16(scroll[0]) & 0x0f) << 8) | (BURN_ENDIAN_SWAP_INT16(scroll[1]) & 0xff);
 	INT32 scrolly = ((BURN_ENDIAN_SWAP_INT16(scroll[2]) & 0x01) << 8) | (BURN_ENDIAN_SWAP_INT16(scroll[3]) & 0xff);
 
-	switch (scroll[0] & 0x30)
+	switch (BURN_ENDIAN_SWAP_INT16(scroll[0]) & 0x30)
 	{
 		case 0x00: draw_macross_background(DrvBgRAM0, (scrollx - 64) & 0xfff, scrolly, 0, 0); break;
 		case 0x10: draw_macross_background(DrvBgRAM1, (scrollx - 64) & 0xfff, scrolly, 0, 0); break;
@@ -7002,6 +7002,39 @@ struct BurnDriver BurnDrvRedhawkk = {
 };
 
 
+// Red Hawk (China & Hong Kong)
+
+static struct BurnRomInfo redhawkcRomDesc[] = {
+	{ "afega_2.bin",	0x020000, 0x34356a0f, 1 | BRF_PRG | BRF_ESS }, //  0 68k code
+	{ "afega_3.bin",	0x020000, 0xcbaa0229, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	// same as all Red Hawk sets
+	{ "afega_1.bin",	0x010000, 0x5d8cf28e, 2 | BRF_PRG | BRF_ESS }, //  2 Z80 code
+
+	// == 4 from redhawk (US)
+	{ "afega_4.bin",	0x080000, 0xd6427b8a, 4 | BRF_GRA },           //  3 Tiles
+
+	{ "afega_7.bin",	0x080000, 0x45d000e6, 5 | BRF_GRA },           //  4 Characters
+	{ "afega_6.bin",	0x080000, 0x5a505a56, 5 | BRF_GRA },           //  5
+
+	// same as all Red Hawk sets
+	{ "afega_5.bin",	0x040000, 0xe911ce33, 6 | BRF_GRA },           //  6 OKI1 Samples
+};
+
+STD_ROM_PICK(redhawkc)
+STD_ROM_FN(redhawkc)
+
+struct BurnDriver BurnDrvRedhawkc = {
+	"redhawkc", "stagger1", NULL, NULL, "1997",
+	"Red Hawk (China & Hong Kong)\0", NULL, "Afega (Zhuojia Co. license)", "NMK16",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_VERSHOOT, 0,
+	NULL, redhawkcRomInfo, redhawkcRomName, NULL, NULL, NULL, NULL, CommonInputInfo, Stagger1DIPInfo,
+	Stagger1Init, AfegaExit, AfegaFrame, AfegaDraw, DrvScan, NULL, 0x300,
+	224, 256, 3, 4
+};
+
+
 // Red Hawk (horizontal, Italy)
 
 static struct BurnRomInfo redhawkiRomDesc[] = {
@@ -8539,8 +8572,8 @@ static struct BurnRomInfo bjtwinRomDesc[] = {
 
 	{ "93087-7.bin",	0x100000, 0x8da67808, 7 | BRF_SND },           //  6 OKI2 Samples
 
-	{ "8.bpr",			0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  7 Unused proms
-	{ "9.bpr",			0x000100, 0x435653a2, 0 | BRF_OPT },           //  8
+	{ "8.ic37",			0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  7 Vtiming
+	{ "9.ic51",			0x000100, 0x435653a2, 0 | BRF_OPT },           //  8 Htiming
 
 	{ "nmk-215.bin",	0x002000, 0xd355a06f, 0 | BRF_OPT },           //  9 MCU
 };
@@ -8603,8 +8636,9 @@ static struct BurnRomInfo bjtwinaRomDesc[] = {
 
 	{ "93087-7.bin",	0x100000, 0x8da67808, 7 | BRF_SND },           //  6 OKI2 Samples
 
-	{ "8.bpr",			0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  7 Unused proms
-	{ "9.bpr",			0x000100, 0x435653a2, 0 | BRF_OPT },           //  8
+	{ "8.ic37",			0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  7 Vtiming
+
+	{ "9.ic51",			0x000100, 0x435653a2, 0 | BRF_OPT },           //  8 Htiming
 
 	{ "nmk-215.bin",	0x002000, 0xd355a06f, 0 | BRF_OPT },           //  9 MCU
 };
@@ -8643,7 +8677,11 @@ static struct BurnRomInfo bjtwinpRomDesc[] = {
 	{ "top.ic30",		0x080000, 0xab50531d, 6 | BRF_SND },           //  9
 
 	{ "top.ic27",		0x080000, 0xadb2f256, 7 | BRF_SND },           // 10 OKI2 Samples
-	{ "bottom.ic27",	0x080000, 0x6ebeb9e4, 7 | BRF_SND },           // 11 
+	{ "bottom.ic27",	0x080000, 0x6ebeb9e4, 7 | BRF_SND },           // 11
+
+	{ "8.ic37",			0x000100, 0x633ab1c9, 0 | BRF_OPT },           // 12 Vtiming
+
+	{ "9.ic51",			0x000100, 0x435653a2, 0 | BRF_OPT },           // 13 Htiming
 };
 
 STD_ROM_PICK(bjtwinp)
@@ -8712,7 +8750,11 @@ static struct BurnRomInfo bjtwinpaRomDesc[] = {
 	{ "top.ic27",		0x080000, 0xadb2f256, 7 | BRF_SND },           // 10 OKI2 Samples
 	{ "bottom.ic27",	0x080000, 0x6ebeb9e4, 7 | BRF_SND },           // 11 
 
-	{ "nmk-215.bin",	0x002000, 0xd355a06f, 0 | BRF_OPT },           // 12 MCU
+	{ "8.ic37",			0x000100, 0x633ab1c9, 0 | BRF_OPT },           // 12 Vtiming
+
+	{ "9.ic51",			0x000100, 0x435653a2, 0 | BRF_OPT },           // 13 Htiming
+
+	{ "nmk-215.bin",	0x002000, 0xd355a06f, 0 | BRF_OPT },           // 14 MCU
 };
 
 STD_ROM_PICK(bjtwinpa)
@@ -8777,7 +8819,11 @@ static struct BurnRomInfo nouryokuRomDesc[] = {
 
 	{ "ic27.7",		0x100000, 0x8a69fded, 7 | BRF_SND },           //  6 OKI2 Samples
 
-	{ "nmk-215.bin",	0x002000, 0xd355a06f, 0 | BRF_OPT },       //  7 MCU
+	{ "8.ic37",		0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  7 Vtiming
+
+	{ "9.ic51",		0x000100, 0x435653a2, 0 | BRF_OPT },           //  8 Htiming
+
+	{ "nmk-215.bin",	0x002000, 0xd355a06f, 0 | BRF_OPT },       //  9 MCU
 };
 
 STD_ROM_PICK(nouryoku)
@@ -8844,7 +8890,11 @@ static struct BurnRomInfo nouryokupRomDesc[] = {
 	{ "soundpcm1.top.ic30",		0x080000, 0xa8d2abf7, 6 | BRF_SND }, // 12
 
 	{ "soundpcm2.top.ic27",		0x080000, 0x29d0a15d, 7 | BRF_SND }, // 13 OKI2 Samples
-	{ "soundpcm3.bottom.ic27",	0x080000, 0xc764e749, 7 | BRF_SND }, // 13 OKI2 Samples
+	{ "soundpcm3.bottom.ic27",	0x080000, 0xc764e749, 7 | BRF_SND }, // 14 OKI2 Samples
+
+	{ "8.ic37",		0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  15 Vtiming
+
+	{ "9.ic51",		0x000100, 0x435653a2, 0 | BRF_OPT },           //  16 Htiming
 };
 
 STD_ROM_PICK(nouryokup)
@@ -10176,7 +10226,11 @@ static struct BurnRomInfo hachamfRomDesc[] = {
 
 	{ "91076-3.45",		0x080000, 0xb25ed93b, 7 | BRF_SND },           //  7 OKI2 Samples
 
-	{ "nmk-113.bin",	0x004000, 0xf3072715, 0 | BRF_OPT },           //  8 MCU
+	{ "82s135.ic50",	0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  8 Vtiming
+
+	{ "82s129.ic51",	0x000100, 0xcfdbb86c, 0 | BRF_OPT },           //  9 Htiming
+
+	{ "nmk-113.bin",	0x004000, 0xf3072715, 0 | BRF_OPT },           // 10 MCU
 };
 
 STDROMPICKEXT(hachamf, hachamf, nmk004)
@@ -10207,8 +10261,8 @@ static INT32 HachamfLoadCallback()
 	}
 
 	{
-		*((UINT16*)(Drv68KROM + 0x048a)) = 0x4e71;
-		*((UINT16*)(Drv68KROM + 0x04aa)) = 0x4e71;
+		*((UINT16*)(Drv68KROM + 0x048a)) = BURN_ENDIAN_SWAP_INT16(0x4e71);
+		*((UINT16*)(Drv68KROM + 0x04aa)) = BURN_ENDIAN_SWAP_INT16(0x4e71);
 	}
 
 	SekInit(0, 0x68000);
@@ -10264,7 +10318,11 @@ static struct BurnRomInfo hachamfaRomDesc[] = {
 
 	{ "91076-3.45",		0x080000, 0xb25ed93b, 7 | BRF_SND },           //  7 OKI2 Samples
 
-	{ "nmk-113.bin",	0x004000, 0xf3072715, 0 | BRF_OPT },           //  8 MCU
+	{ "82s135.ic50",	0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  8 Vtiming
+
+	{ "82s129.ic51",	0x000100, 0xcfdbb86c, 0 | BRF_OPT },           //  9 Htiming
+
+	{ "nmk-113.bin",	0x004000, 0xf3072715, 0 | BRF_OPT },           // 10 MCU
 };
 
 STDROMPICKEXT(hachamfa, hachamfa, nmk004)
@@ -10298,6 +10356,10 @@ static struct BurnRomInfo hachamfbRomDesc[] = {
 	{ "91076-2.46",		0x080000, 0x3f1e67f2, 6 | BRF_SND },           //  6 OKI1 Samples
 
 	{ "91076-3.45",		0x080000, 0xb25ed93b, 7 | BRF_SND },           //  7 OKI2 Samples
+
+	{ "82s135.ic50",	0x000100, 0x633ab1c9, 0 | BRF_OPT },           //  8 Vtiming
+
+	{ "82s129.ic51",	0x000100, 0xcfdbb86c, 0 | BRF_OPT },           //  9 Htiming
 };
 
 STDROMPICKEXT(hachamfb, hachamfb, nmk004)
@@ -10380,8 +10442,9 @@ static struct BurnRomInfo hachamfpRomDesc[] = {
 
 	{ "kf-a1.ic1",		0x80000, 0xd945aabb, 7 | BRF_SND },           //  9 OKI2 Samples
 
-	{ "82s135.ic50",	0x00100, 0x633ab1c9, 8 | BRF_OPT },           // 10 proms
-	{ "82s129.ic51",	0x00100, 0xcfdbb86c, 8 | BRF_OPT },           // 11
+	{ "82s135.ic50",	0x000100, 0x633ab1c9, 0 | BRF_OPT },          // 10 Vtiming
+
+	{ "82s129.ic51",	0x000100, 0xcfdbb86c, 0 | BRF_OPT },          // 11 Htiming
 };
 
 STDROMPICKEXT(hachamfp, hachamfp, nmk004)

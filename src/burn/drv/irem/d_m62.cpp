@@ -1141,7 +1141,7 @@ static struct BurnRomInfo Kungfub3sRomDesc[] = {
 	{ "4.bin",		0x04000, 0x9f49bdcd, BRF_ESS | BRF_PRG }, //  0	Z80 Program Code
 	{ "5.bin",		0x04000, 0x8e7e4c56, BRF_ESS | BRF_PRG }, //  1
 
-	{ "3.bin",		0x02000, 0xb4293435, BRF_ESS | BRF_PRG }, //  2	M6803 Program Code
+	{ "3.bin",		0x02000, 0x58e87ab0, BRF_ESS | BRF_PRG }, //  2	M6803 Program Code
 	{ "2.bin",		0x02000, 0xc81e31ea, BRF_ESS | BRF_PRG }, //  3
 	{ "1.bin",		0x02000, 0xd99fb995, BRF_ESS | BRF_PRG }, //  4
 
@@ -1372,6 +1372,36 @@ static struct BurnRomInfo Ldrun3jRomDesc[] = {
 
 STD_ROM_PICK(Ldrun3j)
 STD_ROM_FN(Ldrun3j)
+
+static struct BurnRomInfo Ldrun3jcRomDesc[] = {
+	{ "lr3-a-4e-c",           0x04000, 0x9cdd7c9f, BRF_ESS | BRF_PRG }, //  0	Z80 Program Code
+	{ "lr3-a-4d-c",           0x04000, 0x858b339f, BRF_ESS | BRF_PRG }, //  1
+	{ "lr3-a-4b-c",           0x04000, 0x63052776, BRF_ESS | BRF_PRG }, //  2
+
+	{ "lr3-a-3d",             0x04000, 0x28be68cd, BRF_ESS | BRF_PRG }, //  3	M6803 Program Code
+	{ "lr3-a-3f",             0x04000, 0xcb7186b7, BRF_ESS | BRF_PRG }, //  4
+
+	{ "lr3-n-2a",             0x04000, 0xf9b74dee, BRF_GRA },	    //  5	Characters
+	{ "lr3-n-2c",             0x04000, 0xfef707ba, BRF_GRA },	    //  6
+	{ "lr3-n-2b",             0x04000, 0xaf3d27b9, BRF_GRA },	    //  7
+
+	{ "lr3-b-4k",             0x04000, 0x63f070c7, BRF_GRA },	    //  8	Sprites
+	{ "lr3-b-3n",             0x04000, 0xeab7ad91, BRF_GRA },	    //  9
+	{ "lr3-b-4c",             0x04000, 0x1a460a46, BRF_GRA },	    //  10
+
+	{ "lr3-n-2l",             0x00100, 0xe880b86b, BRF_GRA },	    //  11	PROM (Tile Palette Red Component)
+	{ "lr3-b-1m",             0x00100, 0xf02d7167, BRF_GRA },	    //  12	PROM (Sprite Palette Red Component)
+	{ "lr3-n-2k",             0x00100, 0x047ee051, BRF_GRA },	    //  13	PROM (Tile Palette Green Component)
+	{ "lr3-b-1n",             0x00100, 0x9e37f181, BRF_GRA },	    //  14	PROM (Sprite Palette Green Component)
+	{ "lr3-n-2m",             0x00100, 0x69ad8678, BRF_GRA },	    //  15	PROM (Tile Palette Blue Component)
+	{ "lr3-b-1l",             0x00100, 0x5b11c41d, BRF_GRA },	    //  16	PROM (Sprite Palette Blue Component)
+	{ "lr3-b-5p",             0x00020, 0xe01f69e2, BRF_GRA },	    //  17	PROM (Sprite Height)
+	{ "lr3-b-6f",             0x00100, 0x34d88d3c, BRF_GRA },	    //  18	PROM (Video Timing)
+	{ "lr3-n-4f",             0x00100, 0xdf674be9, BRF_OPT },	    //  19	PROM (Unknown)
+};
+
+STD_ROM_PICK(Ldrun3jc)
+STD_ROM_FN(Ldrun3jc)
 
 static struct BurnRomInfo Ldrun4RomDesc[] = {
 	{ "lr4-a-4e",             0x04000, 0x5383e9bf, BRF_ESS | BRF_PRG }, //  0	Z80 Program Code
@@ -4545,7 +4575,7 @@ static INT32 Ldrun4Draw()
 	BurnTransferClear();
 	M62CalcPalette();
 	if (nBurnLayer & 1) M62RenderBgLayer(0, 64 - 2, 0, 64, 32, 0);
-	if (nSpriteEnable & 1) M62RenderSprites(0x0f, 0x00, 0x00, 64, 256);
+	if (nSpriteEnable & 1) M62RenderSprites(0x1f, 0x00, 0x00, 64, 256);
 	BurnTransferCopy(M62Palette);
 
 	return 0;
@@ -4804,7 +4834,7 @@ struct BurnDriver BurnDrvKungfum = {
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_SCRFIGHT, 0,
 	NULL, KungfumRomInfo, KungfumRomName, NULL, NULL, NULL, NULL, M62InputInfo, KungfumDIPInfo,
 	KungfumInit, M62Exit, M62Frame, KungfumDraw, M62Scan,
-	NULL, 0x200, 256, 246, 4, 3
+	NULL, 0x200, 256, 248, 4, 3
 };
 
 struct BurnDriver BurnDrvKungfumd = {
@@ -4814,7 +4844,7 @@ struct BurnDriver BurnDrvKungfumd = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_SCRFIGHT, 0,
 	NULL, KungfumdRomInfo, KungfumdRomName, NULL, NULL, NULL, NULL, M62InputInfo, KungfumDIPInfo,
 	KungfumdInit, M62Exit, M62Frame, KungfumDraw, M62Scan,
-	NULL, 0x200, 256, 246, 4, 3
+	NULL, 0x200, 256, 248, 4, 3
 };
 
 struct BurnDriver BurnDrvSpartanx = {
@@ -4824,7 +4854,7 @@ struct BurnDriver BurnDrvSpartanx = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_SCRFIGHT, 0,
 	NULL, SpartanxRomInfo, SpartanxRomName, NULL, NULL, NULL, NULL, M62InputInfo, KungfumDIPInfo,
 	KungfumInit, M62Exit, M62Frame, KungfumDraw, M62Scan,
-	NULL, 0x200, 256, 246, 4, 3
+	NULL, 0x200, 256, 248, 4, 3
 };
 
 struct BurnDriver BurnDrvKungfub = {
@@ -4834,7 +4864,7 @@ struct BurnDriver BurnDrvKungfub = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_SCRFIGHT, 0,
 	NULL, KungfubRomInfo, KungfubRomName, NULL, NULL, NULL, NULL, M62InputInfo, KungfumDIPInfo,
 	KungfumInit, M62Exit, M62Frame, KungfumDraw, M62Scan,
-	NULL, 0x200, 256, 246, 4, 3
+	NULL, 0x200, 256, 248, 4, 3
 };
 
 struct BurnDriver BurnDrvKungfub2 = {
@@ -4844,7 +4874,7 @@ struct BurnDriver BurnDrvKungfub2 = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_SCRFIGHT, 0,
 	NULL, Kungfub2RomInfo, Kungfub2RomName, NULL, NULL, NULL, NULL, M62InputInfo, KungfumDIPInfo,
 	KungfumInit, M62Exit, M62Frame, KungfumDraw, M62Scan,
-	NULL, 0x200, 256, 246, 4, 3
+	NULL, 0x200, 256, 248, 4, 3
 };
 
 struct BurnDriver BurnDrvKungfub3 = {
@@ -4854,7 +4884,7 @@ struct BurnDriver BurnDrvKungfub3 = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_SCRFIGHT, 0,
 	NULL, Kungfub3RomInfo, Kungfub3RomName, NULL, NULL, NULL, NULL, M62InputInfo, KungfumDIPInfo,
 	Kungfub3Init, M62Exit, M62Frame, KungfumDraw, M62Scan,
-	NULL, 0x200, 256, 246, 4, 3
+	NULL, 0x200, 256, 248, 4, 3
 };
 
 struct BurnDriver BurnDrvKungfub3s = {
@@ -4864,7 +4894,7 @@ struct BurnDriver BurnDrvKungfub3s = {
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_SCRFIGHT, 0,
 	NULL, Kungfub3sRomInfo, Kungfub3sRomName, NULL, NULL, NULL, NULL, M62InputInfo, KungfumDIPInfo,
 	Kungfub3Init, M62Exit, M62Frame, KungfumDraw, M62Scan,
-	NULL, 0x200, 256, 246, 4, 3
+	NULL, 0x200, 256, 248, 4, 3
 };
 
 struct BurnDriver BurnDrvBattroad = {
@@ -4908,31 +4938,41 @@ struct BurnDriver BurnDrvLdrun2 = {
 };
 
 struct BurnDriver BurnDrvLdrun3 = {
-	"ldrun3", NULL, NULL, NULL, "1985",
+	"ldrun3", NULL, NULL, "tr606drumkit", "1985",
 	"Lode Runner III - The Golden Labyrinth\0", NULL, "Irem (licensed from Broderbund)", "Irem M62",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_PLATFORM, 0,
-	NULL, Ldrun3RomInfo, Ldrun3RomName, NULL, NULL, NULL, NULL, M62InputInfo, Ldrun2DIPInfo,
+	NULL, Ldrun3RomInfo, Ldrun3RomName, NULL, NULL, M62SampleInfo, M62SampleName, M62InputInfo, Ldrun2DIPInfo,
 	Ldrun3Init, M62Exit, M62Frame, Ldrun3Draw, M62Scan,
 	NULL, 0x200, 384, 256, 4, 3
 };
 
 struct BurnDriver BurnDrvLdrun3j = {
-	"ldrun3j", "ldrun3", NULL, NULL, "1985",
-	"Lode Runner III - Majin no Fukkatsu (Japan)\0", NULL, "Irem (licensed from Broderbund)", "Irem M62",
+	"ldrun3j", "ldrun3", NULL, "tr606drumkit", "1985",
+	"Lode Runner III - Majin no Fukkatsu (Japan, rev. A)\0", NULL, "Irem (licensed from Broderbund)", "Irem M62",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_PLATFORM, 0,
-	NULL, Ldrun3jRomInfo, Ldrun3jRomName, NULL, NULL, NULL, NULL, M62InputInfo, Ldrun2DIPInfo,
+	NULL, Ldrun3jRomInfo, Ldrun3jRomName, NULL, NULL, M62SampleInfo, M62SampleName, M62InputInfo, Ldrun2DIPInfo,
+	Ldrun3jInit, M62Exit, M62Frame, Ldrun3Draw, M62Scan,
+	NULL, 0x200, 384, 256, 4, 3
+};
+
+struct BurnDriver BurnDrvLdrun3jc = {
+	"ldrun3jc", "ldrun3", NULL, "tr606drumkit", "1985",
+	"Lode Runner III - Majin no Fukkatsu (Japan, rev. C)\0", NULL, "Irem (licensed from Broderbund)", "Irem M62",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_PLATFORM, 0,
+	NULL, Ldrun3jcRomInfo, Ldrun3jcRomName, NULL, NULL, M62SampleInfo, M62SampleName, M62InputInfo, Ldrun2DIPInfo,
 	Ldrun3jInit, M62Exit, M62Frame, Ldrun3Draw, M62Scan,
 	NULL, 0x200, 384, 256, 4, 3
 };
 
 struct BurnDriver BurnDrvLdrun4 = {
-	"ldrun4", NULL, NULL, NULL, "1986",
+	"ldrun4", NULL, NULL, "tr606drumkit", "1986",
 	"Lode Runner IV - Teikoku Karano Dasshutsu (Japan)\0", NULL, "Irem (licensed from Broderbund)", "Irem M62",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_IREM_M62, GBF_PLATFORM, 0,
-	NULL, Ldrun4RomInfo, Ldrun4RomName, NULL, NULL, NULL, NULL, M62InputInfo, Ldrun4DIPInfo,
+	NULL, Ldrun4RomInfo, Ldrun4RomName, NULL, NULL, M62SampleInfo, M62SampleName, M62InputInfo, Ldrun4DIPInfo,
 	Ldrun4Init, M62Exit, M62Frame, Ldrun4Draw, M62Scan,
 	NULL, 0x200, 384, 256, 4, 3
 };

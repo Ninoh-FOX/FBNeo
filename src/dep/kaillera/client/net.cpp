@@ -59,9 +59,22 @@ int WINAPI Empty_Kaillera_End_Game()
 	return 0;
 }
 
-
 int Init_Network(void)
 {
+	Kaillera_Get_Version          = Empty_Kaillera_Get_Version;
+	Kaillera_Init                 = Empty_Kaillera_Init;
+	Kaillera_Shutdown             = Empty_Kaillera_Shutdown;
+	Kaillera_Set_Infos            = Empty_Kaillera_Set_Infos;
+	Kaillera_Select_Server_Dialog = Empty_Kaillera_Select_Server_Dialog;
+	Kaillera_Modify_Play_Values   = Empty_Kaillera_Modify_Play_Values;
+	Kaillera_Chat_Send            = Empty_Kaillera_Chat_Send;
+	Kaillera_End_Game             = Empty_Kaillera_End_Game;
+	Kaillera_Initialised          = 0;
+
+#if defined _M_ARM64
+	return 1;
+#endif
+
 #if 0
 #if defined (_UNICODE)
 	Kaillera_HDLL = LoadLibrary(L"kailleraclient.dll");
@@ -71,7 +84,6 @@ int Init_Network(void)
 #endif // 0
 
 #ifdef BUILD_X64_EXE
-#define	KailleraClientDll			"kailleraclient64.dll"
 #define	kailleraGetVersion			"kailleraGetVersion"
 #define	kailleraInit				"kailleraInit"
 #define	kailleraShutdown			"kailleraShutdown"
@@ -81,7 +93,6 @@ int Init_Network(void)
 #define	kailleraChatSend			"kailleraChatSend"
 #define	kailleraEndGame				"kailleraEndGame"
 #else
-#define	KailleraClientDll			"kailleraclient.dll"
 #define	kailleraGetVersion			"_kailleraGetVersion@4"
 #define	kailleraInit				"_kailleraInit@0"
 #define	kailleraShutdown			"_kailleraShutdown@0"
@@ -92,8 +103,13 @@ int Init_Network(void)
 #define	kailleraEndGame				"_kailleraEndGame@0"
 #endif
 
-	Kaillera_HDLL = LoadLibraryA(KailleraClientDll);
+	Kaillera_HDLL = LoadLibraryA("kailleraclient.dll");
 
+	if ((Kaillera_HDLL == NULL) || (ERROR_BAD_EXE_FORMAT == GetLastError())) {
+		Kaillera_HDLL = LoadLibraryA("kailleraclient64.dll");
+
+	}
+	
 	if (Kaillera_HDLL != NULL)
 	{
 		Kaillera_Get_Version          = (int (WINAPI *)(char *version)) GetProcAddress(Kaillera_HDLL, kailleraGetVersion);
@@ -116,16 +132,6 @@ int Init_Network(void)
 	} else {
 	}
 
-	Kaillera_Get_Version          = Empty_Kaillera_Get_Version;
-	Kaillera_Init                 = Empty_Kaillera_Init;
-	Kaillera_Shutdown             = Empty_Kaillera_Shutdown;
-	Kaillera_Set_Infos            = Empty_Kaillera_Set_Infos;
-	Kaillera_Select_Server_Dialog = Empty_Kaillera_Select_Server_Dialog;
-	Kaillera_Modify_Play_Values   = Empty_Kaillera_Modify_Play_Values;
-	Kaillera_Chat_Send            = Empty_Kaillera_Chat_Send;
-	Kaillera_End_Game             = Empty_Kaillera_End_Game;
-
-	Kaillera_Initialised = 0;
 	return 1;
 }
 

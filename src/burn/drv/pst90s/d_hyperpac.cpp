@@ -3482,14 +3482,14 @@ static void WintbobRenderSpriteLayer()
 	UINT16 *SpriteRam = (UINT16*)HyperpacSpriteRam;
 
 	for (Offs = 0; Offs < 0x2000 >> 1; Offs += 8) {
-		x              = SpriteRam[Offs + 0] & 0xff;
-		y              = SpriteRam[Offs + 4] & 0xff;
-		INT32 Attr       = SpriteRam[Offs + 1];
+		x              = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 0]) & 0xff;
+		y              = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 4]) & 0xff;
+		INT32 Attr       = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 1]);
 		INT32 Disbl      = Attr & 0x02;
 		INT32 Wrapr      = Attr & 0x08;
 		INT32 Colour     = (Attr & 0xf0) >> 4;
-		INT32 Attr2      = SpriteRam[Offs + 2];
-		INT32 Tile       = (Attr2 << 8) | (SpriteRam[Offs + 3] & 0xff);
+		INT32 Attr2      = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 2]);
+		INT32 Tile       = (Attr2 << 8) | (BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 3]) & 0xff);
 		INT32 FlipX      = Attr2 & 0x80;
 		INT32 FlipY      = (Attr2 & 0x40) << 1;
 
@@ -3541,11 +3541,11 @@ static void Snowbro3RenderSpriteLayer()
 	INT32 ColourDepth = 0;
 
 	for (Offs = 0; Offs < 0x2200 >> 1; Offs += 8) {
-		INT32 dx         = SpriteRam[Offs + 4] & 0xff;
-		INT32 dy         = SpriteRam[Offs + 5] & 0xff;
-		INT32 TileColour = SpriteRam[Offs + 3];
-		INT32 Attr       = SpriteRam[Offs + 7];
-		INT32 Attr2      = SpriteRam[Offs + 6];
+		INT32 dx         = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 4]) & 0xff;
+		INT32 dy         = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 5]) & 0xff;
+		INT32 TileColour = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 3]);
+		INT32 Attr       = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 7]);
+		INT32 Attr2      = BURN_ENDIAN_SWAP_INT16(SpriteRam[Offs + 6]);
 		INT32 FlipX      = Attr & 0x80;
 		INT32 FlipY      = (Attr & 0x40) << 1;
 		INT32 Tile       = ((Attr & 0xff) << 8) + (Attr2 & 0xff);
@@ -4583,7 +4583,7 @@ static INT32 Ballboy3pInit()
 }
 
 struct BurnDriver BurnDrvBallboy3p = {
-	"ballboy3p", "snowbro3", NULL, NULL, "2003",
+	"ballboy3p", "snowbro3", NULL, NULL, "2004",
 	"Ball Boy (3 players)\0", NULL, "bootleg", "Kaneko Pandora based",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_PLATFORM, 0,

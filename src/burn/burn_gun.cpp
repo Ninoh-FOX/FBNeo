@@ -18,6 +18,7 @@ static INT32 Using_Trackball = 0;
 
 static INT32 nBurnGunMaxX = 0;
 static INT32 nBurnGunMaxY = 0;
+static INT32 nBurnGunTargetScale = 1; // targets drawn this many times larger
 
 INT32 BurnGunX[MAX_GUNS];
 INT32 BurnGunY[MAX_GUNS];
@@ -54,13 +55,15 @@ UINT8 BurnGunTargetData[18][18] = {
 #undef b
 #undef a
 
-#define GunTargetHideTime (60 * 4) /* 4 seconds @ 60 fps */
+static INT32 GunTargetHideTime; // default: 4 seconds
 static INT32 GunTargetTimer[MAX_GUNS]  = {0, 0, 0, 0};
 static INT32 GunTargetLastX[MAX_GUNS]  = {0, 0, 0, 0};
 static INT32 GunTargetLastY[MAX_GUNS]  = {0, 0, 0, 0};
 
 static void GunTargetUpdate(INT32 player)
 {
+	if (player >= MAX_GUNS) return;
+
 	if (GunTargetLastX[player] != BurnGunReturnX(player) || GunTargetLastY[player] != BurnGunReturnY(player)) {
 		GunTargetLastX[player] = BurnGunReturnX(player);
 		GunTargetLastY[player] = BurnGunReturnY(player);
@@ -584,6 +587,11 @@ void BurnTrackballSetVelocityCurve(INT32 bLogarithmic)
 	}
 }
 
+void BurnGunSetHideTime(INT32 nHideTimeInFrames)
+{
+	GunTargetHideTime = nHideTimeInFrames;
+}
+
 void BurnTrackballInit(INT32 nNumPlayers)
 {
 	Using_Trackball = 1;
@@ -625,6 +633,9 @@ void BurnGunInit(INT32 nNumPlayers, bool bDrawTargets)
 		BurnGunSetBox(i, 0, 0xff, 0, 0xff); // Gun stuff
 	}
 
+	GunTargetHideTime = (nBurnFPS / 100) * 4; // 4 seconds
+	nBurnGunTargetScale = 1;
+
 	// Trackball stuff (init)
 	memset(&TrackA, 0, sizeof(TrackA));
 	memset(&TrackA_Prev, 0, sizeof(TrackA_Prev));
@@ -646,6 +657,15 @@ void BurnGunInit(INT32 nNumPlayers, bool bDrawTargets)
 	TrackDefault = 0;
 }
 
+void BurnGunResolutionChanged()
+{
+	if (BurnDrvGetFlags() & BDF_ORIENTATION_VERTICAL) {
+		BurnDrvGetVisibleSize(&nBurnGunMaxY, &nBurnGunMaxX);
+	} else {
+		BurnDrvGetVisibleSize(&nBurnGunMaxX, &nBurnGunMaxY);
+	}
+}
+
 void BurnGunExit()
 {
 #if defined FBNEO_DEBUG
@@ -657,6 +677,7 @@ void BurnGunExit()
 	
 	nBurnGunMaxX = 0;
 	nBurnGunMaxY = 0;
+	nBurnGunTargetScale = 1;
 	
 	for (INT32 i = 0; i < MAX_GUNS; i++) {
 		BurnGunX[i] = 0;
@@ -697,6 +718,13 @@ void BurnGunScan()
 	}
 }
 
+// For a driver drawing at a multiple of its native resolution: the targets
+// are drawn that many times larger, around the same centre (x + 8, y + 8).
+void BurnGunSetTargetScale(INT32 nScale)
+{
+	nBurnGunTargetScale = (nScale < 1) ? 1 : nScale;
+}
+
 void BurnGunDrawTarget(INT32 num, INT32 x, INT32 y)
 {
 #if defined FBNEO_DEBUG
@@ -706,6 +734,7 @@ void BurnGunDrawTarget(INT32 num, INT32 x, INT32 y)
 
 	if (bBurnGunDrawTargets == false) return; // game-configured setting
 	if (bBurnGunDrawReticles == false) return; // UI-configured setting
+	if (pBurnDraw == NULL) return; // nothing to draw to
 
 	if (num > MAX_GUNS - 1) return;
 
@@ -718,6 +747,29 @@ void BurnGunDrawTarget(INT32 num, INT32 x, INT32 y)
 	if (num == 1) nTargetCol = BurnHighCol(0x1c, 0xfc, 0x1c, 0);
 	if (num == 2) nTargetCol = BurnHighCol(0x15, 0x93, 0xfd, 0);
 	if (num == 3) nTargetCol = BurnHighCol(0xf7, 0xfa, 0x0e, 0);
+
+	if (nBurnGunTargetScale > 1) {
+		// each pixel of the target as a square of nBurnGunTargetScale pixels
+		const INT32 s = nBurnGunTargetScale;
+		const INT32 x0 = x + 8 - 8 * s - s / 2, y0 = y + 8 - 8 * s - s / 2;
+		for (INT32 py = 0; py < 17 * s; py++) {
+			const INT32 sy = y0 + py;
+			if (sy < 0 || sy > nBurnGunMaxY - 1) continue;
+			UINT8* pLine = pBurnDraw + nBurnGunMaxX * nBurnBpp * sy;
+			for (INT32 px = 0; px < 17 * s; px++) {
+				const INT32 sx = x0 + px;
+				if (sx < 0 || sx > nBurnGunMaxX - 1) continue;
+				if (BurnGunTargetData[py / s][px / s]) {
+					if (nBurnBpp == 2) {
+						((UINT16*)pLine)[sx] = (UINT16)nTargetCol;
+					} else {
+						((UINT32*)pLine)[sx] = nTargetCol;
+					}
+				}
+			}
+		}
+		return;
+	}
 
 	for (INT32 y2 = 0; y2 < 17; y2++) {
 

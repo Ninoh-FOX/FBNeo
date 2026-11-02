@@ -104,11 +104,11 @@ static INT32 Brapboys = 0;
 typedef void (*MCURun)();
 static MCURun ToyboxMCURun;
 
-typedef INT32 (*ParseSprite)(INT32, struct tempsprite*);
+typedef INT32 (*ParseSprite)(INT32, struct kaneko16_tempsprite*);
 static ParseSprite Kaneko16ParseSprite;
-static INT32 Kaneko16ParseSpriteType0(INT32 i, struct tempsprite *s);
-static INT32 Kaneko16ParseSpriteType1(INT32 i, struct tempsprite *s);
-static INT32 Kaneko16ParseSpriteType2(INT32 i, struct tempsprite *s);
+static INT32 Kaneko16ParseSpriteType0(INT32 i, struct kaneko16_tempsprite *s);
+static INT32 Kaneko16ParseSpriteType1(INT32 i, struct kaneko16_tempsprite *s);
+static INT32 Kaneko16ParseSpriteType2(INT32 i, struct kaneko16_tempsprite *s);
 
 static INT32 nCyclesDone[2], nCyclesTotal[2];
 static INT32 nCyclesExtra;
@@ -117,7 +117,7 @@ static INT32 Kaneko16Watchdog;
 
 static void ShogwarrConfigSoundBank(INT32 oki, INT32 nBank, INT32 nStart, INT32 nSize);
 
-struct tempsprite
+struct kaneko16_tempsprite
 {
 	INT32 code,color;
 	INT32 x,y;
@@ -128,7 +128,7 @@ struct tempsprite
 
 static struct
 {
-	struct tempsprite *first_sprite;
+	struct kaneko16_tempsprite *first_sprite;
 }	spritelist;
 
 /*==============================================================================================
@@ -1081,18 +1081,26 @@ STD_ROM_PICK(Packbangp)
 STD_ROM_FN(Packbangp)
 
 static struct BurnRomInfo BlazeonRomDesc[] = {
-	{ "bz-prg1.u80",       	0x040000, 0x3d79aa70, BRF_ESS | BRF_PRG }, //  0 68000 Program Code
-	{ "bz-prg2.u81",       	0x040000, 0xa16d3b1e, BRF_ESS | BRF_PRG }, //  1
+	{ "bz-prg1.u80",        0x040000, 0x3d79aa70, BRF_ESS | BRF_PRG }, //  0 68000 Program Code
+	{ "bz-prg2.u81",        0x040000, 0xa16d3b1e, BRF_ESS | BRF_PRG }, //  1
 
-	{ "bz_sp1.u20",        	0x100000, 0x0d5809a1, BRF_GRA },	   	   //  2 Sprites
-	{ "bz_sp2.u21",        	0x100000, 0x56ead2bd, BRF_GRA },	   	   //  3
+	{ "bz_sp1.u20",         0x100000, 0x0d5809a1, BRF_GRA },           //  2 Sprites
+	{ "bz_sp2.u21",         0x100000, 0x56ead2bd, BRF_GRA },           //  3
 
-	{ "bz_bg.u2",          	0x100000, 0xfc67f19f, BRF_GRA },	   	   //  4 Tiles (scrambled)
+	{ "bz_bg.u2",           0x100000, 0xfc67f19f, BRF_GRA },           //  4 Tiles (scrambled)
 
-	{ "3.u45",             	0x020000, 0x52fe4c94, BRF_ESS | BRF_PRG }, //  5 Z80 Program Code
+	{ "3.u45",              0x020000, 0x52fe4c94, BRF_ESS | BRF_PRG }, //  5 Z80 Program Code
 
-	{ "bz_sp1.u68",        	0x100000, 0x0d5809a1, BRF_OPT },
-	{ "bz_sp2.u86",        	0x100000, 0x56ead2bd, BRF_OPT },
+	{ "bz_sp1.u68",         0x100000, 0x0d5809a1, BRF_OPT },           //  6 Sprites (duplicate - unused)
+	{ "bz_sp2.u86",         0x100000, 0x56ead2bd, BRF_OPT },           //  7
+
+	{ "peel18cv8.u37",      0x000155, 0xf79332f9, BRF_OPT },           //  8 Plds
+	{ "gal22v10.u38",       0x0002e5, 0x115012a0, BRF_OPT },           //  9
+	{ "peel18cv8.u66",      0x000155, 0x7e53ea83, BRF_OPT },           // 10
+	{ "peel18cv8.u76",      0x000155, 0xeb390e91, BRF_OPT },           // 11
+	{ "peel18cv8.u77",      0x000155, 0x5c0a5843, BRF_OPT },           // 12
+	{ "peel18cv8.u78",      0x000155, 0xf2cec7c6, BRF_OPT },           // 13
+	{ "peel18cv8.u79",      0x000155, 0x9d7ce11d, BRF_OPT },           // 14
 };
 
 
@@ -1100,18 +1108,18 @@ STD_ROM_PICK(Blazeon)
 STD_ROM_FN(Blazeon)
 
 static struct BurnRomInfo BlazeonjRomDesc[] = {
-	{ "bz_prg1.u80",       	0x040000, 0x8409e31d, BRF_ESS | BRF_PRG }, //  0 68000 Program Code
-	{ "bz_prg2.u81",       	0x040000, 0xb8a0a08b, BRF_ESS | BRF_PRG }, //  1
+	{ "bz_prg1.u80",        0x040000, 0x8409e31d, BRF_ESS | BRF_PRG }, //  0 68000 Program Code
+	{ "bz_prg2.u81",        0x040000, 0xb8a0a08b, BRF_ESS | BRF_PRG }, //  1
 
-	{ "bz_sp1.u20",        	0x100000, 0x0d5809a1, BRF_GRA },	   	   //  2 Sprites
-	{ "bz_sp2.u21",        	0x100000, 0x56ead2bd, BRF_GRA },	   	   //  3
+	{ "bz_sp1.u20",         0x100000, 0x0d5809a1, BRF_GRA },           //  2 Sprites
+	{ "bz_sp2.u21",         0x100000, 0x56ead2bd, BRF_GRA },           //  3
 
-	{ "bz_bg.u2",          	0x100000, 0xfc67f19f, BRF_GRA },	   	   //  4 Tiles (scrambled)
+	{ "bz_bg.u2",           0x100000, 0xfc67f19f, BRF_GRA },           //  4 Tiles (scrambled)
 
-	{ "3.u45",             	0x020000, 0x52fe4c94, BRF_ESS | BRF_PRG }, //  5 Z80 Program Code
+	{ "3.u45",              0x020000, 0x52fe4c94, BRF_ESS | BRF_PRG }, //  5 Z80 Program Code
 
-	{ "bz_sp1.u68",        	0x100000, 0x0d5809a1, BRF_OPT },
-	{ "bz_sp2.u86",        	0x100000, 0x56ead2bd, BRF_OPT },
+	{ "bz_sp1.u68",         0x100000, 0x0d5809a1, BRF_OPT },           //  6 Sprites (duplicate - unused)
+	{ "bz_sp2.u86",         0x100000, 0x56ead2bd, BRF_OPT },           //  7
 };
 
 
@@ -1616,6 +1624,14 @@ static struct BurnRomInfo MgcrystlRomDesc[] = {
 	{ "mc020.u34",         	0x100000, 0x1ea92ff1, BRF_GRA },		   //  6 Tiles (scrambled) (Layers 2 & 3)
 
 	{ "mc030.u32",         	0x040000, 0xc165962e, BRF_SND },		   //  7 Samples
+	
+	{ "18cv8.u08",			0x000155, 0x5e35733c, BRF_OPT },		   //  8 Plds
+	{ "18cv8.u20",			0x000155, 0x65b945b2, BRF_OPT },		   //  9
+	{ "18cv8.u41",			0x000155, 0x0b05a7ea, BRF_OPT },		   // 10
+	{ "18cv8.u42",			0x000155, 0x434c0fbb, BRF_OPT },		   // 11
+	{ "18cv8.u50",			0x000155, 0x2fd7e6dc, BRF_OPT },		   // 12
+	{ "18cv8.u51",			0x000155, 0x8d1fd79b, BRF_OPT },		   // 13
+	{ "18cv8.u54",			0x000155, 0x5e35733c, BRF_OPT },		   // 13 identical to u08
 };
 
 
@@ -1635,6 +1651,14 @@ static struct BurnRomInfo MgcrystloRomDesc[] = {
 	{ "mc020.u34",         	0x100000, 0x1ea92ff1, BRF_GRA },		   //  6 Tiles (scrambled) (Layers 2 & 3)
 
 	{ "mc030.u32",         	0x040000, 0xc165962e, BRF_SND },		   //  7 Samples
+	
+	{ "18cv8.u08",			0x000155, 0x5e35733c, BRF_OPT },		   //  8 Plds
+	{ "18cv8.u20",			0x000155, 0x65b945b2, BRF_OPT },		   //  9
+	{ "18cv8.u41",			0x000155, 0x0b05a7ea, BRF_OPT },		   // 10
+	{ "18cv8.u42",			0x000155, 0x434c0fbb, BRF_OPT },		   // 11
+	{ "18cv8.u50",			0x000155, 0x2fd7e6dc, BRF_OPT },		   // 12
+	{ "18cv8.u51",			0x000155, 0x8d1fd79b, BRF_OPT },		   // 13
+	{ "18cv8.u54",			0x000155, 0x5e35733c, BRF_OPT },		   // 13 identical to u08
 };
 
 
@@ -1654,6 +1678,14 @@ static struct BurnRomInfo MgcrystljRomDesc[] = {
 	{ "kaneko__mc-020_0004.u34",		0x100000, 0x1ea92ff1, BRF_GRA },		   //  6 Tiles (scrambled) (Layers 2 & 3)
 
 	{ "kaneko__mc-030_0005_t99.u32",	0x040000, 0xc165962e, BRF_SND },		   //  7 Samples
+	
+	{ "18cv8.u08",			0x000155, 0x5e35733c, BRF_OPT },		   //  8 Plds
+	{ "18cv8.u20",			0x000155, 0x65b945b2, BRF_OPT },		   //  9
+	{ "18cv8.u41",			0x000155, 0x0b05a7ea, BRF_OPT },		   // 10
+	{ "18cv8.u42",			0x000155, 0x434c0fbb, BRF_OPT },		   // 11
+	{ "18cv8.u50",			0x000155, 0x2fd7e6dc, BRF_OPT },		   // 12
+	{ "18cv8.u51",			0x000155, 0x8d1fd79b, BRF_OPT },		   // 13
+	{ "18cv8.u54",			0x000155, 0x5e35733c, BRF_OPT },		   // 13 identical to u08
 };
 
 
@@ -4566,7 +4598,7 @@ static void Kaneko16VideoInit()
 {
 	GenericTilesInit();
 
-	spritelist.first_sprite = (struct tempsprite *)BurnMalloc(0x400 * sizeof(spritelist.first_sprite[0]));
+	spritelist.first_sprite = (struct kaneko16_tempsprite *)BurnMalloc(0x400 * sizeof(spritelist.first_sprite[0]));
 
 	Kaneko16ParseSprite = Kaneko16ParseSpriteType0;
 
@@ -5729,7 +5761,11 @@ static INT32 ShogwarrInit()
 	nRet = BurnLoadRom(MSM6295ROMData2 + 0x000000, 14, 1); if (nRet != 0) return 1;
 	nRet = BurnLoadRom(MSM6295ROMData2 + 0x100000, 15, 1); if (nRet != 0) return 1;
 
+#ifdef LSB_FIRST
 	memcpy (Kaneko16NVRam, shogwarr_default_eeprom, 0x80);
+#else
+	for (INT32 i = 0; i < 0x40; i++) ((UINT16*)Kaneko16NVRam)[i] = BURN_ENDIAN_SWAP_INT16(shogwarr_default_eeprom[i]);
+#endif
 
 	SekInit(0, 0x68000);
 	SekOpen(0);
@@ -5831,7 +5867,11 @@ static INT32 ShogwarrkInit()
 	nRet = BurnLoadRom(MSM6295ROMData2 + 0x000000, 15, 1); if (nRet != 0) return 1;
 	nRet = BurnLoadRom(MSM6295ROMData2 + 0x100000, 16, 1); if (nRet != 0) return 1;
 
+#ifdef LSB_FIRST
 	memcpy (Kaneko16NVRam, shogwarr_default_eeprom, 0x80);
+#else
+	for (INT32 i = 0; i < 0x40; i++) ((UINT16*)Kaneko16NVRam)[i] = BURN_ENDIAN_SWAP_INT16(shogwarr_default_eeprom[i]);
+#endif
 
 	SekInit(0, 0x68000);
 	SekOpen(0);
@@ -5935,7 +5975,11 @@ static INT32 BrapboysInit()
 	nRet = BurnLoadRom(MSM6295ROMData2 + 0x100000, 16, 1); if (nRet != 0) return 1;
 	memcpy (MSM6295ROM + 0x100000, MSM6295ROMData2,  0x20000);
 
+#ifdef LSB_FIRST
 	memcpy (Kaneko16NVRam, brapboys_default_eeprom, 0x80);
+#else
+	for (INT32 i = 0; i < 0x40; i++) ((UINT16*)Kaneko16NVRam)[i] = BURN_ENDIAN_SWAP_INT16(brapboys_default_eeprom[i]);
+#endif
 
 	SekInit(0, 0x68000);
 	SekOpen(0);
@@ -6043,7 +6087,11 @@ static INT32 Brapboysp2Init()
 	nRet = BurnLoadRom(MSM6295ROMData2 + 0x100000, 17, 1); if (nRet != 0) return 1;
 	memcpy (MSM6295ROM + 0x100000, MSM6295ROMData2,  0x20000);
 
+#ifdef LSB_FIRST
 	memcpy (Kaneko16NVRam, brapboys_default_eeprom, 0x80);
+#else
+	for (INT32 i = 0; i < 0x40; i++) ((UINT16*)Kaneko16NVRam)[i] = BURN_ENDIAN_SWAP_INT16(brapboys_default_eeprom[i]);
+#endif
 
 	SekInit(0, 0x68000);
 	SekOpen(0);
@@ -6181,7 +6229,7 @@ Sprite Rendering
 #define USE_LATCHED_CODE	2
 #define USE_LATCHED_COLOUR	4
 
-static INT32 Kaneko16ParseSpriteType0(INT32 i, struct tempsprite *s)
+static INT32 Kaneko16ParseSpriteType0(INT32 i, struct kaneko16_tempsprite *s)
 {
 	INT32 Attr, xOffs, Offset;
 	UINT16 *SpriteRam = (UINT16*)Kaneko16SpriteRam;
@@ -6208,7 +6256,7 @@ static INT32 Kaneko16ParseSpriteType0(INT32 i, struct tempsprite *s)
 	return ((Attr & 0x2000) ? USE_LATCHED_XY : 0) | ((Attr & 0x4000) ? USE_LATCHED_COLOUR: 0) | ((Attr & 0x8000) ? USE_LATCHED_CODE : 0);
 }
 
-static INT32 Kaneko16ParseSpriteType1(INT32 i, struct tempsprite *s)
+static INT32 Kaneko16ParseSpriteType1(INT32 i, struct kaneko16_tempsprite *s)
 {
 	INT32 Attr, xOffs, Offset;
 	UINT16 *SpriteRam = (UINT16*)Kaneko16SpriteRam;
@@ -6237,7 +6285,7 @@ static INT32 Kaneko16ParseSpriteType1(INT32 i, struct tempsprite *s)
 	return ((Attr & 0x2000) ? USE_LATCHED_XY : 0) | ((Attr & 0x4000) ? USE_LATCHED_COLOUR: 0) | ((Attr & 0x8000) ? USE_LATCHED_CODE : 0);
 }
 
-static INT32 Kaneko16ParseSpriteType2(INT32 i, struct tempsprite *s)
+static INT32 Kaneko16ParseSpriteType2(INT32 i, struct kaneko16_tempsprite *s)
 {
 	INT32 Attr, xOffs, Offset;
 	UINT16 *SpriteRam = (UINT16*)Kaneko16SpriteRam;
@@ -6350,7 +6398,7 @@ static void Kaneko16RenderSprite(UINT32 Code, UINT32 Colour, INT32 FlipX, INT32 
 
 static void Kaneko16RenderSprites(INT32 PriorityDraw)
 {
-	struct tempsprite *s = spritelist.first_sprite;
+	struct kaneko16_tempsprite *s = spritelist.first_sprite;
 
 	INT32 i = 0;
 	INT32 x = 0;
@@ -6525,7 +6573,7 @@ static void Kaneko16RenderSprite_PrioBuffer(UINT32 Code, UINT32 Colour, INT32 Fl
 
 static void Kaneko16RenderSprites_PrioBuffer()
 {
-	struct tempsprite *s = spritelist.first_sprite;
+	struct kaneko16_tempsprite *s = spritelist.first_sprite;
 
 	INT32 i = 0;
 	INT32 x = 0;
@@ -6976,9 +7024,9 @@ Graphics Rendering
 	if (Layer##_N_##Enabled) { \
 		INT32 vScrollFast = 1; \
 		UINT16 *VSCROLLRAM = (UINT16*)Kaneko16VScrl##_N_##Ram; \
-		INT32 LineScroll = VSCROLLRAM[0]; \
+		INT32 LineScroll = BURN_ENDIAN_SWAP_INT16(VSCROLLRAM[0]); \
 		for (i = 0; i < 0x200; i++) { \
-			if (VSCROLLRAM[i] != LineScroll) { \
+			if (BURN_ENDIAN_SWAP_INT16(VSCROLLRAM[i]) != LineScroll) { \
 				vScrollFast = 0; \
 				break; \
 			} \
@@ -7120,7 +7168,7 @@ static INT32 ShogwarrFrameRender()
 		HANDLE_VSCROLL(0)
 	}
 
-	if (BURN_ENDIAN_SWAP_INT16(Kaneko16Layer0Regs[4] & 0x008)) {
+	if (BURN_ENDIAN_SWAP_INT16(Kaneko16Layer0Regs[4]) & 0x008) {
 		HANDLE_VSCROLL(1)
 	}
 
@@ -7883,7 +7931,7 @@ struct BurnDriver BurnDrvOedfighta = {
 
 struct BurnDriver BurnDrvBonkadv = {
 	"bonkadv", NULL, NULL, NULL, "1994",
-	"B.C. Kid / Bonk's Adventure / Kyukyoku!! PC Genjin\0", NULL, "Kaneko", "Kaneko16",
+	"B.C. Kid (Europe) / Bonk's Adventure: Arcade Version (US, China, Korea) / Kyukyoku!! PC Genjin: Special Arcade Version (Japan)\0", NULL, "Kaneko (Hudson Soft / Red license)", "Kaneko16",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_KANEKO16, GBF_PLATFORM, 0,
 	NULL, BonkadvRomInfo, BonkadvRomName, NULL, NULL, NULL, NULL, BonkadvInputInfo, BonkadvDIPInfo,

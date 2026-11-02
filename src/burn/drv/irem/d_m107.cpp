@@ -173,10 +173,6 @@ static struct BurnDIPInfo FirebarrDIPList[]=
 	{0x15, 0x01, 0x03, 0x02, "4"							},
 	{0x15, 0x01, 0x03, 0x01, "5"							},
 
-	{0   , 0xfe, 0   ,    2, "Allow Continue"				},
-	{0x15, 0x01, 0x20, 0x00, "No"							},
-	{0x15, 0x01, 0x20, 0x20, "Yes"							},
-
 	{0   , 0xfe, 0   ,    2, "Demo Sounds"					},
 	{0x15, 0x01, 0x40, 0x40, "Off"							},
 	{0x15, 0x01, 0x40, 0x00, "On"							},
@@ -761,24 +757,24 @@ static void draw_sprites()
 	{
 		int x,y,sprite,colour,fx,fy,y_multi,i,s_ptr,pri_mask;
 
-		pri_mask = (!(ram[offs+2]&0x80)) ? 2 : 0;
+		pri_mask = (!(BURN_ENDIAN_SWAP_INT16(ram[offs+2])&0x80)) ? 2 : 0;
 
-		y=ram[offs+0] + 8;
-		x=ram[offs+3];
+		y=BURN_ENDIAN_SWAP_INT16(ram[offs+0]) + 8;
+		x=BURN_ENDIAN_SWAP_INT16(ram[offs+3]);
 		x&=0x1ff;
 		y&=0x1ff;
 
 		if (x==0 || y==0) continue; /* offscreen */
 
-		sprite=ram[offs+1]&0x7fff;
+		sprite=BURN_ENDIAN_SWAP_INT16(ram[offs+1])&0x7fff;
 
 		x = x - 16;
 		y = 384 - 16 - y;
 
-		colour=ram[offs+2]&0x7f;
-		fx=(ram[offs+2]>>8)&0x1;
-		fy=(ram[offs+2]>>8)&0x2;
-		y_multi=(ram[offs+0]>>11)&0x3;
+		colour=BURN_ENDIAN_SWAP_INT16(ram[offs+2])&0x7f;
+		fx=(BURN_ENDIAN_SWAP_INT16(ram[offs+2])>>8)&0x1;
+		fy=(BURN_ENDIAN_SWAP_INT16(ram[offs+2])>>8)&0x2;
+		y_multi=(BURN_ENDIAN_SWAP_INT16(ram[offs+0])>>11)&0x3;
 
 		if (spritesystem == 0)
 		{

@@ -22,7 +22,7 @@
 #include "upd7810_intf.h"
 #include "i4x00.h"
 #include "eeprom.h"
-#include "konamiic.h"
+#include "k053936.h"
 #include "burn_ym2610.h"
 #include "burn_ym2413.h"
 #include "burn_ym2151.h"
@@ -59,6 +59,7 @@ static UINT8 sound_busy;
 static UINT8 updportA_data;
 static UINT8 updportB_data;
 static INT32 es8712_enable;
+static INT32 es8712_irq;
 
 static INT32 sound_system = 0;	// 1 = Z80 + YM2610, 2 = uPD7810 + YM2413 + M6295, 3 = YMF278B, 4 = YM2413 + M6295, 5 = uPD7810 + YM2151 + M6295, 6 = es8712, M6295
 static UINT32 graphics_length;
@@ -1793,6 +1794,14 @@ static void update_irq_state()
 		for (INT32 i = 0; i < 8; i++)
 			SekSetIRQLine(i, irq_level[i] ? CPU_IRQSTATUS_ACK : CPU_IRQSTATUS_NONE);
 	}
+	else if (sound_system == 6)
+	{
+		// vmetal: es8712 is on level 3, sek has a single irq line so it must not be stomped by the video irq
+		if (es8712_irq)
+			SekSetIRQLine(3, CPU_IRQSTATUS_ACK);
+		else
+			SekSetIRQLine(irq_line, irq ? CPU_IRQSTATUS_ACK : CPU_IRQSTATUS_NONE);
+	}
 	else
 	{
 		SekSetIRQLine(irq_line, irq ? CPU_IRQSTATUS_ACK : CPU_IRQSTATUS_NONE);
@@ -3014,7 +3023,11 @@ static void __fastcall vmetal_write_byte(UINT32 address, UINT8 data)
 	}
 
 	if ((address & 0xfffff0) == 0x500000) {
-		es8712Write(0, (address/2) & 0x07, data);
+		if (address == 0x500000) {
+			es8712Reset(0); // even byte resets the chip (acks the irq), odd bytes are the registers
+		} else if (address & 1) {
+			es8712Write(0, (address/2) & 0x07, data);
+		}
 		return;
 	}
 
@@ -3024,8 +3037,9 @@ static void __fastcall vmetal_write_byte(UINT32 address, UINT8 data)
 static void vmetal_es8712_cb(INT32 state)
 {
 	if (es8712_enable) {
+		es8712_irq = state;
 		if (SekGetActive() == -1) return;
-		SekSetIRQLine(3, (state) ? CPU_IRQSTATUS_ACK : CPU_IRQSTATUS_NONE);
+		update_irq_state();
 	}
 }
 
@@ -3034,8 +3048,9 @@ static void __fastcall vmetal_write_word(UINT32 address, UINT16 data)
 	if (address == 0x200000) {
 		es8712_enable = data & 0x40;
 
-		if (!es8712_enable) {
-			es8712Reset(0);
+		if (!es8712_enable && es8712_irq) {
+			es8712_irq = 0;
+			update_irq_state();
 		}
 
 		es8712SetBankBase(0, (data & 0x10) ? 0x100000 : 0);
@@ -3251,6 +3266,7 @@ static INT32 DrvDoReset()
 			es8712Reset(0);
 			MSM6295Reset(0);
 			es8712_enable = 0;
+			es8712_irq = 0;
 		}
 		break;
 	}
@@ -3860,7 +3876,7 @@ static INT32 common_type1_init(INT32 video_type, INT32 gfx_len, INT32 load_roms,
 	if (sound_system == 6)
 	{
 		es8712Init(0, DrvYMROMB, 16000, 0);
-		es8712SetBuffered(SekTotalCycles, main_cpu_cycles);
+		es8712SetBuffered(SekTotalCycles, main_cpu_hz);
 		es8712SetIRQ(vmetal_es8712_cb);
 		es8712SetRoute(0, 1.00, BURN_SND_ROUTE_BOTH);
 
@@ -3878,7 +3894,6 @@ static INT32 common_type1_init(INT32 video_type, INT32 gfx_len, INT32 load_roms,
 	blitter_bit = 2;
 
 	GenericTilesInit();
-	KonamiAllocateBitmaps();
 
 	DrvDoReset();
 
@@ -4266,7 +4281,7 @@ static INT32 DrvExit()
 		break;
 	}
 
-	KonamiICExit();
+	K053936Exit();
 	GenericTilesExit();
 
 	SekExit();
@@ -4638,10 +4653,11 @@ static INT32 DrvScan(INT32 nAction,INT32 *pnMin)
 				es8712Scan(nAction, pnMin);
 				MSM6295Scan(nAction, pnMin);
 				SCAN_VAR(es8712_enable);
+				SCAN_VAR(es8712_irq);
 			break;
 		}
 
-		KonamiICScan(nAction);
+		K053936Scan(nAction);
 
 		SCAN_VAR(soundlatch);
 		SCAN_VAR(requested_int);
@@ -4733,7 +4749,7 @@ STD_ROM_FN(gstrik2)
 
 struct BurnDriver BurnDrvGstrik2 = {
 	"gstrik2", NULL, NULL, NULL, "1996",
-	"Grand Striker 2 (Europe and Oceania)\0", "ROZ layer broken", "Human Amusement", "Miscellaneous",
+	"Grand Striker 2 (Europe and Oceania)\0", NULL, "Human Amusement", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_SPORTSFOOTBALL, 0,
 	NULL, gstrik2RomInfo, gstrik2RomName, NULL, NULL, NULL, NULL, Gstrik2InputInfo, Gstrik2DIPInfo,
@@ -4773,7 +4789,7 @@ STD_ROM_FN(gstrik2j)
 
 struct BurnDriverD BurnDrvGstrik2j = {
 	"gstrik2j", "gstrik2", NULL, NULL, "1996",
-	"Grand Striker 2 (Japan)\0", "ROZ layer broken", "Human Amusement", "Miscellaneous",
+	"Grand Striker 2 (Japan)\0", NULL, "Human Amusement", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_SPORTSFOOTBALL, 0,
 	NULL, gstrik2jRomInfo, gstrik2jRomName, NULL, NULL, NULL, NULL, Gstrik2InputInfo, Gstrik2DIPInfo,
@@ -5744,7 +5760,7 @@ struct BurnDriver BurnDrvToride2gk = {
 };
 
 
-// Toride II (Japan)
+// Toride II (Japan, revision K)
 
 static struct BurnRomInfo toride2jRomDesc[] = {
 	{ "tr2_jk-5.20e",			0x040000, 0xf2668578, 1 | BRF_PRG | BRF_ESS }, //  0 68k Code
@@ -5765,10 +5781,40 @@ STD_ROM_FN(toride2j)
 
 struct BurnDriver BurnDrvToride2j = {
 	"toride2j", "toride2g", NULL, NULL, "1994",
-	"Toride II (Japan)\0", "No sound", "Metro", "Miscellaneous",
+	"Toride II (Japan, revision K)\0", "No sound", "Metro", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_MAHJONG, 0,
 	NULL, toride2jRomInfo, toride2jRomName, NULL, NULL, NULL, NULL, PuzzliInputInfo, Toride2gDIPInfo,
+	toride2gInit, DrvExit, NoZ80Frame, i4x00_draw, DrvScan, &DrvRecalc, 0x1000,
+	320, 224, 4, 3
+};
+
+
+// Toride II (Japan, revision I)
+
+static struct BurnRomInfo toride2jiRomDesc[] = {
+	{ "tr2_ji-5.20e",			0x040000, 0x15906855, 1 | BRF_PRG | BRF_ESS }, //  0 68k Code
+	{ "tr2_ji-6.20c",			0x040000, 0xe71e291e, 1 | BRF_PRG | BRF_ESS }, //  1
+
+	{ "tr2_jb-8.3i",			0x020000, 0x0168f46f, 2 | BRF_PRG | BRF_ESS }, //  2 uPD7810 Code
+
+	{ "tr2_jb-2.14i",			0x080000, 0xb31754dc, 3 | BRF_GRA },           //  3 Graphics
+	{ "tr2_jb-4.18i",			0x080000, 0xa855c3fa, 3 | BRF_GRA },           //  4
+	{ "tr2_jb-1.12i",			0x080000, 0x856f40b7, 3 | BRF_GRA },           //  5
+	{ "tr2_jb-3.16i",			0x080000, 0x78ba205f, 3 | BRF_GRA },           //  6
+
+	{ "tr2_ja_7.3g",			0x020000, 0x6ee32315, 4 | BRF_SND },           //  7 MSM6295 Samples
+};
+
+STD_ROM_PICK(toride2ji)
+STD_ROM_FN(toride2ji)
+
+struct BurnDriver BurnDrvToride2ji = {
+	"toride2ji", "toride2g", NULL, NULL, "1994",
+	"Toride II (Japan, revision I)\0", "No sound", "Metro", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_MAHJONG, 0,
+	NULL, toride2jiRomInfo, toride2jiRomName, NULL, NULL, NULL, NULL, PuzzliInputInfo, Toride2gDIPInfo,
 	toride2gInit, DrvExit, NoZ80Frame, i4x00_draw, DrvScan, &DrvRecalc, 0x1000,
 	320, 224, 4, 3
 };

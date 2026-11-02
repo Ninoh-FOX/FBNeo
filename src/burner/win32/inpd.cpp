@@ -12,6 +12,20 @@ int bClearInputIgnoreCheckboxMessage = 0;		// For clear input on afire macro.
 
 static int bInittingCheckboxes = 0;
 
+static HWND hToolTipWnd = NULL;
+
+#if 0
+// experi-mental stuff
+#define TRBN_FIRST (0U-1501U)
+#define TRBN_THUMBPOSCHANGING (TRBN_FIRST-1)
+
+  typedef struct tagTRBTHUMBPOSCHANGING {
+    NMHDR hdr;
+    DWORD dwPos;
+    int nReason;
+  } NMTRBTHUMBPOSCHANGING,*PNMTRBTHUMBPOSCHANGING;
+#endif
+
 // Update which input is using which PC input
 static int InpdUseUpdate()
 {
@@ -606,59 +620,13 @@ static int InitAnalogOptions(int nGi, int nPci)
 	return 0;
 }
 
-INT32 HardwarePresetWrite(FILE* h)
-{
-	// Write input types
-	for (UINT32 i = 0; i < nGameInpCount; i++) {
-		TCHAR* szName = NULL;
-		INT32 nPad = 0;
-		szName = InputNumToName(i);
-		_ftprintf(h, _T("input  \"%s\" "), szName);
-		nPad = 16 - _tcslen(szName);
-		for (INT32 j = 0; j < nPad; j++) {
-			_ftprintf(h, _T(" "));
-		}
-		_ftprintf(h, _T("%s\n"), InpToString(GameInp + i));
-	}
-
-	_ftprintf(h, _T("\n"));
-
-	struct GameInp* pgi = GameInp + nGameInpCount;
-	for (UINT32 i = nGameInpCount; i < nGameInpCount + nMacroCount; i++, pgi++) {
-		INT32 nPad = 0;
-
-		if (pgi->nInput & GIT_GROUP_MACRO) {
-			switch (pgi->nInput) {
-			case GIT_MACRO_AUTO:									// Auto-assigned macros
-				if (pgi->Macro.nSysMacro == 15) { // Autofire magic number
-					_ftprintf(h, _T("afire  \"%hs\"\n"), pgi->Macro.szName);  // Create autofire (afire) tag
-				}
-				_ftprintf(h, _T("macro  \"%hs\" "), pgi->Macro.szName);
-				break;
-			case GIT_MACRO_CUSTOM:									// Custom macros
-				_ftprintf(h, _T("custom \"%hs\" "), pgi->Macro.szName);
-				break;
-			default:												// Unknown -- ignore
-				continue;
-			}
-
-			nPad = 16 - strlen(pgi->Macro.szName);
-			for (INT32 j = 0; j < nPad; j++) {
-				_ftprintf(h, _T(" "));
-			}
-			_ftprintf(h, _T("%s\n"), InpMacroToString(pgi));
-		}
-	}
-
-	return 0;
-}
-
 static void SaveHardwarePreset()
 {
 	TCHAR *szFileName = _T("config\\presets\\preset.ini");
 	TCHAR *szHardwareString = _T("Generic hardware");
 
-	int nHardwareFlag = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK);
+	int nHardwareFlag = GameInputGetHWFlag();
+	bool bSaveDIPs = false;
 
 	// See if nHardwareFlag belongs to any systems (nes.ini, neogeo.ini, etc) in gamehw_config (see: burner/gami.cpp)
 	for (INT32 i = 0; gamehw_cfg[i].ini[0] != '\0'; i++) {
@@ -667,6 +635,7 @@ static void SaveHardwarePreset()
 			{
 				szFileName = gamehw_cfg[i].ini;
 				szHardwareString = gamehw_cfg[i].system;
+				bSaveDIPs = gamehw_cfg[i].dips_in_preset;
 				break;
 			}
 		}
@@ -677,7 +646,7 @@ static void SaveHardwarePreset()
 		_ftprintf(fp, _T(APP_TITLE) _T(" - Hardware Default Preset\n\n"));
 		_ftprintf(fp, _T("%s\n\n"), szHardwareString);
 		_ftprintf(fp, _T("version 0x%06X\n\n"), nBurnVer);
-		HardwarePresetWrite(fp);
+		GameInpWrite(fp, bSaveDIPs);
 		fclose(fp);
 	}
 
@@ -758,10 +727,49 @@ int UsePreset(bool bMakeDefault)
 	return 0;
 }
 
+static HICON hIcon = NULL;
+
+static void ToolTipAndIconInit()
+{
+	// re-detect controllers (magnify glass) icon
+	hIcon = (HICON)LoadImage(hAppInst, MAKEINTRESOURCE(IDI_INPD_DETECT_GAMEPADS), IMAGE_ICON, 25, 25, 0);
+	SendDlgItemMessage(hInpdDlg, IDC_INPD_DETECT_GAMEPADS, BM_SETIMAGE, (WPARAM)IMAGE_ICON, (LPARAM)hIcon);
+
+	// Pop-up bubble (tooltip) for the "re-detect controllers" icon   - dink (dec. 2025)
+	hToolTipWnd = CreateWindow(TOOLTIPS_CLASS, NULL, WS_POPUP, 0,0,0,0, hInpdDlg, NULL, hAppInst, 0);
+
+	if (hToolTipWnd == NULL) return;
+
+	TOOLINFO toolinfo;
+	memset(&toolinfo, 0, sizeof(TOOLINFO));
+
+	toolinfo.cbSize = sizeof(TOOLINFO);
+	toolinfo.hwnd = hInpdDlg;
+	toolinfo.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+	toolinfo.uId = (UINT_PTR)GetDlgItem(hInpdDlg, IDC_INPD_DETECT_GAMEPADS);
+	toolinfo.hinst = NULL;
+	toolinfo.lpszText = FBALoadStringEx(hAppInst, IDS_INPUT_DETECT_GAMEPADS, true);
+
+	SendMessage(hToolTipWnd, TTM_ACTIVATE, TRUE, 0);
+	SendMessage(hToolTipWnd, TTM_ADDTOOL, 0, (LPARAM)&toolinfo);
+}
+
+static void ToolTipAndIconExit()
+{
+	// Icon clean-up
+	DestroyIcon((HICON)hIcon);
+
+	// ToolTip cleanup
+	// Nothing to do here!
+
+	// Note: the tooltip window handle is automatically cleaned up
+	// by the tooltip's parent window, 'hInpdDlg', is destroyed.
+}
+
 static void SliderInit() // Analog sensitivity slider
 {
 	// Initialise slider
-	SendDlgItemMessage(hInpdDlg, IDC_INPD_ANSLIDER, TBM_SETRANGE, (WPARAM)0, (LPARAM)MAKELONG(0x40, 0x0400));
+	SendDlgItemMessage(hInpdDlg, IDC_INPD_ANSLIDER, TBM_SETRANGE, (WPARAM)0, (LPARAM)MAKELONG(0x01, 0x0400));
 	SendDlgItemMessage(hInpdDlg, IDC_INPD_ANSLIDER, TBM_SETLINESIZE, (WPARAM)0, (LPARAM)0x05);
 	SendDlgItemMessage(hInpdDlg, IDC_INPD_ANSLIDER, TBM_SETPAGESIZE, (WPARAM)0, (LPARAM)0x10);
 	SendDlgItemMessage(hInpdDlg, IDC_INPD_ANSLIDER, TBM_SETTIC, (WPARAM)0, (LPARAM)0x0100);
@@ -798,8 +806,8 @@ static void SliderUpdate()
 
 	if (bValid) {
 		nValue = _tcstol(szText, NULL, 0);
-		if (nValue < 25) {
-			nValue = 25;
+		if (nValue < 1) {
+			nValue = 1;
 		} else {
 			if (nValue > 400) {
 				nValue = 400;
@@ -820,8 +828,8 @@ static void SliderExit()
 
 	SendDlgItemMessage(hInpdDlg, IDC_INPD_ANEDIT, WM_GETTEXT, (WPARAM)16, (LPARAM)szText);
 	nVal = _tcstol(szText, NULL, 0);
-	if (nVal < 25) {
-		nVal = 25;
+	if (nVal < 1) {
+		nVal = 1;
 	} else {
 		if (nVal > 400) {
 			nVal = 400;
@@ -836,6 +844,8 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 {
 	if (Msg == WM_INITDIALOG) {
 		hInpdDlg = hDlg;
+
+		ToolTipAndIconInit();
 		InpdInit();
 		SliderInit();
 		if (!kNetGame && bAutoPause) {
@@ -847,6 +857,7 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 
 	if (Msg == WM_CLOSE) {
 		SliderExit();
+		ToolTipAndIconExit();
 		EnableWindow(hScrnWnd, TRUE);
 		DestroyWindow(hInpdDlg);
 		return 0;
@@ -861,6 +872,12 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 		int Id = LOWORD(wParam);
 		int Notify = HIWORD(wParam);
 
+		if (Id == IDC_INPD_DETECT_GAMEPADS && Notify == BN_CLICKED) {
+			// re-init directinput (detect gamepads)
+			InputExit();
+			InputInit();
+			return 0;
+		}
 		if (Id == IDOK && Notify == BN_CLICKED) {
 			ListItemActivate();
 			return 0;
@@ -1010,7 +1027,21 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 	if (Msg == WM_NOTIFY && lParam != 0) {
 		int Id = LOWORD(wParam);
 		NMHDR* pnm = (NMHDR*)lParam;
+#if 0
+		// save for later -dink
+		if (pnm->code == TRBN_THUMBPOSCHANGING) {
+			PNMTRBTHUMBPOSCHANGING pnmh = (PNMTRBTHUMBPOSCHANGING)lParam;
+			int originalPos = pnmh->dwPos;
+			int snappedPos = originalPos + 0x20;
 
+			if (snappedPos != originalPos) {
+				bprintf(0, _T("snappy dappy %x -> %x\n"), originalPos, snappedPos);
+				SendDlgItemMessage(hInpdDlg, IDC_INPD_ANSLIDER, TBM_SETPOS, (WPARAM)true, (LPARAM)snappedPos);
+				return TRUE;
+			}
+			return FALSE;
+		}
+#endif
 		if (Id == IDC_INPD_LIST && pnm->code == LVN_ITEMACTIVATE) {
 			ListItemActivate();
 		}

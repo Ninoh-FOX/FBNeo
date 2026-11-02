@@ -357,7 +357,7 @@ static struct BurnDIPInfo BaddudesDIPList[]=
 	{0x01, 0x01, 0x0c, 0x04, "Hard"                   },
 	{0x01, 0x01, 0x0c, 0x00, "Hardest"                },
 	
-	{0   , 0xfe, 0   , 2   , "Allow continue"         },
+	{0   , 0xfe, 0   , 2   , "Show Continue Message"  },
 	{0x01, 0x01, 0x10, 0x10, "Yes"                    },
 	{0x01, 0x01, 0x10, 0x00, "No"                     },
 };
@@ -1277,12 +1277,12 @@ STD_ROM_PICK(Hbarrel)
 STD_ROM_FN(Hbarrel)
 
 
-// Heavy Barrel (US)
+// Heavy Barrel (US, revision 3)
 // DE-0297-1 main board, DE-0299-0 sub/rom board 
 
 static struct BurnRomInfo HbarreluRomDesc[] = {
-	{ "heavy_barrel_04.3c", 	0x10000, 0x4877b09e, BRF_ESS | BRF_PRG },	//  0	68000 Program Code
-	{ "heavy_barrel_01.3a", 	0x10000, 0x8b41c219, BRF_ESS | BRF_PRG },	//  1
+	{ "heavy_barrel_04-3u.3c", 	0x10000, 0xc8d26d56, BRF_ESS | BRF_PRG },	//  0	68000 Program Code
+	{ "heavy_barrel_01-3u.3a", 	0x10000, 0xae05753e, BRF_ESS | BRF_PRG },	//  1
 	{ "heavy_barrel_05.4c", 	0x10000, 0x2087d570, BRF_ESS | BRF_PRG },	//  2
 	{ "heavy_barrel_02.4a", 	0x10000, 0x815536ae, BRF_ESS | BRF_PRG },	//  3
 	{ "heavy_barrel_06.6c", 	0x10000, 0xda4e3fbc, BRF_ESS | BRF_PRG },	//  4
@@ -1326,6 +1326,56 @@ static struct BurnRomInfo HbarreluRomDesc[] = {
 
 STD_ROM_PICK(Hbarrelu)
 STD_ROM_FN(Hbarrelu)
+
+
+// Heavy Barrel (US, revision 1)
+
+static struct BurnRomInfo HbarreluaRomDesc[] = {
+	{ "heavy_barrel_04-1.3c", 	0x10000, 0x4877b09e, BRF_ESS | BRF_PRG },	//  0	68000 Program Code
+	{ "heavy_barrel_01-1.3a", 	0x10000, 0x8b41c219, BRF_ESS | BRF_PRG },	//  1
+	{ "heavy_barrel_05.4c", 	0x10000, 0x2087d570, BRF_ESS | BRF_PRG },	//  2
+	{ "heavy_barrel_02.4a", 	0x10000, 0x815536ae, BRF_ESS | BRF_PRG },	//  3
+	{ "heavy_barrel_06.6c", 	0x10000, 0xda4e3fbc, BRF_ESS | BRF_PRG },	//  4
+	{ "heavy_barrel_03.6a", 	0x10000, 0x7fed7c46, BRF_ESS | BRF_PRG },	//  5
+	
+	{ "heavy_barrel_07.8a", 	0x08000, 0xa127f0f7, BRF_ESS | BRF_PRG },	//  6	6502 Program 	
+	
+	{ "heavy_barrel_25.15h",	0x10000, 0x8649762c, BRF_GRA },				//  7	Characters
+	{ "heavy_barrel_26.16h",    0x10000, 0xf8189bbd, BRF_GRA },				//  8
+	
+	{ "heavy_barrel_18.14d",    0x10000, 0xef664373, BRF_GRA },				//  9	Tiles 1
+	{ "heavy_barrel_17.12d",    0x10000, 0xa4f186ac, BRF_GRA },				// 10
+	{ "heavy_barrel_20.17d",    0x10000, 0x2fc13be0, BRF_GRA },				// 11
+	{ "heavy_barrel_19.15d",    0x10000, 0xd6b47869, BRF_GRA },				// 12
+	{ "heavy_barrel_22.14f",    0x10000, 0x50d6a1ad, BRF_GRA },				// 13
+	{ "heavy_barrel_21.12f",    0x10000, 0xf01d75c5, BRF_GRA },				// 14
+	{ "heavy_barrel_24.17f",    0x10000, 0xae377361, BRF_GRA },				// 15
+	{ "heavy_barrel_23.15f",    0x10000, 0xbbdaf771, BRF_GRA },				// 16
+	
+	{ "heavy_barrel_29.8h",     0x10000, 0x5514b296, BRF_GRA },				// 17	Tiles 2
+	{ "heavy_barrel_30.9h",     0x10000, 0x5855e8ef, BRF_GRA },				// 18
+	{ "heavy_barrel_27.8f",     0x10000, 0x99db7b9c, BRF_GRA },				// 19
+	{ "heavy_barrel_28.9f",     0x10000, 0x33ce2b1a, BRF_GRA },				// 20
+	
+	{ "heavy_barrel_15.16c",    0x10000, 0x21816707, BRF_GRA },				// 21	Sprites
+	{ "heavy_barrel_16.17c",    0x10000, 0xa5684574, BRF_GRA },				// 22
+	{ "heavy_barrel_11.16a",    0x10000, 0x5c768315, BRF_GRA },				// 23
+	{ "heavy_barrel_12.17a",    0x10000, 0x8b64d7a4, BRF_GRA },				// 24
+	{ "heavy_barrel_13.13c",    0x10000, 0x56e3ed65, BRF_GRA },				// 25
+	{ "heavy_barrel_14.14c",    0x10000, 0xbedfe7f3, BRF_GRA },				// 26
+	{ "heavy_barrel_09.13a",    0x10000, 0x26240ea0, BRF_GRA },				// 27
+	{ "heavy_barrel_10.14a",    0x10000, 0x47d95447, BRF_GRA },				// 28
+	
+	{ "heavy_barrel_08.2c",     0x10000, 0x645c5b68, BRF_SND },				// 29	Samples
+	
+	{ "heavy_barrel_31.9a", 	0x01000, 0x239d726f, BRF_ESS | BRF_PRG },	// 30	I8751
+	
+	{ "mb7116e.12c",			0x00200, 0x86e775f8, BRF_OPT }, 			// 31 PROMs
+	{ "mb7122e.17e",			0x00400, 0xa5cda23e, BRF_OPT }, 			// 32
+};
+
+STD_ROM_PICK(Hbarrelua)
+STD_ROM_FN(Hbarrelua)
 
 
 // Hippodrome (US)
@@ -2257,7 +2307,7 @@ static INT32 MemIndex()
 	DrvTiles1              = Next; Next += 0x1000 * 16 * 16;
 	DrvTiles2              = Next; Next += 0x0800 * 16 * 16;
 	DrvSprites             = Next; Next += 0x1000 * 16 * 16;
-	DrvPalette             = (UINT32*)Next; Next += 0x00400 * sizeof(UINT32);
+	DrvPalette             = (UINT32*)Next; Next += 0x00401 * sizeof(UINT32);
 
 	pCharLayerDraw         = (UINT16*)Next; Next += (1024 * 256 * sizeof(UINT16));
 	pTile1LayerDraw        = (UINT16*)Next; Next += (1024 * 256 * sizeof(UINT16));
@@ -2371,11 +2421,10 @@ static void deco_bac06_pf_control_0_w(INT32 Layer, UINT16 *Control0, INT32 Offse
 {
 	Offset &= 0x03;
 	
-	Control0[Offset] &= Mask;
-	Control0[Offset] += Data;
+	Control0[Offset] = BURN_ENDIAN_SWAP_INT16((BURN_ENDIAN_SWAP_INT16(Control0[Offset]) & Mask) + Data);
 
 	if (Offset == 2) {
-		DrvTileRamBank[Layer] = Control0[Offset] & 0x01;
+		DrvTileRamBank[Layer] = BURN_ENDIAN_SWAP_INT16(Control0[Offset]) & 0x01;
 	}
 }
 
@@ -2383,23 +2432,21 @@ static void deco_bac06_pf_control_1_w(UINT16 *Control1, INT32 Offset, UINT16 Dat
 {
 	Offset &= 0x07;
 	
-	Control1[Offset] &= Mask;
-	Control1[Offset] += Data;
+	Control1[Offset] = BURN_ENDIAN_SWAP_INT16((BURN_ENDIAN_SWAP_INT16(Control1[Offset]) & Mask) + Data);
 }
 
 static UINT16 deco_bac06_pf_data_r(INT32 Layer, UINT16 *RAM, INT32 Offset, UINT16 Mask)
 {
 	if (DrvTileRamBank[Layer] & 0x01) Offset += 0x1000;
 
-	return RAM[Offset] & Mask;
+	return BURN_ENDIAN_SWAP_INT16(RAM[Offset]) & Mask;
 }
 
 static void deco_bac06_pf_data_w(INT32 Layer, UINT16 *RAM, INT32 Offset, UINT16 Data, UINT16 Mask)
 {
 	if (DrvTileRamBank[Layer] & 0x01) Offset += 0x1000;
 	
-	RAM[Offset] &= Mask;
-	RAM[Offset] += Data;
+	RAM[Offset] = BURN_ENDIAN_SWAP_INT16((BURN_ENDIAN_SWAP_INT16(RAM[Offset]) & Mask) + Data);
 }
 
 // Rotation-handler code
@@ -3244,7 +3291,7 @@ static UINT8 __fastcall Slyspy68KReadByte(UINT32 a)
 			case 0x06: return 0x02;
 			case 0x0c: {
 				UINT16 *mem = (UINT16*)Drv68KRam;
-				return mem[0x2028/2] >> 8;
+				return BURN_ENDIAN_SWAP_INT16(mem[0x2028/2]) >> 8;
 			}
 		}
 		
@@ -3340,7 +3387,7 @@ static UINT16 __fastcall Slyspy68KReadWord(UINT32 a)
 			case 0x06: return 0x02;
 			case 0x0c: {
 				UINT16 *mem = (UINT16*)Drv68KRam;
-				return mem[0x2028/2] >> 8;
+				return BURN_ENDIAN_SWAP_INT16(mem[0x2028/2]) >> 8;
 			}
 		}
 		
@@ -3394,7 +3441,7 @@ static void __fastcall Slyspy68KWriteWord(UINT32 a, UINT16 d)
 		case 0x300004:
 		case 0x300006: {		
 			UINT16 *Control0 = (UINT16*)DrvVideo2Ctrl0Ram;
-			Control0[(a - 0x300000) >> 1] = d;
+			Control0[(a - 0x300000) >> 1] = BURN_ENDIAN_SWAP_INT16(d);
 			if (a == 0x300004) {
 				DrvTileRamBank[2] = d & 0x01;
 				if (DrvTileRamBank[2]) bprintf(PRINT_IMPORTANT, _T("68K Set Tile RAM Bank 2\n"));
@@ -3407,7 +3454,7 @@ static void __fastcall Slyspy68KWriteWord(UINT32 a, UINT16 d)
 		case 0x300014:
 		case 0x300016: {		
 			UINT16 *Control1 = (UINT16*)DrvVideo2Ctrl1Ram;
-			Control1[(a - 0x300010) >> 1] = d;
+			Control1[(a - 0x300010) >> 1] = BURN_ENDIAN_SWAP_INT16(d);
 			return;
 		}
 		
@@ -3501,7 +3548,7 @@ static void __fastcall SlyspyProt68KWriteWord(UINT32 a, UINT16 d)
 		case 0x240004:
 		case 0x240006: {		
 			UINT16 *Control0 = (UINT16*)DrvVideo1Ctrl0Ram;
-			Control0[(a - 0x240000) >> 1] = d;
+			Control0[(a - 0x240000) >> 1] = BURN_ENDIAN_SWAP_INT16(d);
 			if (a == 0x240004) {
 				DrvTileRamBank[1] = d & 0x01;
 				if (DrvTileRamBank[1]) bprintf(PRINT_IMPORTANT, _T("68K Set Tile RAM Bank 1\n"));
@@ -3514,7 +3561,7 @@ static void __fastcall SlyspyProt68KWriteWord(UINT32 a, UINT16 d)
 		case 0x240014:
 		case 0x240016: {		
 			UINT16 *Control1 = (UINT16*)DrvVideo1Ctrl1Ram;
-			Control1[(a - 0x240010) >> 1] = d;
+			Control1[(a - 0x240010) >> 1] = BURN_ENDIAN_SWAP_INT16(d);
 			return;
 		}
 		
@@ -3528,7 +3575,7 @@ static void __fastcall SlyspyProt68KWriteWord(UINT32 a, UINT16 d)
 		case 0x248004:
 		case 0x248006: {		
 			UINT16 *Control0 = (UINT16*)DrvCharCtrl0Ram;
-			Control0[(a - 0x248000) >> 1] = d;
+			Control0[(a - 0x248000) >> 1] = BURN_ENDIAN_SWAP_INT16(d);
 			if (a == 0x248004) {
 				DrvTileRamBank[0] = d & 0x01;
 				if (DrvTileRamBank[0]) bprintf(PRINT_IMPORTANT, _T("68K Set Tile RAM Bank 0\n"));
@@ -3541,7 +3588,7 @@ static void __fastcall SlyspyProt68KWriteWord(UINT32 a, UINT16 d)
 		case 0x248014:
 		case 0x248016: {
 			UINT16 *Control1 = (UINT16*)DrvCharCtrl1Ram;
-			Control1[(a - 0x248010) >> 1] = d;
+			Control1[(a - 0x248010) >> 1] = BURN_ENDIAN_SWAP_INT16(d);
 			return;
 		}
 		
@@ -4441,11 +4488,12 @@ static INT32 HippodrmInit()
 	for (INT32 i = 0x00000; i < 0x10000; i++) {
 		DrvH6280Rom[i] = (DrvH6280Rom[i] & 0x7e) | ((DrvH6280Rom[i] & 0x1) << 7) | ((DrvH6280Rom[i] & 0x80) >> 7);
 	}
+
 	DrvH6280Rom[0x189] = 0x60;
 	DrvH6280Rom[0x1af] = 0x60;
 	DrvH6280Rom[0x1db] = 0x60;
 	DrvH6280Rom[0x21a] = 0x60;
-	
+
 	SekOpen(0);
 	SekMapHandler(1, 0x180000, 0x180fff, MAP_RAM);
 	SekSetReadByteHandler(1, HippodrmShared68KReadByte);
@@ -5538,9 +5586,10 @@ static INT32 HippodrmDraw()
 	UINT16 *Control0 = (UINT16*)DrvCharCtrl0Ram;
 	DrvFlipScreen = BURN_ENDIAN_SWAP_INT16(Control0[0]) & 0x80;
 	
-	BurnTransferClear();
+	BurnTransferClear(0x400);
 	DrvCalcPalette();
-	
+	DrvPalette[0x400] = BurnHighCol(0xa3, 0x49, 0xa4, 0);
+
 	if (DrvPriority & 0x01) {
 		if (nBurnLayer & 1) DrvRenderTile1Layer(1, TILEMAP_BOTH_LAYERS);
 		if (nBurnLayer & 2) DrvRenderTile2Layer(0, TILEMAP_BOTH_LAYERS);
@@ -5998,10 +6047,20 @@ struct BurnDriver BurnDrvHbarrel = {
 
 struct BurnDriver BurnDrvHbarrelu = {
 	"hbarrelu", "hbarrel", NULL, NULL, "1987",
-	"Heavy Barrel (US)\0", NULL, "Data East USA", "DEC0",
+	"Heavy Barrel (US, revision 3)\0", NULL, "Data East USA", "DEC0",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_DATAEAST, GBF_RUNGUN, 0,
 	NULL, HbarreluRomInfo, HbarreluRomName, NULL, NULL, NULL, NULL, HbarrelInputInfo, HbarrelDIPInfo,
+	HbarrelInit, BaddudesExit, DrvFrame, HbarrelDraw, BaddudesScan,
+	NULL, 0x400, 240, 256, 3, 4
+};
+
+struct BurnDriver BurnDrvHbarrelua = {
+	"hbarrelua", "hbarrel", NULL, NULL, "1987",
+	"Heavy Barrel (US, revision 1)\0", NULL, "Data East USA", "DEC0",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_PREFIX_DATAEAST, GBF_RUNGUN, 0,
+	NULL, HbarreluaRomInfo, HbarreluaRomName, NULL, NULL, NULL, NULL, HbarrelInputInfo, HbarrelDIPInfo,
 	HbarrelInit, BaddudesExit, DrvFrame, HbarrelDraw, BaddudesScan,
 	NULL, 0x400, 240, 256, 3, 4
 };

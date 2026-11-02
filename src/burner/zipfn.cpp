@@ -31,7 +31,11 @@ INT32 ZipOpen(char* szZip)
 	Zip = unzOpen(szFileName);
 	if (Zip != NULL) {
 		nFileType = ZIPFN_FILETYPE_ZIP;
-		unzGoToFirstFile(Zip);
+		if (unzGoToFirstFile(Zip) != UNZ_OK) {
+			unzClose(Zip);
+			Zip = NULL; // prevent double-free
+			return 1;
+		}
 		nCurrFile = 0;
 
 		return 0;
@@ -90,14 +94,15 @@ INT32 ZipGetList(struct ZipEntry** pList, INT32* pnListCount)
 
 		unzGetGlobalInfo(Zip, &ZipGlobalInfo);
 		INT32 nListLen = ZipGlobalInfo.number_entry;
+		//bprintf(0, _T("nListLen-zip %d\n"), nListLen);
 
 		// Make an array of File Entries
 		struct ZipEntry* List = (struct ZipEntry *)malloc(nListLen * sizeof(struct ZipEntry));
-		if (List == NULL) { unzClose(Zip); return 1; }
+		if (List == NULL) { unzClose(Zip); Zip = NULL; nFileType = ZIPFN_FILETYPE_NONE; return 1; }
 		memset(List, 0, nListLen * sizeof(struct ZipEntry));
 
 		INT32 nRet = unzGoToFirstFile(Zip);
-		if (nRet != UNZ_OK) { unzClose(Zip); free(List); List = NULL; return 1; }
+		if (nRet != UNZ_OK) { unzClose(Zip); Zip = NULL; nFileType = ZIPFN_FILETYPE_NONE; free(List); List = NULL; return 1; }
 
 		// Step through all of the files, until we get to the end
 		INT32 nNextRet = 0;
@@ -117,11 +122,12 @@ INT32 ZipGetList(struct ZipEntry** pList, INT32* pnListCount)
 			if (szName == NULL) continue;
 
 			nRet = unzGetCurrentFileInfo(Zip, &FileInfo, szName, FileInfo.size_filename + 1, NULL, 0, NULL, 0);
-			if (nRet != UNZ_OK) continue;
+			if (nRet != UNZ_OK) { free(szName); continue; }
 
 			List[nCurrFile].szName = szName;
 			List[nCurrFile].nLen = FileInfo.uncompressed_size;
 			List[nCurrFile].nCrc = FileInfo.crc;
+			//bprintf(0, _T("zip-list: [%S] len %x  crc %x\n"), szName, List[nCurrFile].nLen, List[nCurrFile].nCrc);
 		}
 
 		// return the file list
@@ -138,6 +144,7 @@ INT32 ZipGetList(struct ZipEntry** pList, INT32* pnListCount)
 		size_t tempSize = 0;
 
 		INT32 nListLen = _7ZipFile->db.NumFiles;
+		//bprintf(0, _T("nListLen-7z %d\n"), nListLen);
 
 		// Make an array of File Entries
 		struct ZipEntry* List = (struct ZipEntry *)malloc(nListLen * sizeof(struct ZipEntry));
@@ -146,9 +153,6 @@ INT32 ZipGetList(struct ZipEntry** pList, INT32* pnListCount)
 
 		for (UINT32 i = 0; i < _7ZipFile->db.NumFiles; i++) {
 			size_t len = SzArEx_GetFileNameUtf16(&_7ZipFile->db, i, NULL);
-
-			// if it's a directory entry we don't care about it..
-			if (SzArEx_IsDir(&_7ZipFile->db, i)) continue;
 
 			if (len > tempSize) {
 				SZipFree(NULL, temp);
@@ -176,6 +180,7 @@ INT32 ZipGetList(struct ZipEntry** pList, INT32* pnListCount)
 				szFileName[j + 1] = temp[j] >> 8;
 			}
 
+			//bprintf(0, _T("7z-list: [%S] len %I64x  crc %x\n"), szFileName, size, crc);
 			List[nCurrFile].szName = szFileName;
 			List[nCurrFile].nLen = size;
 			List[nCurrFile].nCrc = crc;
@@ -276,7 +281,7 @@ INT32 __cdecl ZipLoadOneFile(char* arcName, const char* fileName, void** Dest, I
 		}
 
 		INT32 nRet = unzGoToFirstFile(Zip);
-		if (nRet != UNZ_OK) { unzClose(Zip); return 1; }
+		if (nRet != UNZ_OK) { ZipClose(); return 1; }
 
 		unz_file_info FileInfo;
 		memset(&FileInfo, 0, sizeof(FileInfo));

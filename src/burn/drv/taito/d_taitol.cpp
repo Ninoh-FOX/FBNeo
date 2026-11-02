@@ -3294,12 +3294,6 @@ static INT32 Z80x2Frame()
 		BurnSoundDCFilter();
 	}
 
-	if (pBurnDraw) {
-		DrvDraw();
-	}
-
-	memcpy (DrvSprBuf, DrvSprRAM, 0x400);
-
 	return 0;
 }
 
@@ -3337,12 +3331,6 @@ static INT32 Z80x1Frame()
 	if (pBurnSoundOut) {
 		BurnYM2203Update(pBurnSoundOut, nBurnSoundLen);
 	}
-
-	if (pBurnDraw) {
-		DrvDraw();
-	}
-
-	memcpy (DrvSprBuf, DrvSprRAM, 0x400);
 
 	return 0;
 }
@@ -3791,7 +3779,7 @@ struct BurnDriver BurnDrvKurikintj = {
 };
 
 
-// Kuri Kinton (World, prototype?)
+// Kuri Kinton (World, prototype)
 
 static struct BurnRomInfo kurikintaRomDesc[] = {
 	{ "kk_ic2.ic2",		0x20000, 0x908603f2, 1 | BRF_PRG | BRF_ESS }, //  0 main z80 code
@@ -3814,7 +3802,7 @@ STD_ROM_FN(kurikinta)
 
 struct BurnDriver BurnDrvKurikinta = {
 	"kurikinta", "kurikint", NULL, NULL, "1988",
-	"Kuri Kinton (World, prototype?)\0", NULL, "Taito Corporation Japan", "Taito L System",
+	"Kuri Kinton (World, prototype)\0", NULL, "Taito Corporation Japan", "Taito L System",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_PROTOTYPE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_TAITO_MISC, GBF_SCRFIGHT, 0,
 	NULL, kurikintaRomInfo, kurikintaRomName, NULL, NULL, NULL, NULL, FhawkInputInfo, KurikintaDIPInfo,
@@ -4270,10 +4258,10 @@ struct BurnDriver BurnDrvLagirl = {
 };
 
 
-// Play Girls 2
+// Play Girls 2 (Europe)
 
 static struct BurnRomInfo plgirls2RomDesc[] = {
-	{ "pg2_1j.ic6",		0x40000, 0xf924197a, 1 | BRF_PRG | BRF_ESS }, //  0 main z80 code
+	{ "pg2_1e.ic6",		0x40000, 0xb279990b, 1 | BRF_PRG | BRF_ESS }, //  0 main z80 code
 
 	{ "cho-l.ic9",		0x80000, 0x956384ec, 4 | BRF_GRA },           //  1 graphics data
 	{ "cho-h.ic7",		0x80000, 0x992f99b1, 4 | BRF_GRA },           //  2
@@ -4284,7 +4272,7 @@ STD_ROM_FN(plgirls2)
 
 struct BurnDriver BurnDrvPlgirls2 = {
 	"plgirls2", NULL, NULL, NULL, "1993",
-	"Play Girls 2\0", NULL, "Hot-B Co., Ltd.", "Taito L System",
+	"Play Girls 2 (Europe)\0", NULL, "Hot-B Co., Ltd.", "Taito L System",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_TAITO_MISC, GBF_SHOOT, 0,
 	NULL, plgirls2RomInfo, plgirls2RomName, NULL, NULL, NULL, NULL, PlgirlsInputInfo, Plgirls2DIPInfo,
@@ -4293,7 +4281,31 @@ struct BurnDriver BurnDrvPlgirls2 = {
 };
 
 
+// Play Girls 2 (Japan)
+
+static struct BurnRomInfo plgirls2jRomDesc[] = {
+	{ "pg2_1j.ic6",		0x40000, 0xf924197a, 1 | BRF_PRG | BRF_ESS }, //  0 main z80 code
+
+	{ "cho-l.ic9",		0x80000, 0x956384ec, 4 | BRF_GRA },           //  1 graphics data
+	{ "cho-h.ic7",		0x80000, 0x992f99b1, 4 | BRF_GRA },           //  2
+};
+
+STD_ROM_PICK(plgirls2j)
+STD_ROM_FN(plgirls2j)
+
+struct BurnDriver BurnDrvPlgirls2j = {
+	"plgirls2j", "plgirls2", NULL, NULL, "1993",
+	"Play Girls 2 (Japan)\0", NULL, "Hot-B Co., Ltd.", "Taito L System",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_TAITO_MISC, GBF_SHOOT, 0,
+	NULL, plgirls2jRomInfo, plgirls2jRomName, NULL, NULL, NULL, NULL, PlgirlsInputInfo, Plgirls2DIPInfo,
+	PalamedInit, DrvExit, Z80x1Frame, DrvDraw, DrvScan, &DrvRecalc, 0x100,
+	224, 320, 3, 4
+};
+
+
 // Play Girls 2 (bootleg)
+// bootleg based on Europe version
 
 static struct BurnRomInfo plgirls2bRomDesc[] = {
 	{ "playgirls2b.d1",	0x40000, 0xd58159fa, 1 | BRF_PRG | BRF_ESS }, //  0 main z80 code
@@ -4425,7 +4437,7 @@ struct BurnDriver BurnDrvSpeccies = {
 // SQIJ!
 
 static struct BurnRomInfo sqijRomDesc[] = {
-	{ "sqij.ic10",			0x0f000, 0x214ba802, 1 | BRF_PRG | BRF_ESS }, //  0 main z80 code
+	{ "sqij.ic10",			0x0f000, 0x793c8b97, 1 | BRF_PRG | BRF_ESS }, //  0 main z80 code
 
 	{ "sqij.ic9",			0x10000, 0xc4de729b, 4 | BRF_GRA },           //  1 graphics data
 	{ "sqij.ic8",			0x10000, 0x978df42d, 4 | BRF_GRA },           //  2
@@ -4444,4 +4456,30 @@ struct BurnDriver BurnDrvSquij = {
 	NULL, sqijRomInfo, sqijRomName, NULL, NULL, NULL, NULL, PlottingInputInfo, PlottingDIPInfo,
 	PlottingInit, DrvExit, Z80x1Frame, DrvDraw, DrvScan, &DrvRecalc, 0x100,
 	320, 224, 4, 3
+};
+
+
+// Jetpac (HB)
+// https://tardis.dk/wordpress/?page_id=1930
+
+static struct BurnRomInfo jetpacRomDesc[] = {
+    { "jp-ic10",                  0x0f000, 0xf06281c4, 1 | BRF_PRG | BRF_ESS }, //  0 main z80 code
+
+    { "jp-b96-07.ic9",            0x10000, 0x83e284a4, 4 | BRF_GRA },           //  1 graphics data
+    { "jp-b96-08.ic8",            0x10000, 0xd714c279, 4 | BRF_GRA },           //  2
+
+    { "jp-gal16v8-b86-04.bin",    0x00117, 0xbf8c0ea0, 0 | BRF_OPT },           //  3 plds
+};
+
+STD_ROM_PICK(jetpac)
+STD_ROM_FN(jetpac)
+
+struct BurnDriver BurnDrvJetpac = {
+    "jetpac", NULL, NULL, NULL, "2026",
+    "Jetpac (HB)\0", NULL, "Tardis Remakes", "Taito L System",
+    NULL, NULL, NULL, NULL,
+    BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_TAITO_MISC, GBF_ACTION, 0,
+    NULL, jetpacRomInfo, jetpacRomName, NULL, NULL, NULL, NULL, PlottingInputInfo, PlottingDIPInfo,
+    PlottingInit, DrvExit, Z80x1Frame, DrvDraw, DrvScan, &DrvRecalc, 0x100,
+    320, 224, 4, 3
 };

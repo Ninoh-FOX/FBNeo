@@ -1,11 +1,18 @@
 // FB Alpha Sega Vic Dual driver module
 // Based on MAME driver by Zsolt Vasvari
 
+
 /*
     finished:
 		carnival (w/sound)
 		heiankyo alien (w/sound)
 		nsub (w/sound)
+		digger (w/sound)
+		depthch (w/sound)
+		invds [invinco / deep scan] (w/sound)
+		invinco (w/sound)
+		tranqgun (w/sound)
+		brdrline (w/sound)
 
 	to do:
 	  	all the others
@@ -30,12 +37,14 @@ static UINT8 *DrvVidRAM;
 static UINT32 *DrvPalette;
 static UINT8 DrvRecalc;
 
+static ButtonToggle Select;
+
 static UINT8 coin_status;
 static INT32 coin_timer;
 static UINT8 coin_last;
 
 static UINT8 palette_bank;
-static UINT8 samurai_protection;
+static UINT8 protection;
 // sound
 static UINT8 port1_state;
 static UINT8 port2_state;
@@ -54,10 +63,13 @@ static INT32 nExtraCycles[1];
 
 static INT32 carnival_sound = 0;
 static INT32 is_nsub = 0;
+static INT32 is_invds = 0;
+static INT32 is_invho2 = 0;
+static INT32 is_tranqgun = 0;
 
 static struct BurnInputInfo Invho2InputList[] = {
-	{"Game Select",		BIT_DIGITAL,	DrvJoy5 + 4,	"p1 fire 2"	},
 	{"P1 Coin",			BIT_DIGITAL,	DrvJoy1 + 0,	"p1 coin"	},
+	{"P1 Select",		BIT_DIGITAL,	DrvJoy5 + 4,	"p1 select"	},
 	{"P1 Start",		BIT_DIGITAL,	DrvJoy4 + 4,	"p1 start"	},
 	{"P1 Up",			BIT_DIGITAL,	DrvJoy2 + 5,	"p1 up"		},
 	{"P1 Down",			BIT_DIGITAL,	DrvJoy2 + 4,	"p1 down"	},
@@ -187,6 +199,8 @@ static struct BurnInputInfo DiggerInputList[] = {
 	{"P1 Button 1",		BIT_DIGITAL,	DrvJoy2 + 2,	"p1 fire 1"	},
 	{"P1 Button 2",		BIT_DIGITAL,	DrvJoy2 + 3,	"p1 fire 2"	},
 
+	{"P2 Start",		BIT_DIGITAL,	DrvJoy2 + 1,	"p2 start"	},
+
 	{"Reset",			BIT_DIGITAL,	&DrvReset,		"reset"		},
 	{"Dip A",			BIT_DIPSWITCH,	DrvDips + 0,	"dip"		},
 };
@@ -195,12 +209,14 @@ STDINPUTINFO(Digger)
 
 static struct BurnInputInfo InvdsInputList[] = {
 	{"P1 Coin",			BIT_DIGITAL,	DrvJoy1 + 0,	"p1 coin"	},
+	{"P1 Select",		BIT_DIGITAL,	DrvJoy5 + 4,	"p1 select"	},
 	{"P1 Start",		BIT_DIGITAL,	DrvJoy4 + 4,	"p1 start"	},
 	{"P1 Left",			BIT_DIGITAL,	DrvJoy3 + 4,	"p1 left"	},
 	{"P1 Right",		BIT_DIGITAL,	DrvJoy3 + 5,	"p1 right"	},
 	{"P1 Button 1",		BIT_DIGITAL,	DrvJoy2 + 5,	"p1 fire 1"	},
 	{"P1 Button 2",		BIT_DIGITAL,	DrvJoy4 + 5,	"p1 fire 2"	},
-	{"P1 Button 3",		BIT_DIGITAL,	DrvJoy5 + 4,	"p1 fire 3"	},
+
+	{"P2 Start",		BIT_DIGITAL,	DrvJoy5 + 5,	"p2 start"	},
 
 	{"Reset",			BIT_DIGITAL,	&DrvReset,		"reset"		},
 	{"Dip A",			BIT_DIPSWITCH,	DrvDips + 0,	"dip"		},
@@ -215,6 +231,8 @@ static struct BurnInputInfo InvincoInputList[] = {
 	{"P1 Left",			BIT_DIGITAL,	DrvJoy2 + 6,	"p1 left"	},
 	{"P1 Right",		BIT_DIGITAL,	DrvJoy2 + 4,	"p1 right"	},
 	{"P1 Button 1",		BIT_DIGITAL,	DrvJoy2 + 3,	"p1 fire 1"	},
+
+	{"P2 Start",		BIT_DIGITAL,	DrvJoy2 + 1,	"p2 start"	},
 
 	{"Reset",			BIT_DIGITAL,	&DrvReset,		"reset"		},
 	{"Dip A",			BIT_DIPSWITCH,	DrvDips + 0,	"dip"		},
@@ -629,50 +647,53 @@ STDDIPINFO(Pulsar)
 
 static struct BurnDIPInfo DiggerDIPList[]=
 {
-	{0x09, 0xff, 0xff, 0x63, NULL						},
+	DIP_OFFSET(0x0a)
+	{0x00, 0xff, 0xff, 0x63, NULL						},
 
 	{0   , 0xfe, 0   ,    4, "Lives"					},
-	{0x09, 0x01, 0x03, 0x03, "3"						},
-	{0x09, 0x01, 0x03, 0x02, "4"						},
-	{0x09, 0x01, 0x03, 0x01, "5"						},
-	{0x09, 0x01, 0x03, 0x00, "6"						},
+	{0x00, 0x01, 0x03, 0x03, "3"						},
+	{0x00, 0x01, 0x03, 0x02, "4"						},
+	{0x00, 0x01, 0x03, 0x01, "5"						},
+	{0x00, 0x01, 0x03, 0x00, "6"						},
 };
 
 STDDIPINFO(Digger)
 
 static struct BurnDIPInfo InvdsDIPList[]=
 {
-	{0x08, 0xff, 0xff, 0x10, NULL						},
-	{0x09, 0xff, 0xff, 0x07, NULL						},
+	DIP_OFFSET(0x09)
+	{0x00, 0xff, 0xff, 0x08, NULL						},
+	{0x01, 0xff, 0xff, 0x08, NULL						},
 
 	{0   , 0xfe, 0   ,    2, "Unused"					},
-	{0x08, 0x01, 0x08, 0x08, "Off"						},
-	{0x08, 0x01, 0x08, 0x00, "On"						},
+	{0x00, 0x01, 0x08, 0x08, "Off"						},
+	{0x00, 0x01, 0x08, 0x00, "On"						},
 	
 	{0   , 0xfe, 0   ,    4, "Invinco Lives"			},
-	{0x09, 0x01, 0x03, 0x03, "3"						},
-	{0x09, 0x01, 0x03, 0x02, "4"						},
-	{0x09, 0x01, 0x03, 0x01, "5"						},
-	{0x09, 0x01, 0x03, 0x00, "6"						},
+	{0x01, 0x01, 0x03, 0x00, "3"						},
+	{0x01, 0x01, 0x03, 0x01, "4"						},
+	{0x01, 0x01, 0x03, 0x02, "5"						},
+	{0x01, 0x01, 0x03, 0x03, "6"						},
 
 	{0   , 0xfe, 0   ,    4, "Deep Scan Lives"			},
-	{0x09, 0x01, 0x0c, 0x08, "2"						},
-	{0x09, 0x01, 0x0c, 0x04, "3"						},
-	{0x09, 0x01, 0x0c, 0x00, "4"						},
-	{0x09, 0x01, 0x0c, 0x0c, "5"						},
+	{0x01, 0x01, 0x0c, 0x04, "2"						},
+	{0x01, 0x01, 0x0c, 0x08, "3"						},
+	{0x01, 0x01, 0x0c, 0x0c, "4"						},
+	{0x01, 0x01, 0x0c, 0x00, "5"						},
 };
 
 STDDIPINFO(Invds)
 
 static struct BurnDIPInfo InvincoDIPList[]=
 {
-	{0x06, 0xff, 0xff, 0x60, NULL						},
+	DIP_OFFSET(0x07)
+	{0x00, 0xff, 0xff, 0x60, NULL						},
 
 	{0   , 0xfe, 0   ,    4, "Lives"					},
-	{0x06, 0x01, 0x03, 0x00, "3"						},
-	{0x06, 0x01, 0x03, 0x01, "4"						},
-	{0x06, 0x01, 0x03, 0x02, "5"						},
-	{0x06, 0x01, 0x03, 0x03, "6"						},
+	{0x00, 0x01, 0x03, 0x00, "3"						},
+	{0x00, 0x01, 0x03, 0x01, "4"						},
+	{0x00, 0x01, 0x03, 0x02, "5"						},
+	{0x00, 0x01, 0x03, 0x03, "6"						},
 };
 
 STDDIPINFO(Invinco)
@@ -728,7 +749,7 @@ STDDIPINFO(Startrks)
 
 static struct BurnDIPInfo BrdrlineDIPList[]=
 {
-	{0x0e, 0xff, 0xff, 0x05, NULL						},
+	{0x0e, 0xff, 0xff, 0x11, NULL						},
 
 	{0   , 0xfe, 0   ,    4, "Lives"					},
 	{0x0e, 0x01, 0x07, 0x01, "3"						},
@@ -1009,10 +1030,15 @@ static UINT8 __fastcall invho2_read_port(UINT16 port)
 	return 0;
 }
 
-static void __fastcall depthch_write_port(UINT16 port, UINT8 /*data*/)
-{
+static void DeepscanSoundWrite1(UINT16 port, UINT8 data); // forward for now..
+static void DepthchSoundWrite1(UINT16 port, UINT8 data); // forward for now..
+static void InvincoSoundWrite1(UINT16 port, UINT8 data); // forward for now..
+static void BrdrlineSoundWrite1(UINT16 port, UINT8 data); // forward for now..
+
+static void __fastcall depthch_write_port(UINT16 port, UINT8 data)
+{ //  bprintf(0, _T("wp %x  %x\n"), port, data);
 	if (port & 1) coin_status = 1;
-//	if (port & 4) depthch_audio_w
+	if (port & 4) DepthchSoundWrite1(port, data);
 }
 
 static UINT8 __fastcall depthch_read_port(UINT16 port)
@@ -1081,6 +1107,9 @@ static UINT8 __fastcall alphaho_read_port(UINT16 port)
 
 static void HeiankyoSoundWrite1(UINT16 port, UINT8 data); // forward for now..
 static void HeiankyoSoundWrite2(UINT16 port, UINT8 data);
+static void DiggerSoundWrite1(UINT16 port, UINT8 data); // forward for now..
+static void DiggerSoundWrite2(UINT16 port, UINT8 data);
+static void DepthchSoundWrite1(UINT16 port, UINT8 data); // forward for now..
 
 static void __fastcall heiankyo_write_port(UINT16 port, UINT8 data)
 {
@@ -1139,9 +1168,8 @@ static UINT8 __fastcall pulsar_read_port(UINT16 port)
 static void __fastcall digger_write_port(UINT16 port, UINT8 data)
 {
 	if (port & 0x01) coin_status = 1;
-//	if (port & 0x02) // sound
-	if (port & 0x04) palette_bank = data & 3;
-//	if (port & 0x18) nop
+	if (port & 0x02) DiggerSoundWrite1(port, data);
+	if (port & 0x04) DiggerSoundWrite2(port, data); // & palette
 }
 
 static UINT8 __fastcall digger_read_port(UINT16 port)
@@ -1158,8 +1186,8 @@ static UINT8 __fastcall digger_read_port(UINT16 port)
 
 static void __fastcall invds_write_port(UINT16 port, UINT8 data)
 {
-//	if (port & 0x01) // audio
-//	if (port & 0x02) // audio
+	if (port & 0x01) InvincoSoundWrite1(port, data);
+	if (port & 0x02) DeepscanSoundWrite1(port, data);
 	if (port & 0x08) coin_status = 1;
 	if (port & 0x40) palette_bank = data & 3;
 }
@@ -1169,16 +1197,16 @@ static UINT8 __fastcall invds_read_port(UINT16 port)
 	switch (port & 3)
 	{
 		case 0x00:
-			return (DrvInputs[0] & ~0x0c) | ((DrvDips[0] & 1) ? 4 : 0);
+			return (DrvInputs[0] & ~0x0c) | ((DrvDips[1] & 1) ? 4 : 0) | (DrvDips[0] & 8);
 
 		case 0x01:
-			return (DrvInputs[1] & ~0x0c) | ((DrvDips[0] & 2) ? 4 : 0) | get_composite_blank_comp(8);
+			return (DrvInputs[1] & ~0x0c) | ((DrvDips[1] & 2) ? 4 : 0) | get_composite_blank_comp(8);
 
 		case 0x02:
-			return (DrvInputs[2] & ~0x0c) | ((DrvDips[0] & 4) ? 4 : 0) | get_timer_value(8);
+			return (DrvInputs[2] & ~0x0c) | ((DrvDips[1] & 4) ? 4 : 0) | get_timer_value(8);
 
 		case 0x03:
-			return (DrvInputs[3] & ~0x0c) | ((DrvDips[0] & 8) ? 4 : 0) | get_coin_status(8);
+			return (DrvInputs[3] & ~0x0c) | ((DrvDips[1] & 8) ? 4 : 0) | get_coin_status(8);
 	}
 
 	return 0;
@@ -1187,7 +1215,7 @@ static UINT8 __fastcall invds_read_port(UINT16 port)
 static void __fastcall invinco_write_port(UINT16 port, UINT8 data)
 {
 	if (port & 0x01) coin_status = 1;
-//	if (port & 0x02) // audio
+	if (port & 0x02) InvincoSoundWrite1(port, data);
 	if (port & 0x04) palette_bank = data & 3;
 }
 
@@ -1203,13 +1231,31 @@ static UINT8 __fastcall invinco_read_port(UINT16 port)
 static void __fastcall samurai_write(UINT16 address, UINT8 data)
 {
 	if (address < 0x8000) {
-		samurai_protection = 0;
+		protection = 0;
 		if (data == 0xab) {
-			samurai_protection = 0x02;
+			protection = 0x02;
 		} else if (data == 0x1d) {
-			samurai_protection = 0x0c;
+			protection = 0x0c;
 		}
 	}
+}
+
+static void __fastcall tranqgun_write(UINT16 address, UINT8 data)
+{
+	bprintf(0, _T("tranqgun prot_write %x  %x\n"), address, data);
+	if (address == 0x4000) {
+		switch (data) {
+			case 0xd8: protection = 0x02; break;
+			case 0x3a: protection = 0x01; break;
+			case 0x6a: protection = 0x06; break;
+		}
+	}
+}
+
+static UINT8 __fastcall tranqgun_read(UINT16 address)
+{
+	bprintf(0, _T("tranqgun prot_read %x\n"), address);
+	return (address == 0x7800) ? protection : 0x00;
 }
 
 static void __fastcall samurai_write_port(UINT16 port, UINT8 data)
@@ -1227,13 +1273,13 @@ static UINT8 __fastcall samurai_read_port(UINT16 port)
 			return (DrvInputs[0] & ~0x0c) | (DrvDips[0] & 0x0c);
 
 		case 0x01:
-			return (DrvInputs[1] & ~0x0e) | (samurai_protection & 2) | get_composite_blank_comp(8);
+			return (DrvInputs[1] & ~0x0e) | (protection & 2) | get_composite_blank_comp(8);
 
 		case 0x02:
-			return (DrvInputs[2] & ~0x0e) | ((samurai_protection >> 1) & 2) | get_timer_value(8);
+			return (DrvInputs[2] & ~0x0e) | ((protection >> 1) & 2) | get_timer_value(8);
 
 		case 0x03:
-			return (DrvInputs[3] & ~0x0e) | ((samurai_protection >> 2) & 2) | get_coin_status(8);
+			return (DrvInputs[3] & ~0x0e) | ((protection >> 2) & 2) | get_coin_status(8);
 	}
 
 	return 0;
@@ -1241,7 +1287,7 @@ static UINT8 __fastcall samurai_read_port(UINT16 port)
 
 static void __fastcall tranqgun_write_port(UINT16 port, UINT8 data)
 {
-//	if (port & 0x01) // audio
+	if (port & 0x01) BrdrlineSoundWrite1(port, data);
 	if (port & 0x02) palette_bank = data & 3;
 	if (port & 0x08) coin_status = 1;
 }
@@ -1299,7 +1345,7 @@ static UINT8 __fastcall supcrash_read_port(UINT16 port)
 
 static void __fastcall brdrline_write_port(UINT16 port, UINT8 data)
 {
-//	if (port & 0x01) // audio
+	if (port & 0x01) BrdrlineSoundWrite1(port, data);
 	if (port & 0x02) palette_bank = data & 3; /* audio */
 	if (port & 0x08) coin_status = 1;
 }
@@ -1542,7 +1588,7 @@ static INT32 DrvDoReset()
 	coin_status = 0;
 	coin_timer = 0;
 	palette_bank = 0;
-	samurai_protection = 0;
+	protection = 0;
 
 	port1_state = (is_nsub) ? 0xff : 0x00;
 	port2_state = 0x00;
@@ -1639,11 +1685,43 @@ static INT32 DrvLoadRoms()
 	return 0;
 }
 
+// general purpose timer, use differently by different games.
+static INT32 sound_timer = 0;
+
+// brdrline & tranqgun sample player
+static void BrdrlineSoundWrite1(UINT16 port, UINT8 data)
+{
+	UINT8 Low  = (port1_state ^ data) & ~data;
+	UINT8 High = (port1_state ^ data) & data;
+//	if (Low || High) bprintf(0, _T("p1 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
+
+	port1_state = data;
+
+	if (Low & 0x80) splay(0, 0.25); // gun
+
+	if (Low & 0x40) splay(1, 0.25, true, true);	// jeep
+	if (High & 0x40) sstop(1);
+
+	if (Low & 0x20) splay(2, 0.25); // point
+	if (Low & 0x10) splay(3, 0.25); // hit
+	if (Low & 0x08) splay(4, 0.25); // emar
+
+	if (Low & 0x04) splay(5, 0.25);	// walk 0
+	if (High & 0x04) splay(6, 0.25); // walk 1
+
+	if (Low & 0x02) splay(7, 0.25); // cry
+
+	// this is special: when your time is up, the animals go full-zombie mode
+	// and all at once try to kill you.  Each time this sound plays, the pitch
+	// goes up a little bit.  after a few seconds, it returns to the normal
+	// pitch.  (see: sound_timer in DrvFrame())
+	if (Low & 0x01) splayex(8, 0.25, 100 + (sound_timer / 2), false, false); // animal (time out)
+	if (High & 0x01) sound_timer += 3;
+}
+
 // Heiankyo Alien sound logic. -dink sept. 2021
 #define PLAYING(x) (BurnSampleGetStatus(x) == SAMPLE_PLAYING)
 #define PLAY(sam, loop) { BurnSamplePlay(sam); BurnSampleSetLoop(sam, loop); }
-
-static INT32 out_hole = 0;
 
 // heiankyo sound
 static void HeiankyoSoundWrite1(UINT16 port, UINT8 data)
@@ -1667,7 +1745,7 @@ static void HeiankyoSoundWrite1(UINT16 port, UINT8 data)
 	}
 	if (Low & 0x8) {
 		BurnSampleStop(2); // stop "alien in hole"
-		out_hole = 10;     // start countdown timer
+		sound_timer = 10;     // start countdown timer
 	}
 	if (Low & 0x20)
 		BurnSamplePlay(0); // aliens appear
@@ -1688,10 +1766,10 @@ static void HeiankyoSoundWrite2(UINT16 port, UINT8 data)
 
 	//if (Low || High) bprintf(0, _T("p2 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
 
-	if (out_hole > 0) {
+	if (sound_timer > 0) {
 		// if aliens escape a hole, we need to re-trigger the "aliens moving" sample loop after a short time
-		out_hole--;
-		if (out_hole == 0 && sample_latch) {
+		sound_timer--;
+		if (sound_timer == 0 && sample_latch) {
 			Resume_Moving = 1;
 		}
 	}
@@ -1713,6 +1791,244 @@ static void HeiankyoSoundWrite2(UINT16 port, UINT8 data)
 	if (Low & 0x10 && !PLAYING(1)) { // note: also played when hero death.
 		BurnSamplePlay(1); // alien death
 		BurnSampleStop(2); // stop "alien in hole"
+	}
+}
+
+static void stop_nice(INT32 sam)
+{
+	BurnSampleStop(sam, true);
+}
+
+static void play_nice(INT32 sam, double vol, bool loop)
+{
+	if (!PLAYING(sam)) {
+		// don't set the volume if it's playing.  there's small a chance that
+		// it might be in a latch / could be fading.
+		BurnSampleSetRoute(sam, BURN_SND_SAMPLE_ROUTE_1, vol, BURN_SND_ROUTE_BOTH);
+		BurnSampleSetRoute(sam, BURN_SND_SAMPLE_ROUTE_2, vol, BURN_SND_ROUTE_BOTH);
+	}
+	BurnSamplePlay(sam);
+	BurnSampleSetLoop(sam, loop);
+}
+
+// fades out, waits, and fades back in the sound, for a nice scene-change effect (deepscan death & game over) -dink 2025
+enum { RAMP_OFF = 0, RAMP_DOWN = 1, RAMP_WAIT = 2, RAMP_UP = 3 };
+static INT32 ramp_effect_status = RAMP_OFF;
+static INT32 ramp_vol = 100;
+static const INT32 ramp_intermission = 4*60;
+static INT32 ramp_waiting = 0;
+
+static void ramp_scan()
+{
+	SCAN_VAR(ramp_effect_status);
+	SCAN_VAR(ramp_vol);
+	SCAN_VAR(ramp_waiting);
+}
+
+static void ramp_effect(INT16 *sndout, INT32 len)
+{
+	if (ramp_effect_status == RAMP_OFF) return;
+
+	double volume = (double)ramp_vol / 100;
+
+	for (INT32 i = 0; i < (len * 2); i++) {
+		INT32 sample = sndout[i] * volume;
+		sndout[i] = BURN_SND_CLIP(sample);
+	}
+
+	switch (ramp_effect_status) {
+		case RAMP_OFF:
+			break;
+		case RAMP_WAIT:
+			ramp_waiting--;
+			if (ramp_waiting < 0) {
+				ramp_effect_status = RAMP_UP;
+			}
+			break;
+		case RAMP_DOWN:
+			ramp_vol-=2;
+			if (ramp_vol < 0) {
+				ramp_vol = 0;
+				ramp_waiting = ramp_intermission;
+				ramp_effect_status = RAMP_WAIT;
+			}
+			break;
+		case RAMP_UP:
+			ramp_vol+=2;
+			if (ramp_vol > 100) {
+				ramp_vol = 100;
+				ramp_effect_status = RAMP_OFF;
+			}
+			break;
+	}
+}
+
+static void DeepscanSoundWrite1(UINT16 port, UINT8 data)
+{
+	UINT8 Low  = (port1_state ^ data) & ~data;
+	UINT8 High = (port1_state ^ data) & data;
+	port1_state = data;
+
+	//if (Low || High) bprintf(0, _T("deepscan p1 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
+
+	if (Low & 0x80) {
+		sound_timer = nCurrentFrame;
+	}
+	if (High & 0x80) { // Some sort of warning light on the machine?
+		if (sound_timer == nCurrentFrame) {
+			// hmmmm.
+			// Low & 80 happens when player dies or when red X sub comes onto screen
+			// High & 80 happens right after low & 80 when dies, on the same frame.
+			// Timing this can be used to do a sound fadeout effect :)
+			ramp_effect_status = RAMP_DOWN;
+			ramp_vol = 100;
+		}
+	}
+
+	if (Low & 0x40) {
+		//bprintf(0, _T("sonar on\n"));
+		play_nice(7 + 3, 0.45/2, true);
+	}
+	if (High & 0x40) {
+		//bprintf(0, _T("sonar off\n"));
+		stop_nice(7 + 3); // sonar Off
+	}
+
+	if (Low & 0x1 && !PLAYING(7 + 4)) {
+		play_nice(7 + 4, 0.50/2, false); // bonus
+	}
+
+	if (Low & 0x10) {
+		//bprintf(0, _T("abovewater boom\n"));
+		play_nice(7 + 1, 0.45/2, false);
+	}
+	if (Low & 0x04) {
+		play_nice(7 + 2, 0.50/2, false);
+	}
+	if (Low & 0x08) {
+		//bprintf(0, _T("spray\n"));
+		play_nice(7 + 5, 0.60/2, false);
+	}
+	if (Low & 0x02) {
+		//bprintf(0, _T("shiphit from invinco\n"));
+		play_nice(7 + 0, 0.50/2, false);
+	}
+}
+
+static void DepthchSoundWrite1(UINT16 port, UINT8 data)
+{
+	UINT8 Low  = (port1_state ^ data) & ~data;
+	UINT8 High = (port1_state ^ data) & data;
+	port1_state = data;
+
+	//if (Low || High) bprintf(0, _T("p1 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
+
+	if (High & 0x08) {
+		//bprintf(0, _T("sonar on\n"));
+		play_nice(2, 0.45/2, true);
+	}
+	if (Low & 0x08) {
+		//bprintf(0, _T("sonar off\n"));
+		stop_nice(2); // sonar Off
+		play_nice(3, 0.50/2, false); // bonus
+	}
+
+	if (Low & 0x01) {
+		//bprintf(0, _T("underwater boom\n"));
+		play_nice(0, 0.45/2, false);
+	}
+	if (Low & 0x02) {
+		//bprintf(0, _T("abovewater boom\n"));
+		play_nice(1, 0.45/2, false);
+	}
+	if (Low & 0x04) {
+		//bprintf(0, _T("spray\n"));
+		play_nice(4, 0.60/2, false);
+	}
+}
+
+static void InvincoSoundWrite1(UINT16 port, UINT8 data)
+{
+	UINT8 Low  = (port2_state ^ data) & ~data;
+//	UINT8 High = (port2_state ^ data) & data;
+	port2_state = data;
+
+	//if (Low || High) bprintf(0, _T("invinco p1 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
+
+	if (Low & 0x04 && !PLAYING(6)) {
+		//bprintf(0, _T("saucer\n"));
+		play_nice(6, 0.45/2, 0);
+	}
+	if (Low & 0x18) { // bass sound
+		play_nice(2 + (sound_timer & 3), 0.25/2, 0);
+		sound_timer++;
+	}
+	if (Low & 0x20) { // fire!
+		play_nice(0, 0.35/2, 0);
+	}
+	if (Low & 0x40) {
+		play_nice(1, 0.45/2, 0);
+	}
+	if (Low & 0x80) {
+		play_nice(7, 0.55/2, 0);
+	}
+}
+
+// -------------- digger sound ----------------
+static void DiggerSoundWrite1(UINT16 port, UINT8 data)
+{
+	UINT8 Low  = (port1_state ^ data) & ~data;
+	//UINT8 High = (port1_state ^ data) & data;
+	port1_state = data;
+
+	//if (Low || High) bprintf(0, _T("p1 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
+
+	if (Low & 0x10 && !PLAYING(4)) {
+		//bprintf(0, _T("hero death\n"));
+		BurnSamplePlay(4); // hero death
+	}
+	if (Low & 0x04 && !PLAYING(1)) {
+		//bprintf(0, _T("crab death\n"));
+		BurnSamplePlay(1); // crab death
+	}
+	if (Low & 0x40 && !PLAYING(0)) { // appear / more appear (you're taking too long)
+		//bprintf(0, _T("appear\n"));
+		BurnSamplePlay(0);
+	}
+	if (Low & 0x80 && !PLAYING(2)) {
+		//bprintf(0, _T("crab in hole\n"));
+		BurnSamplePlay(2); // crab in hole
+	}
+}
+
+static void DiggerSoundWrite2(UINT16 port, UINT8 data)
+{
+	palette_bank = data & 3;
+	data &= 0xfc;
+
+	UINT8 Low  = (port2_state ^ data) & ~data;
+	UINT8 High = (port2_state ^ data) & data;
+	port2_state = data;
+
+	//if (Low || High) bprintf(0, _T("p2 low:  %x\thi:  %x\tframe:  %d\n"), Low, High, nCurrentFrame);
+
+	if (High & 0x20) {
+		BurnSamplePlay(5); // shovel
+		//bprintf(0, _T("shovel\n"));
+		return; // shovel has priority, skip processing the rest of this port
+	}
+
+	if ((Low & 0x18) == 0x18 && !PLAYING(0)) { // bass line
+		BurnSamplePlay(7 + (sound_timer & 3));
+		sound_timer++;
+	}
+	if (Low & 0x40) {
+		//bprintf(0, _T("crab out hole\n"));
+		BurnSamplePlay((PLAYING(2)) ? 11 : 3); // leaves hole : phased version (11) if "in hole" is playing.
+	}
+	if (Low & 0x80) {
+		//bprintf(0, _T("game over\n"));
+		BurnSamplePlay(6); // game over explosion
 	}
 }
 
@@ -1768,8 +2084,8 @@ static void NsubSoundWrite(UINT8 data)
 		BurnSampleStop(8);
 
 		// fade-in clicky sample
-		BurnSampleSetAllRoutes(7, 0.00, BURN_SND_ROUTE_BOTH);
-		BurnSampleSetAllRoutesFade(7, 0.50, BURN_SND_ROUTE_BOTH);
+		BurnSampleSetAllRoutes(7, 0.00, BURN_SND_ROUTE_BOTH); // set it to 0.00
+		BurnSampleSetAllRoutesFade(7, 0.50, BURN_SND_ROUTE_BOTH); // fade it in from 0
 	} else if (High & NSUB_EXPL_S) {
 		PLAY(8, false);
 		BurnSampleStop(7);
@@ -2012,7 +2328,7 @@ static INT32 DrvInit(INT32 romsize, INT32 rambase, INT32 has_z80ram, void (__fas
 	}
 
 	BurnSampleInit(0);
-	BurnSampleSetBuffered(ZetTotalCycles, 1933560);
+    BurnSampleSetBuffered(ZetTotalCycles, 1933560);
 
 	GenericTilesInit();
 
@@ -2034,6 +2350,9 @@ static INT32 DrvExit()
 	BurnFreeMemIndex();
 
 	is_nsub = 0;
+	is_invds = 0;
+	is_invho2 = 0;
+	is_tranqgun = 0;
 
 	return 0;
 }
@@ -2140,6 +2459,10 @@ static INT32 DrvFrame()
 	I8039NewFrame();
 
 	{
+		if (is_invds) {
+			Select.Toggle(DrvJoy5[4]);
+		}
+
 		memset (DrvInputs, 0xff, 4);
 
 		for (INT32 i = 0; i < 8; i++) {
@@ -2188,7 +2511,9 @@ static INT32 DrvFrame()
 			coin_status = 0;
 		}
 	}
-
+	if (is_tranqgun && sound_timer > 0) {
+		sound_timer--;
+	}
 	if (carnival_sound)	I8039Close();
 
 	ZetClose();
@@ -2199,6 +2524,7 @@ static INT32 DrvFrame()
 	    BurnSampleRender(pBurnSoundOut, nBurnSoundLen);
 		if (carnival_sound)
 			AY8910Render(pBurnSoundOut, nBurnSoundLen);
+		ramp_effect(pBurnSoundOut, nBurnSoundLen);
 	}
 
 	return 0;
@@ -2231,14 +2557,21 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 		SCAN_VAR(coin_timer);
 		SCAN_VAR(coin_last);
 		SCAN_VAR(palette_bank);
-		SCAN_VAR(samurai_protection);
+		SCAN_VAR(protection);
 
 		SCAN_VAR(port1_state);
 		SCAN_VAR(port2_state);
 		SCAN_VAR(sample_latch);
-		SCAN_VAR(out_hole); // heiankyo timer
+		SCAN_VAR(sound_timer); // heiankyo, digger timer
 
 		SCAN_VAR(nExtraCycles);
+
+		if (is_invds || is_invho2) {
+			Select.Scan();
+		}
+		if (is_invds) {
+			ramp_scan();
+		}
 	}
 
 	return 0;
@@ -2263,11 +2596,11 @@ STD_ROM_PICK(depthch)
 STD_ROM_FN(depthch)
 
 static struct BurnSampleInfo depthchSampleDesc[] = {
-	{ "bonus", SAMPLE_NOLOOP },
-	{ "longex", SAMPLE_NOLOOP },
-	{ "shortex", SAMPLE_NOLOOP },
-	{ "sonar", SAMPLE_NOLOOP },
-	{ "spray", SAMPLE_NOLOOP },
+	{ "longex", SAMPLE_NOLOOP },	// 0
+	{ "shortex", SAMPLE_NOLOOP },   // 1
+	{ "sonar", SAMPLE_NOLOOP },     // 2
+	{ "bonus", SAMPLE_NOLOOP },   	// 3
+	{ "spray", SAMPLE_NOLOOP },     // 4
 	{ "", 0 }
 };
 
@@ -2279,9 +2612,9 @@ static INT32 DepthchInit()
 	return DrvInit(0x4000, 0x8000, 0, depthch_write_port, depthch_read_port, NULL, NULL);
 }
 
-struct BurnDriverD BurnDrvDepthch = {
+struct BurnDriver BurnDrvDepthch = {
 	"depthch", NULL, NULL, "depthch", "1977",
-	"Depthcharge\0", "No sound", "Gremlin", "Vic Dual",
+	"Depthcharge\0", NULL, "Gremlin", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
 	NULL, depthchRomInfo, depthchRomName, NULL, NULL, depthchSampleInfo, depthchSampleName, DepthchInputInfo, DepthchDIPInfo,
@@ -2313,9 +2646,9 @@ static struct BurnRomInfo depthchoRomDesc[] = {
 STD_ROM_PICK(depthcho)
 STD_ROM_FN(depthcho)
 
-struct BurnDriverD BurnDrvDepthcho = {
+struct BurnDriver BurnDrvDepthcho = {
 	"depthcho", "depthch", NULL, "depthch", "1977",
-	"Depthcharge (older)\0", "No sound", "Gremlin", "Vic Dual",
+	"Depthcharge (older)\0", NULL, "Gremlin", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
 	NULL, depthchoRomInfo, depthchoRomName, NULL, NULL, depthchSampleInfo, depthchSampleName, DepthchInputInfo, DepthchDIPInfo,
@@ -2347,9 +2680,9 @@ static struct BurnRomInfo subhuntRomDesc[] = {
 STD_ROM_PICK(subhunt)
 STD_ROM_FN(subhunt)
 
-struct BurnDriverD BurnDrvSubhunt = {
+struct BurnDriver BurnDrvSubhunt = {
 	"subhunt", "depthch", NULL, "depthch", "1977",
-	"Sub Hunter (Gremlin / Taito)\0", "No sound", "Gremlin (Taito license)", "Vic Dual",
+	"Sub Hunter (Gremlin / Taito)\0", NULL, "Gremlin (Taito license)", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
 	NULL, subhuntRomInfo, subhuntRomName, NULL, NULL, depthchSampleInfo, depthchSampleName, DepthchInputInfo, DepthchDIPInfo,
@@ -2386,7 +2719,7 @@ static struct BurnRomInfo invho2RomDesc[] = {
 STD_ROM_PICK(invho2)
 STD_ROM_FN(invho2)
 
-static struct BurnSampleInfo invdsSampleDesc[] = {
+static struct BurnSampleInfo invincoSampleDesc[] = {
 	{ "fire", SAMPLE_NOLOOP },
 	{ "invhit", SAMPLE_NOLOOP },
 	{ "move1", SAMPLE_NOLOOP },
@@ -2398,11 +2731,35 @@ static struct BurnSampleInfo invdsSampleDesc[] = {
 	{ "", 0 }
 };
 
+STD_SAMPLE_PICK(invinco)
+STD_SAMPLE_FN(invinco)
+
+// invinco + deep scan (depthch) samples
+static struct BurnSampleInfo invdsSampleDesc[] = {
+	// invinco
+	{ "fire", SAMPLE_NOLOOP },      // 0
+	{ "invhit", SAMPLE_NOLOOP },    // 1
+	{ "move1", SAMPLE_NOLOOP },     // 2
+	{ "move2", SAMPLE_NOLOOP },     // 3
+	{ "move3", SAMPLE_NOLOOP },     // 4
+	{ "move4", SAMPLE_NOLOOP },     // 5
+	{ "saucer", SAMPLE_NOLOOP },    // 6
+	{ "shiphit", SAMPLE_NOLOOP },   // 7
+	// deep scan / depth charge / sub hunter
+	{ "longex", SAMPLE_NOLOOP },	// 7 + 1
+	{ "shortex", SAMPLE_NOLOOP },   // 7 + 2
+	{ "sonar", SAMPLE_NOLOOP },     // 7 + 3
+	{ "bonus", SAMPLE_NOLOOP },   	// 7 + 4
+	{ "spray", SAMPLE_NOLOOP },     // 7 + 5
+	{ "", 0 }
+};
+
 STD_SAMPLE_PICK(invds)
 STD_SAMPLE_FN(invds)
 
 static INT32 Invho2Init()
 {
+	is_invho2 = 1;
 	return DrvInit(0x4000, 0x8000, 0, invho2_write_port, invho2_read_port, NULL, NULL);
 }
 
@@ -2411,7 +2768,7 @@ struct BurnDriverD BurnDrvInvho2 = {
 	"Invinco / Head On 2 (set 1)\0", "No sound", "Sega", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
-	NULL, invho2RomInfo, invho2RomName, NULL, NULL, invdsSampleInfo, invdsSampleName, Invho2InputInfo, Invho2DIPInfo,
+	NULL, invho2RomInfo, invho2RomName, NULL, NULL, invincoSampleInfo, invincoSampleName, Invho2InputInfo, Invho2DIPInfo,
 	Invho2Init, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
 	224, 256, 3, 4
 };
@@ -2702,6 +3059,24 @@ struct BurnDriverD BurnDrvPulsar = {
 	224, 256, 3, 4
 };
 
+static struct BurnSampleInfo diggerSampleDesc[] = {
+	{ "crab appear", SAMPLE_NOLOOP },	// 0
+	{ "crab death", SAMPLE_NOLOOP },	// 1
+	{ "crab in hole", SAMPLE_NOLOOP },	// 2
+	{ "crab out hole", SAMPLE_NOLOOP },	// 3
+	{ "hero death", SAMPLE_NOLOOP },	// 4
+	{ "hero shovel", SAMPLE_NOLOOP },	// 5
+	{ "game over", SAMPLE_NOLOOP }, 	// 6
+	{ "bass 00", SAMPLE_NOLOOP },		// 7
+	{ "bass 01", SAMPLE_NOLOOP },		// 8
+	{ "bass 02", SAMPLE_NOLOOP },		// 9
+	{ "bass 03", SAMPLE_NOLOOP },		// 10
+	{ "crab out hole phased", SAMPLE_NOLOOP },	// 11 - edge case: plays instead of "crab out hole" if "crab in hole" is playing when triggered
+	{ "", 0 }
+};
+
+STD_SAMPLE_PICK(digger)
+STD_SAMPLE_FN(digger)
 
 // Digger
 
@@ -2716,7 +3091,7 @@ static struct BurnRomInfo diggerRomDesc[] = {
 	{ "691.u20",			0x0400, 0x8aca72d8, 1 | BRF_PRG | BRF_ESS }, //  7
 
 	{ "316-507",			0x0020, 0xfdb22e8f, 1 | BRF_GRA },           //  8 Color data
-	
+
 	{ "316-0206.u14",		0x0020, 0x9617d796, 0 | BRF_OPT },           //  9 Unused prom
 };
 
@@ -2728,12 +3103,12 @@ static INT32 DiggerInit()
 	return DrvInit(0x2000, 0xc000, 0, digger_write_port, digger_read_port, NULL, NULL);
 }
 
-struct BurnDriverD BurnDrvDigger = {
-	"digger", NULL, NULL, NULL, "1980",
-	"Digger\0", "No sound", "Sega", "Vic Dual",
+struct BurnDriver BurnDrvDigger = {
+	"digger", NULL, NULL, "digger", "1980",
+	"Digger\0", NULL, "Sega", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_MAZE, 0,
-	NULL, diggerRomInfo, diggerRomName, NULL, NULL, NULL, NULL, DiggerInputInfo, DiggerDIPInfo,
+	NULL, diggerRomInfo, diggerRomName, NULL, NULL, diggerSampleInfo, diggerSampleName, DiggerInputInfo, DiggerDIPInfo,
 	DiggerInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
 	224, 256, 3, 4
 };
@@ -2769,12 +3144,13 @@ STD_ROM_FN(invds)
 
 static INT32 InvdsInit()
 {
+	is_invds = 1;
 	return DrvInit(0x4000, 0x8000, 0, invds_write_port, invds_read_port, NULL, NULL);
 }
 
-struct BurnDriverD BurnDrvInvds = {
-	"invds", NULL, NULL, "invinco", "1979",
-	"Invinco / Deep Scan\0", "No sound", "Sega", "Vic Dual",
+struct BurnDriver BurnDrvInvds = {
+	"invds", NULL, NULL, "invds", "1979",
+	"Invinco / Deep Scan\0", NULL, "Sega", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
 	NULL, invdsRomInfo, invdsRomName, NULL, NULL, invdsSampleInfo, invdsSampleName, InvdsInputInfo, InvdsDIPInfo,
@@ -2807,12 +3183,12 @@ static INT32 InvincoInit()
 	return DrvInit(0x4000, 0xc000, 0, invinco_write_port, invinco_read_port, NULL, NULL);
 }
 
-struct BurnDriverD BurnDrvInvinco = {
+struct BurnDriver BurnDrvInvinco = {
 	"invinco", NULL, NULL, "invinco", "1979",
-	"Invinco\0", "No sound", "Sega", "Vic Dual",
+	"Invinco\0", NULL, "Sega", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
-	NULL, invincoRomInfo, invincoRomName, NULL, NULL, invdsSampleInfo, invdsSampleName, InvincoInputInfo, InvincoDIPInfo,
+	NULL, invincoRomInfo, invincoRomName, NULL, NULL, invincoSampleInfo, invincoSampleName, InvincoInputInfo, InvincoDIPInfo,
 	InvincoInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
 	224, 256, 3, 4
 };
@@ -2933,28 +3309,37 @@ STD_ROM_PICK(tranqgun)
 STD_ROM_FN(tranqgun)
 
 static struct BurnSampleInfo tranqgunSampleDesc[] = {
-	{ "animal", SAMPLE_NOLOOP },
-	{ "animalhit", SAMPLE_NOLOOP },
-	{ "cry", SAMPLE_NOLOOP },
-	{ "emar", SAMPLE_NOLOOP },
 	{ "gun", SAMPLE_NOLOOP },
 	{ "jeep", SAMPLE_NOLOOP },
 	{ "point", SAMPLE_NOLOOP },
-	{ "walk", SAMPLE_NOLOOP },
+	{ "hit", SAMPLE_NOLOOP },
+	{ "emar", SAMPLE_NOLOOP },
+	{ "walk0", SAMPLE_NOLOOP },
+	{ "walk1", SAMPLE_NOLOOP },
+	{ "cry", SAMPLE_NOLOOP },
+	{ "animal", SAMPLE_NOLOOP },
 	{ "", 0 }
 };
 
 STD_SAMPLE_PICK(tranqgun)
 STD_SAMPLE_FN(tranqgun)
 
-static INT32 TranqgunInit()
+static void tranqgun_map()
 {
-	return DrvInit(0x4000, 0x8000, 0, tranqgun_write_port, tranqgun_read_port, NULL, NULL);
+	ZetSetWriteHandler(tranqgun_write);
+	ZetSetReadHandler(tranqgun_read);
+	ZetUnmapMemory(0x4000, 0x7fff, MAP_RAM);
 }
 
-struct BurnDriverD BurnDrvTranqgun = {
+static INT32 TranqgunInit()
+{
+	is_tranqgun = 1;
+	return DrvInit(0x4000, 0x8000, 0, tranqgun_write_port, tranqgun_read_port, tranqgun_map, NULL);
+}
+
+struct BurnDriver BurnDrvTranqgun = {
 	"tranqgun", NULL, NULL, "tranqgun", "1980",
-	"Tranquillizer Gun\0", "No sound", "Sega", "Vic Dual",
+	"Tranquillizer Gun\0", NULL, "Sega", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_MAZE, 0,
 	NULL, tranqgunRomInfo, tranqgunRomName, NULL, NULL, tranqgunSampleInfo, tranqgunSampleName, TranqgunInputInfo, NULL,
@@ -3117,6 +3502,32 @@ struct BurnDriver BurnDrvHocrash = {
 };
 
 
+// Bumba (bootleg of Head On)
+
+static struct BurnRomInfo bumbaRomDesc[] = {
+	{ "0.a1",			0x0400, 0x4bb51259, 1 | BRF_PRG | BRF_ESS }, //  0 Z80 Code
+	{ "1.a3",			0x0400, 0xaeac8c5f, 1 | BRF_PRG | BRF_ESS }, //  1
+	{ "2.a5",			0x0400, 0xf1a0cb72, 1 | BRF_PRG | BRF_ESS }, //  2
+	{ "3.a6",			0x0400, 0x461c2658, 1 | BRF_PRG | BRF_ESS }, //  3
+	{ "4.a8",			0x0400, 0xc7c13dd1, 1 | BRF_PRG | BRF_ESS }, //  4
+	{ "5.a9",			0x0400, 0xed4666f2, 1 | BRF_PRG | BRF_ESS }, //  5
+	{ "6.a11",			0x0400, 0x95fb39df, 1 | BRF_PRG | BRF_ESS }, //  6
+};
+
+STD_ROM_PICK(bumba)
+STD_ROM_FN(bumba)
+
+struct BurnDriver BurnDrvBumba = {
+	"bumba", "headon", NULL, NULL, "1979",
+	"Bumba (bootleg of Head On)\0", "No sound", "bootleg (Niemer)", "Vic Dual",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_RACING, 0,
+	NULL, bumbaRomInfo, bumbaRomName, NULL, NULL, NULL, NULL, HeadonInputInfo, HeadonDIPInfo,
+	HeadonInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
+	256, 224, 4, 3
+};
+
+
 // Head On (bootleg, alt maze)
 
 static struct BurnRomInfo headonmzRomDesc[] = {
@@ -3216,6 +3627,35 @@ struct BurnDriver BurnDrvSupcrash = {
 };
 
 
+// Colision (bootleg of Head On)
+
+static struct BurnRomInfo colisionRomDesc[] = {
+	{ "0_2708.a0",	0x0400, 0x1febc85a, 1 | BRF_PRG | BRF_ESS }, //  0 Z80 Code
+	{ "1_2708.b0",	0x0400, 0xaeac8c5f, 1 | BRF_PRG | BRF_ESS }, //  1
+	{ "2_2708.d0",	0x0400, 0xdebcc3d4, 1 | BRF_PRG | BRF_ESS }, //  2
+	{ "3_2708.e0",	0x0400, 0x37644be6, 1 | BRF_PRG | BRF_ESS }, //  3
+	{ "4_2708.e0",	0x0400, 0xff5665ba, 1 | BRF_PRG | BRF_ESS }, //  4
+	{ "5_2708.h0",	0x0400, 0x548bac7e, 1 | BRF_PRG | BRF_ESS }, //  5
+	{ "6_2708.l0",	0x0400, 0xb6585b83, 1 | BRF_PRG | BRF_ESS }, //  6
+
+	{ "p0.a4",		0x0020, 0xe60a7960, 0 | BRF_OPT },           //  7 Unused PROMs
+	{ "p1.b4",		0x0020, 0xa1506b9d, 0 | BRF_OPT },           //  8
+};
+
+STD_ROM_PICK(colision)
+STD_ROM_FN(colision)
+
+struct BurnDriver BurnDrvColision = {
+	"colision", "headon", NULL, NULL, "1979",
+	"Colision (bootleg of Head On)\0", "No sound", "bootleg (ASSA)", "Vic Dual",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_RACING, 0,
+	NULL, colisionRomInfo, colisionRomName, NULL, NULL, NULL, NULL, HeadonInputInfo, HeadonDIPInfo,
+	HeadonInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
+	256, 224, 4, 3
+};
+
+
 // Star Trek (Head On hardware)
 
 static struct BurnRomInfo startrksRomDesc[] = {
@@ -3308,31 +3748,17 @@ static struct BurnRomInfo brdrlineRomDesc[] = {
 STD_ROM_PICK(brdrline)
 STD_ROM_FN(brdrline)
 
-static struct BurnSampleInfo brdrlineSampleDesc[] = {
-	{ "boot_and_start", SAMPLE_NOLOOP },
-	{ "coin", SAMPLE_NOLOOP },
-	{ "crashes", SAMPLE_NOLOOP },
-	{ "end_level", SAMPLE_NOLOOP },
-	{ "engine_noise", SAMPLE_NOLOOP },
-	{ "field", SAMPLE_NOLOOP },
-	{ "fire", SAMPLE_NOLOOP },
-	{ "", 0 }
-};
-
-STD_SAMPLE_PICK(brdrline)
-STD_SAMPLE_FN(brdrline)
-
 static INT32 BrdrlineInit()
 {
 	return DrvInit(0x4000, 0x8000, 0, brdrline_write_port, brdrline_read_port, NULL, NULL);
 }
 
-struct BurnDriverD BurnDrvBrdrline = {
-	"brdrline", NULL, NULL, "brdrline", "1981",
-	"Borderline\0", "No sound", "Sega", "Vic Dual",
+struct BurnDriver BurnDrvBrdrline = {
+	"brdrline", NULL, NULL, "tranqgun", "1981",
+	"Borderline\0", NULL, "Sega", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
-	NULL, brdrlineRomInfo, brdrlineRomName, NULL, NULL, brdrlineSampleInfo, brdrlineSampleName, BrdrlineInputInfo, BrdrlineDIPInfo,
+	NULL, brdrlineRomInfo, brdrlineRomName, NULL, NULL, tranqgunSampleInfo, tranqgunSampleName, BrdrlineInputInfo, BrdrlineDIPInfo,
 	BrdrlineInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
 	224, 256, 3, 4
 };
@@ -3372,12 +3798,12 @@ static struct BurnRomInfo brdrlinsRomDesc[] = {
 STD_ROM_PICK(brdrlins)
 STD_ROM_FN(brdrlins)
 
-struct BurnDriverD BurnDrvBrdrlins = {
-	"brdrlins", "brdrline", NULL, "brdrline", "1981",
-	"Borderline (Sidam bootleg)\0", "No sound", "bootleg (Sidam)", "Vic Dual",
+struct BurnDriver BurnDrvBrdrlins = {
+	"brdrlins", "brdrline", NULL, "tranqgun", "1981",
+	"Borderline (Sidam bootleg)\0", NULL, "bootleg (Sidam)", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
-	NULL, brdrlinsRomInfo, brdrlinsRomName, NULL, NULL, brdrlineSampleInfo, brdrlineSampleName, BrdrlineInputInfo, BrdrlineDIPInfo,
+	NULL, brdrlinsRomInfo, brdrlinsRomName, NULL, NULL, tranqgunSampleInfo, tranqgunSampleName, BrdrlineInputInfo, BrdrlineDIPInfo,
 	BrdrlineInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
 	224, 256, 3, 4
 };
@@ -3407,12 +3833,12 @@ static struct BurnRomInfo brdrlinbRomDesc[] = {
 STD_ROM_PICK(brdrlinb)
 STD_ROM_FN(brdrlinb)
 
-struct BurnDriverD BurnDrvBrdrlinb = {
-	"brdrlinb", "brdrline", NULL, "brdrline", "1981",
-	"Borderline (Karateco bootleg)\0", "No sound", "bootleg (Karateco)", "Vic Dual",
+struct BurnDriver BurnDrvBrdrlinb = {
+	"brdrlinb", "brdrline", NULL, "tranqgun", "1981",
+	"Borderline (Karateco bootleg)\0", NULL, "bootleg (Karateco)", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
-	NULL, brdrlinbRomInfo, brdrlinbRomName, NULL, NULL, brdrlineSampleInfo, brdrlineSampleName, BrdrlineInputInfo, BrdrlineDIPInfo,
+	NULL, brdrlinbRomInfo, brdrlinbRomName, NULL, NULL, tranqgunSampleInfo, tranqgunSampleName, BrdrlineInputInfo, BrdrlineDIPInfo,
 	BrdrlineInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
 	224, 256, 3, 4
 };
@@ -3457,12 +3883,12 @@ static struct BurnRomInfo starrkrRomDesc[] = {
 STD_ROM_PICK(starrkr)
 STD_ROM_FN(starrkr)
 
-struct BurnDriverD BurnDrvStarrkr = {
-	"starrkr", "brdrline", NULL, "brdrline", "1981",
-	"Star Raker\0", "No sound", "Sega", "Vic Dual",
+struct BurnDriver BurnDrvStarrkr = {
+	"starrkr", "brdrline", NULL, "tranqgun", "1981",
+	"Star Raker\0", NULL, "Sega", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
-	NULL, starrkrRomInfo, starrkrRomName, NULL, NULL, brdrlineSampleInfo, brdrlineSampleName, StarrkrInputInfo, StarrkrDIPInfo,
+	NULL, starrkrRomInfo, starrkrRomName, NULL, NULL, tranqgunSampleInfo, tranqgunSampleName, StarrkrInputInfo, StarrkrDIPInfo,
 	BrdrlineInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
 	224, 256, 3, 4
 };
@@ -3498,7 +3924,7 @@ STD_ROM_FN(brdrlinet)
 
 struct BurnDriverD BurnDrvBrdrlinet = {
 	"brdrlinet", "brdrline", NULL, "tranqgun", "1981",
-	"Borderline (Tranquillizer Gun conversion)\0", "No sound", "Sega", "Vic Dual",
+	"Borderline (Tranquillizer Gun conversion)\0", NULL, "Sega", "Vic Dual",
 	NULL, NULL, NULL, NULL,
 	BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_VERSHOOT, 0,
 	NULL, brdrlinetRomInfo, brdrlinetRomName, NULL, NULL, tranqgunSampleInfo, tranqgunSampleName, TranqgunInputInfo, NULL,
@@ -3769,6 +4195,47 @@ struct BurnDriver BurnDrvCarnivalc = {
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SHOOT, 0,
 	NULL, carnivalcRomInfo, carnivalcRomName, NULL, NULL, carnivalSampleInfo, carnivalSampleName, CarnivalcInputInfo, CarnivalcDIPInfo,
+	CarnivalInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
+	224, 256, 3, 4
+};
+
+
+// Carnival (ManilaMatic bootleg)
+
+static struct BurnRomInfo carnivalmmRomDesc[] = {
+	{ "16mm.u33",		0x0400, 0x0230bd0a, 1 | BRF_PRG | BRF_ESS }, //  0 Z80 Code
+	{ "15mm.u32",		0x0400, 0xa1f58beb, 1 | BRF_PRG | BRF_ESS }, //  1
+	{ "14mm.u31",		0x0400, 0x67b17922, 1 | BRF_PRG | BRF_ESS }, //  2
+	{ "13mm.u30",		0x0400, 0xbefb09a5, 1 | BRF_PRG | BRF_ESS }, //  3
+	{ "12mm.u29",		0x0400, 0xb5230913, 1 | BRF_PRG | BRF_ESS }, //  4
+	{ "11mm.u28",		0x0400, 0x53040332, 1 | BRF_PRG | BRF_ESS }, //  5
+	{ "10mm.u27",		0x0400, 0xa3b9c2db, 1 | BRF_PRG | BRF_ESS }, //  6
+	{ "9mm.u26",		0x0400, 0xfcc3854e, 1 | BRF_PRG | BRF_ESS }, //  7
+	{ "8mm.u8",			0x0400, 0x28be8d69, 1 | BRF_PRG | BRF_ESS }, //  8
+	{ "7mm.u7",			0x0400, 0x3873ccdb, 1 | BRF_PRG | BRF_ESS }, //  9
+	{ "6mm.u6",			0x0400, 0xd9a96dff, 1 | BRF_PRG | BRF_ESS }, // 10
+	{ "5mm.u5",			0x0400, 0xd893ca72, 1 | BRF_PRG | BRF_ESS }, // 11
+	{ "4mm.u4",			0x0400, 0xdf8c63c5, 1 | BRF_PRG | BRF_ESS }, // 12
+	{ "3mm.u3",			0x0400, 0x689a73e8, 1 | BRF_PRG | BRF_ESS }, // 13
+	{ "2mm.u2",			0x0400, 0xb94ef7ab, 1 | BRF_PRG | BRF_ESS }, // 14
+	{ "1mm.u1",			0x0400, 0x6e10c057, 1 | BRF_PRG | BRF_ESS }, // 15
+
+	{ "mmi6331.u4",		0x0020, 0xf0084d80, 1 | BRF_GRA },           // 16 Color data
+
+	{ "sound.u25",		0x0400, 0x0dbaa2b0, 3 | BRF_PRG | BRF_ESS }, // 17 I8039 Code
+
+	{ "mmi6331.u14",	0x0020, 0x9617d796, 0 | BRF_OPT },           // 18 Unused PROM
+};
+
+STD_ROM_PICK(carnivalmm)
+STD_ROM_FN(carnivalmm)
+
+struct BurnDriver BurnDrvCarnivalmm = {
+	"carnivalmm", "carnival", NULL, "carnival", "1980",
+	"Carnival (ManilaMatic bootleg)\0", NULL, "bootleg (ManilaMatic)", "Vic Dual",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_ORIENTATION_VERTICAL | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SHOOT, 0,
+	NULL, carnivalmmRomInfo, carnivalmmRomName, NULL, NULL, carnivalSampleInfo, carnivalSampleName, CarnivalInputInfo, CarnivalDIPInfo,
 	CarnivalInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 8,
 	224, 256, 3, 4
 };

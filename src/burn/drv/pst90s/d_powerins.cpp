@@ -54,6 +54,8 @@ static INT32 game_drv = 0;
 static INT32 nCyclesDone[2], nCyclesTotal[2];
 static INT32 nCyclesSegment;
 
+static ClearOpposite<2, UINT8> clear_opposite;
+
 inline static void CalcCol(INT32 idx)
 {
 	/* RRRR GGGG BBBB RGBx */
@@ -716,6 +718,8 @@ static INT32 DrvDoReset()
 	tile_bank = 0;
 	soundlatch = 0;
 
+	clear_opposite.reset();
+
 	HiscoreReset();
 
 	return 0;
@@ -790,7 +794,7 @@ static INT32 powerinsInit()
 
 	m6295size = 0x80000 * 4 * 2;
 
-	if ( strcmp(BurnDrvGetTextA(DRV_NAME), "powerins") == 0 || strcmp(BurnDrvGetTextA(DRV_NAME), "powerinsj") == 0) {
+	if ( strcmp(BurnDrvGetTextA(DRV_NAME), "powerins") == 0 || strcmp(BurnDrvGetTextA(DRV_NAME), "powerinsj") == 0 || strcmp(BurnDrvGetTextA(DRV_NAME), "powernbr") == 0) {
 		game_drv = GAME_POWERINS;
 	} else
 	if ( strcmp(BurnDrvGetTextA(DRV_NAME), "powerinsa") == 0 ) {
@@ -1273,14 +1277,14 @@ static void TileForeground()
  			UINT16 c = ((BURN_ENDIAN_SWAP_INT16(RamFg[offs]) & 0xF000) >> 8) | 0x200;
  			UINT16 *p = pTransDraw + y * 320 + x;
 			for (INT32 k=0;k<8;k++) {
- 				if ((d[0] >>  4) != 15) p[0] = BURN_ENDIAN_SWAP_INT16((d[0] >>  4) | c);
- 				if ((d[0] & 0xF) != 15) p[1] = BURN_ENDIAN_SWAP_INT16((d[0] & 0xF) | c);
- 				if ((d[1] >>  4) != 15) p[2] = BURN_ENDIAN_SWAP_INT16((d[1] >>  4) | c);
- 				if ((d[1] & 0xF) != 15) p[3] = BURN_ENDIAN_SWAP_INT16((d[1] & 0xF) | c);
- 				if ((d[2] >>  4) != 15) p[4] = BURN_ENDIAN_SWAP_INT16((d[2] >>  4) | c);
- 				if ((d[2] & 0xF) != 15) p[5] = BURN_ENDIAN_SWAP_INT16((d[2] & 0xF) | c);
- 				if ((d[3] >>  4) != 15) p[6] = BURN_ENDIAN_SWAP_INT16((d[3] >>  4) | c);
- 				if ((d[3] & 0xF) != 15) p[7] = BURN_ENDIAN_SWAP_INT16((d[3] & 0xF) | c);
+ 				if ((d[0] >>  4) != 15) p[0] = (d[0] >>  4) | c;
+ 				if ((d[0] & 0xF) != 15) p[1] = (d[0] & 0xF) | c;
+ 				if ((d[1] >>  4) != 15) p[2] = (d[1] >>  4) | c;
+ 				if ((d[1] & 0xF) != 15) p[3] = (d[1] & 0xF) | c;
+ 				if ((d[2] >>  4) != 15) p[4] = (d[2] >>  4) | c;
+ 				if ((d[2] & 0xF) != 15) p[5] = (d[2] & 0xF) | c;
+ 				if ((d[3] >>  4) != 15) p[6] = (d[3] >>  4) | c;
+ 				if ((d[3] & 0xF) != 15) p[7] = (d[3] & 0xF) | c;
  				d += 4;
  				p += 320;
  			}
@@ -1365,6 +1369,9 @@ static INT32 powerinsFrame()
 		DrvInput[3] |= (DrvJoy2[i] & 1) << i;
 		DrvInput[0] |= (DrvButton[i] & 1) << i;
 	}
+
+	for (INT32 i = 0; i < 2; i++)
+		clear_opposite.check(i, DrvInput[i+2], 0x08, 0x04, 0x02, 0x01, nSocd[i]);
 
 	nCyclesTotal[0] = (INT32)((INT64)12000000 * nBurnCPUSpeedAdjust / (0x0100 * 56));
 	if (game_drv == GAME_POWERINB) nCyclesTotal[0] = (INT32)((INT64)12000000 * nBurnCPUSpeedAdjust / (0x0100 * 60));
@@ -1485,6 +1492,8 @@ static INT32 powerinsScan(INT32 nAction, INT32 *pnMin)
 		if (nAction & ACB_WRITE) {
 			if (game_drv == GAME_POWERINA)  MSM6295SetBank(0, MSM6295ROM + 0x30000 + 0x10000*oki_bank, 0x30000, 0x3ffff);
 		}
+
+		clear_opposite.scan();
 	}
 
 	return 0;
@@ -1552,10 +1561,63 @@ struct BurnDriver BurnDrvPowerinb = {
 
 struct BurnDriver BurnDrvPowerinsc = {
 	"powerinsc", "powerins", NULL, NULL, "1993",
-	"Power Instinct (USA, bootleg set 3)\0", NULL, "bootleg", "Miscellaneous",
+	"Power Instinct (USA, bootleg set 3)\0", NULL, "bootleg (Electronic Devices)", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_CLONE | BDF_BOOTLEG | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_POST90S, GBF_VSFIGHT, FBF_PWRINST,
 	NULL, powerinscRomInfo, powerinscRomName, NULL, NULL, NULL, NULL, powerinsInputInfo, powerinsDIPInfo,
+	powerinsInit, powerinsExit, powerinsFrame, DrvDraw, powerinsScan, &bRecalcPalette, 0x800,
+	320, 224, 4, 3
+};
+
+// -----------------------------------------------------------------------------
+// Hacks and Translations
+// -----------------------------------------------------------------------------
+
+// Power Instinct (Brasil) Portuguese translation v1.0
+// Modified by Mr.Fox (aka devilfox) & BisonSAS
+
+static struct BurnRomInfo powernbrRomDesc[] = {
+	{ "93095-3br.u108",	0x080000, 0x522e776a, BRF_ESS | BRF_PRG },	// 68000 code
+	{ "93095-4.u109",	0x080000, 0xd3d7a782, BRF_ESS | BRF_PRG },	//  1
+
+	{ "93095-2.u90",	0x020000, 0x4b123cc6, BRF_ESS | BRF_PRG },	//  2 Z80 code
+
+	{ "93095-5.u16",	0x100000, 0xb1371808, BRF_GRA }, 			//  3 layer 0
+	{ "93095-6br.u17",	0x100000, 0x4a7a6bd8, BRF_GRA },
+	{ "93095-7.u18",	0x080000, 0x2dd76149, BRF_GRA },			//  5
+
+	{ "93095-1br.u15",	0x020000, 0x7e73e1d8, BRF_GRA }, 			//  6 layer 1
+
+	{ "93095-12.u116",	0x100000, 0x35f3c2a3, BRF_GRA },			//  7 sprites
+	{ "93095-13.u117",	0x100000, 0x1ebd45da, BRF_GRA },			//  8
+	{ "93095-14.u118",	0x100000, 0x760d871b, BRF_GRA },			//  9
+	{ "93095-15.u119",	0x100000, 0xd011be88, BRF_GRA },			// 10
+	{ "93095-16.u120",	0x100000, 0xa9c16c9c, BRF_GRA },			// 11
+	{ "93095-17.u121",	0x100000, 0x51b57288, BRF_GRA },			// 12
+	{ "93095-18.u122",	0x100000, 0xb135e3f2, BRF_GRA },			// 13
+	{ "93095-19.u123",	0x100000, 0x67695537, BRF_GRA },			// 14
+
+	{ "93095-10.u48",	0x100000, 0x329ac6c5, BRF_SND }, 			// 15 sound 1
+	{ "93095-11.u49",	0x100000, 0x75d6097c, BRF_SND },			// 16
+
+	{ "93095-8.u46",	0x100000, 0xf019bedb, BRF_SND }, 			// 17 sound 2
+	{ "93095-9.u47",	0x100000, 0xadc83765, BRF_SND },			// 18
+
+	{ "22.u81",			0x000020, 0x67d5ec4b, BRF_OPT },			// 19 unknown
+	{ "21.u71",			0x000100, 0x182cd81f, BRF_OPT },			// 20
+	{ "20.u54",			0x000100, 0x38bd0e2f, BRF_OPT },			// 21
+
+};
+
+STD_ROM_PICK(powernbr)
+STD_ROM_FN(powernbr)
+
+struct BurnDriver BurnDrvPowernbr = {
+	"powernbr", "powerins", NULL, NULL, "2006",
+	"Power Instinct (Brasil, v1.0, Hack)\0", "Portuguese translation", "hack (NeoGeo BR Team)", "Miscellaneous",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 2, HARDWARE_MISC_POST90S, GBF_VSFIGHT, FBF_PWRINST,
+	NULL, powernbrRomInfo, powernbrRomName, NULL, NULL, NULL, NULL, powerinsInputInfo, powerinsDIPInfo,
 	powerinsInit, powerinsExit, powerinsFrame, DrvDraw, powerinsScan, &bRecalcPalette, 0x800,
 	320, 224, 4, 3
 };

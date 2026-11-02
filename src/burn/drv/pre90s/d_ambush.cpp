@@ -31,6 +31,8 @@ static UINT8 DrvDips[1];
 static UINT8 DrvInputs[2];
 static UINT8 DrvReset;
 
+static HoldCoin<2> hold_coin;
+
 static struct BurnInputInfo AmbushInputList[] = {
 	{"P1 Coin",			BIT_DIGITAL,	DrvJoy1 + 7,	"p1 coin"		},
 	{"P1 Start",		BIT_DIGITAL,	DrvJoy1 + 5,	"p1 start"		},
@@ -375,6 +377,8 @@ static INT32 DrvDoReset(INT32 nClearMem)
 	AY8910Reset(1);
 	BurnWatchdogReset();
 
+	hold_coin.reset();
+
 	HiscoreReset();
 
 	return 0;
@@ -387,7 +391,6 @@ static void DrvPaletteInit(INT32 type)
 		INT32 c = i;
 		if (type == 1) c = BITSWAP16(i, 15, 14, 13, 12, 11, 10, 9, 2, 7, 6, 8, 5, 4, 3, 1, 0);
 		INT32 d = DrvColPROM[c];
-		if (type == 2) d = ((d & 0x03) << 6) | ((d & 0x1c) << 1) | ((d & 0xe0) >> 5);
 
 		INT32 bit0 = (d >> 0) & 0x01;
 		INT32 bit1 = (d >> 1) & 0x01;
@@ -599,7 +602,7 @@ static INT32 MarioblInit()
 		if (BurnLoadRom(DrvGfxROM1 + 0x2000, 6, 1)) return 1;
 		if (BurnLoadRom(DrvGfxROM1 + 0x4000, 7, 1)) return 1;
 
-		if (BurnLoadRomExt(DrvColPROM + 0x0000, 8, 1, LD_INVERT)) return 1;
+		if (BurnLoadRom(DrvColPROM + 0x0000, 8, 1)) return 1;
 	}
 
 	BootlegCommonInit(bootleg_write_byte, 3);
@@ -769,23 +772,6 @@ static INT32 DrvDraw()
 static INT32 MarioblDraw()
 {
 	if (BurnRecalc) {
-		DrvPaletteInit(2);
-		BurnRecalc = 0;
-	}
-
-	BurnTransferClear();
-
-	if (nBurnLayer & 1) GenericTilemapDraw(0, 0, 0);
-	if (nSpriteEnable & 1) bootleg_draw_sprites();
-
-	BurnTransferCopy(BurnPalette);
-
-	return 0;
-}
-
-static INT32 MarioblaDraw()
-{
-	if (BurnRecalc) {
 		DrvPaletteInit(1);
 		BurnRecalc = 0;
 	}
@@ -834,6 +820,9 @@ static INT32 DrvFrame()
 			DrvInputs[0] ^= (DrvJoy1[i] & 1) << i;
 			DrvInputs[1] ^= (DrvJoy2[i] & 1) << i;
 		}
+
+		hold_coin.checklow(0, DrvInputs[0], 1 << 7, 2);
+		hold_coin.checklow(1, DrvInputs[0], 1 << 6, 2);
 	}
 
 	ZetOpen(0);
@@ -870,6 +859,8 @@ static INT32 DrvScan(INT32 nAction, INT32 *pnMin)
 		ZetScan(nAction);
 		AY8910Scan(nAction, pnMin);
 		BurnWatchdogScan(nAction);
+
+		hold_coin.scan();
 	}
 
 	return 0;
@@ -934,7 +925,7 @@ struct BurnDriver BurnDrvAmbushj = {
 	"Ambush (Japan)\0", NULL, "Tecfri (Nippon Amuse license)", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SHOOT, 0,
-	NULL, ambushjRomInfo, ambushjRomName, NULL, NULL, NULL, NULL, AmbushInputInfo, AmbushtDIPInfo,
+	NULL, ambushjRomInfo, ambushjRomName, NULL, NULL, NULL, NULL, AmbushInputInfo, AmbushDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &BurnRecalc, 0x100,
 	256, 224, 4, 3
 };
@@ -966,7 +957,7 @@ struct BurnDriver BurnDrvAmbushh = {
 	"Ambush (hack?)\0", NULL, "Tecfri", "Miscellaneous",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_MISC_PRE90S, GBF_SHOOT, 0,
-	NULL, ambushhRomInfo, ambushhRomName, NULL, NULL, NULL, NULL, AmbushInputInfo, AmbushDIPInfo,
+	NULL, ambushhRomInfo, ambushhRomName, NULL, NULL, NULL, NULL, AmbushInputInfo, AmbushtDIPInfo,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &BurnRecalc, 0x100,
 	256, 224, 4, 3
 };
@@ -1018,11 +1009,14 @@ static struct BurnRomInfo marioblRomDesc[] = {
 	{ "mbjba-2.3ls",	0x2000, 0x7b58c92e, 3 | BRF_GRA },           //  6
 	{ "mbjba-1.3l",		0x2000, 0xc772cb8f, 3 | BRF_GRA },           //  7
 
-	// This one is from MARIO
-	{ "tma1-c-4p.4p",	0x0200, 0xafc9bd41, 4 | BRF_GRA },           //  8 Color PROM
-	// Correct ones are undumped
-	{ "a.bpr",			0x0100, 0x00000000, 0 | BRF_NODUMP | BRF_GRA },           //  9
-	{ "b.bpr",			0x0100, 0x00000000, 0 | BRF_NODUMP | BRF_GRA },           // 10
+	{ "n82s147n.15",	0x0200, 0x6a109f4b, 4 | BRF_GRA },           //  8 Color PROM
+
+	{ "n82s147n.13",	0x0200, 0xa334e4f3, 0 | BRF_OPT },           //  9 Other PROM
+
+	{ "82s153.2",		0x00eb, 0x3b6ec269, 0 | BRF_OPT },           //  10 PLDs
+	{ "82s153.4",		0x00eb, 0x8e227b3e, 0 | BRF_OPT },           //  11
+	{ "82s153.11",		0x00eb, 0x9da5e80d, 0 | BRF_OPT },           //  12
+	{ "pal16x4cj.10",	0x0104, 0xd2731879, 0 | BRF_OPT },           //  13
 };
 
 STD_ROM_PICK(mariobl)
@@ -1066,7 +1060,7 @@ struct BurnDriver BurnDrvMariobla = {
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_BOOTLEG | BDF_ORIENTATION_FLIPPED, 2, HARDWARE_MISC_PRE90S, GBF_PLATFORM, 0,
 	NULL, marioblaRomInfo, marioblaRomName, NULL, NULL, NULL, NULL, MarioblInputInfo, MarioblDIPInfo,
-	MarioblaInit, DrvExit, DrvFrame, MarioblaDraw, DrvScan, &BurnRecalc, 0x100,
+	MarioblaInit, DrvExit, DrvFrame, MarioblDraw, DrvScan, &BurnRecalc, 0x100,
 	256, 224, 4, 3
 };
 
@@ -1104,5 +1098,3 @@ struct BurnDriver BurnDrvDkong3abl = {
 	Dkong3ablInit, DrvExit, DrvFrame, Dkong3ablDraw, DrvScan, &BurnRecalc, 0x100,
 	224, 256, 3, 4
 };
-
-

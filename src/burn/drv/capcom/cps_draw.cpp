@@ -1,6 +1,8 @@
 #include "cps.h"
 // CPS - Draw
 
+CpsDrawPaletteCallback CpsDrawPaletteCallbackFunction = NULL;
+
 UINT8 CpsRecalcPal = 0;			// Flag - If it is 1, recalc the whole palette
 
 static INT32 LayerCont;
@@ -216,8 +218,8 @@ static INT32 DrawStar(INT32 nLayer)
 		nStarColour = pStar[nStar];
 
 		if (nStarColour != 0x0F) {
-			nStarXPos = (((nStar >> 8) << 5) - *((INT16*)(CpsSaveReg[0] + 0x18 + (nLayer << 2))) + (nStarColour & 0x1F) - 64) & 0x01FF;
-			nStarYPos = ((nStar & 0xFF) - *((INT16*)(CpsSaveReg[0] + 0x1A + (nLayer << 2))) - 16) & 0xFF;
+			nStarXPos = (((nStar >> 8) << 5) - BURN_ENDIAN_SWAP_INT16(*((INT16*)(CpsSaveReg[0] + 0x18 + (nLayer << 2)))) + (nStarColour & 0x1F) - 64) & 0x01FF;
+			nStarYPos = ((nStar & 0xFF) - BURN_ENDIAN_SWAP_INT16(*((INT16*)(CpsSaveReg[0] + 0x1A + (nLayer << 2)))) - 16) & 0xFF;
 
 			if (nStarXPos < nCpsScreenWidth && nStarYPos < nCpsScreenHeight) {
 				nStarColour = ((nStarColour & 0xE0) >> 1) + ((GetCurrentFrame() >> 4) % ((nStarColour & 0x80) ? 0xe : 0xf));
@@ -343,7 +345,7 @@ static void Cps2Layers()
 		Draw[nSlice][0] = (LayerCont >> 6) & 3;				// bottom layer (most covered up)
 
 		// Determine layer-sprite priority (layer >= sprites -> layer on top)
-		INT32 nLayPri = (CpsSaveFrg[nSlice][4] << 8) | CpsSaveFrg[nSlice][5];	// Layer priority register at word (400004)
+		INT32 nLayPri = (CpsSaveFrg[0][4] << 8) | CpsSaveFrg[0][5];	// Layer priority register at word (400004)
 		Prio[nSlice][3] = (nLayPri >> 12) & 7;
 		Prio[nSlice][2] = (nLayPri >> 8) & 7;
 		Prio[nSlice][1] = (nLayPri >> 4) & 7;
@@ -499,8 +501,10 @@ static void DoDraw(INT32 Recalc)
 {
 	CtvReady();								// Point to correct tile drawing functions
 
-	if (CpsRecalcPal || bCpsUpdatePalEveryFrame) GetPalette(0, 6);
-	if (Recalc || bCpsUpdatePalEveryFrame) CpsPalUpdate(CpsSavePal);		// recalc whole palette if needed
+	if (!CpsDrawPaletteCallbackFunction || !CpsDrawPaletteCallbackFunction()) {
+		if (CpsRecalcPal || bCpsUpdatePalEveryFrame) GetPalette(0, 6);
+		if (Recalc || bCpsUpdatePalEveryFrame) CpsPalUpdate(CpsSavePal);		// recalc whole palette if needed
+	}
 
 	CpsClearScreen();
 

@@ -1,3 +1,7 @@
+#pragma once
+#ifndef _CPS_H_
+#define _CPS_H_
+
 // CPS ----------------------------------
 #include "burnint.h"
 #include "m68000_intf.h"
@@ -24,9 +28,11 @@ extern INT32 nCpsCycles;												// Cycles per frame
 extern INT32 nCpsZ80Cycles;
 extern UINT8 *CpsGfx;  extern UINT32 nCpsGfxLen;		// All the graphics
 extern UINT8 *CpsRom;  extern UINT32 nCpsRomLen;		// Program Rom (as in rom)
+extern UINT32 nCpsRomMapLen;							// Optional program mapping size; 0 uses the ROM size
 extern UINT8 *CpsCode; extern UINT32 nCpsCodeLen;		// Program Rom (decrypted)
 extern UINT8 *CpsZRom; extern UINT32 nCpsZRomLen;		// Z80 Roms
 extern  INT8 *CpsQSam; extern UINT32 nCpsQSamLen;		// QSound Sample Roms
+extern UINT32 nCpsQSamMask;							// Optional sample decoder mask; 0 uses the ROM size
 extern UINT8 *CpsAd;   extern UINT32 nCpsAdLen;		    // ADPCM Data
 extern UINT8 *CpsKey; extern UINT32 nCpsKeyLen;
 extern UINT32 nCpsGfxScroll[4];								// Offset to Scroll tiles
@@ -34,6 +40,7 @@ extern UINT32 nCpsGfxMask;									// Address mask
 extern UINT8* CpsStar;
 INT32 CpsInit();
 INT32 Cps2Init();
+INT32 Cps2Init(INT32 nMapLen, UINT32 nGfxSize, INT32 bLinear);
 INT32 CpsExit();
 INT32 CpsLoadTiles(UINT8 *Tile,INT32 nStart);
 INT32 CpsLoadTilesByte(UINT8 *Tile,INT32 nStart);
@@ -52,7 +59,7 @@ INT32 CpsLoadTilesSf2mdt(INT32 nStart);
 INT32 CpsLoadTilesSf2mdta(INT32 nStart);
 INT32 CpsLoadTilesSf2m8(INT32 nStart);
 INT32 CpsLoadTilesSf2ceeabl(INT32 nStart);
-INT32 CpsLoadTilesSf2ceuab7(INT32 nStart);
+INT32 CpsLoadTilesSf2ceblp(INT32 nStart);
 INT32 CpsLoadTilesSf2ebbl3(INT32 nStart);
 INT32 CpsLoadTilesSf2amf10(INT32 nStart);
 INT32 CpsLoadTilesFcrash(INT32 nStart);
@@ -78,6 +85,7 @@ INT32 CpsLoadStarsByte(UINT8 *pStar, INT32 nStart);
 INT32 CpsLoadStarsForgottnAlt(UINT8 *pStar, INT32 nStart);
 INT32 Cps2LoadTiles(UINT8 *Tile,INT32 nStart);
 INT32 Cps2LoadTilesSIM(UINT8 *Tile,INT32 nStart);
+INT32 Cps2LoadTilesInterleaved(UINT8 *Tile, UINT8 *pSrc, UINT32 nSize);
 INT32 Cps2LoadTilesGigaman2(UINT8 *Tile, UINT8 *pSrc);
 
 // cps_config.h
@@ -113,6 +121,7 @@ INT32 Cps2LoadTilesGigaman2(UINT8 *Tile, UINT8 *pSrc);
 #define HACK_B_4		29
 #define HACK_B_5		30
 #define HACK_B_6		31
+#define HACK_B_7		32
 
 #define GFXTYPE_SPRITES		(1<<0)
 #define GFXTYPE_SCROLL1		(1<<1)
@@ -133,43 +142,47 @@ INT32 Cps2LoadTilesGigaman2(UINT8 *Tile, UINT8 *pSrc);
 #define mapper_YI24B		10
 #define mapper_AR24B		11
 #define mapper_AR22B		12
-#define mapper_O224B		13
-#define mapper_MS24B		14
-#define mapper_CK24B		15
-#define mapper_NM24B		16
-#define mapper_CA24B		17
-#define mapper_CA22B		18
-#define mapper_STF29		19
-#define mapper_RT24B		20
-#define mapper_RT22B		21
-#define mapper_KD29B		22
-#define mapper_CC63B		23
-#define mapper_KR63B		24
-#define mapper_S9263B		25
-#define mapper_VA63B		26
-#define mapper_VA22B		27
-#define mapper_Q522B		28
-#define mapper_TK263B		29
-#define mapper_CD63B		30
-#define mapper_PS63B		31
-#define mapper_MB63B		32
-#define mapper_QD22B		33
-#define mapper_QD63B		34
-#define mapper_TN2292		35
-#define mapper_RCM63B		36
-#define mapper_PKB10B		37
-#define mapper_pang3		38
-#define mapper_sfzch		39
-#define mapper_cps2			40
-#define mapper_frog			41
-#define mapper_pokon		42
-#define mapper_KNM10B		43
-#define mapper_gulun		44
+#define mapper_ARA63B		13
+#define mapper_O224B		14
+#define mapper_MS24B		15
+#define mapper_CK24B		16
+#define mapper_NM24B		17
+#define mapper_CA24B		18
+#define mapper_CA22B		19
+#define mapper_STF29		20
+#define mapper_RT24B		21
+#define mapper_RT22B		22
+#define mapper_KD29B		23
+#define mapper_CC63B		24
+#define mapper_KR63B		25
+#define mapper_S9263B		26
+#define mapper_VA63B		27
+#define mapper_VA22B		28
+#define mapper_Q522B		29
+#define mapper_TK263B		30
+#define mapper_CD63B		31
+#define mapper_PS63B		32
+#define mapper_MB63B		33
+#define mapper_QD22B		34
+#define mapper_QD63B		35
+#define mapper_TN2292		36
+#define mapper_RCM63B		37
+#define mapper_PKB10B		38
+#define mapper_pang3		39
+#define mapper_sfzch		40
+#define mapper_cps2			41
+#define mapper_frog			42
+#define mapper_pokon		43
+#define mapper_KNM10B		44
+#define mapper_gulun		45
 #define mapper_SFZ63B		mapper_RCM63B
-#define mapper_CP1B1F		45
-#define mapper_CP1B1F_boot	46
-#define mapper_pang3b4		47
-#define mapper_TKSGZB		48
+#define mapper_CP1B1F		46
+#define mapper_CP1B1F_boot	47
+#define mapper_pang3b4		48
+#define mapper_TKSGZB		49
+#define mapper_varthb2		50
+#define mapper_STRIDEREX		51
+#define mapper_FFIGHTEX		52
 extern void SetGfxMapper(INT32 MapperId);
 extern INT32 GfxRomBankMapper(INT32 Type, INT32 Code);
 extern void SetCpsBId(INT32 CpsBId, INT32 bStars);
@@ -181,6 +194,9 @@ extern INT32 bCpsUpdatePalEveryFrame;
 INT32 CpsPalInit();
 INT32 CpsPalExit();
 INT32 CpsPalUpdate(UINT8 *pNewPal);
+typedef void (*CpsPalUpdateCallback)(INT32 nPage, const UINT16* pPalette);
+extern CpsPalUpdateCallback CpsPalUpdateCallbackFunction;
+void CpsPalRecalc(const UINT16* pRaw);
 
 // cps_mem.cpp
 extern UINT8 *CpsRam90;
@@ -188,7 +204,7 @@ extern UINT8 *CpsZRamC0,*CpsZRamF0;
 extern UINT8 *CpsSavePal;
 extern UINT8 *CpsRam708,*CpsReg,*CpsFrg;
 extern UINT8 *CpsSaveReg[MAX_RASTER + 1];
-extern UINT8 *CpsSaveFrg[MAX_RASTER + 1];
+extern UINT8 *CpsSaveFrg[2];
 extern UINT8 *CpsRamFF;
 void CpsMapObjectBanks(INT32 nBank);
 INT32 CpsMemInit();
@@ -197,6 +213,13 @@ INT32 CpsAreaScan(INT32 nAction,INT32 *pnMin);
 
 typedef INT32 (*CpsMemScanCallback)(INT32, INT32*);
 extern CpsMemScanCallback CpsMemScanCallbackFunction;
+// Additional device state precedes sound state in the scan order.
+extern CpsMemScanCallback CpsMemScanExtraCallbackFunction;
+// Optional replacement for the QSound state scan.
+typedef void (*CpsSoundScanCallback)(INT32, INT32*);
+extern CpsSoundScanCallback CpsSoundScanCallbackFunction;
+
+extern INT32 bCpsObjectBankHandlers;
 
 // cps_run.cpp
 extern UINT8 CpsReset;
@@ -280,13 +303,13 @@ extern INT32 Ssf2tb;
 extern INT32 Dinohunt;
 extern INT32 Port6SoundWrite;
 extern INT32 CpsBootlegEEPROM;
-extern INT32 Cps2Turbo;
 extern INT32 Jurassic99;
 extern INT32 Dinoh;
 extern INT32 Wofhfh;
 extern INT32 Wofsgzb;
 extern INT32 Wof3js;
 extern INT32 Knightsh;
+extern INT32 Ecofght;
 
 extern ClearOpposite<4, UINT8> clear_opposite;
 
@@ -304,8 +327,14 @@ void __fastcall CpsWriteWord(UINT32 a, UINT16 d);
 
 typedef void (*CpsRWSoundCommandCallback)(UINT16);
 extern CpsRWSoundCommandCallback CpsRWSoundCommandCallbackFunction;
+// Prepare inputs before port compilation; return the number of stock-port players.
+typedef INT32 (*CpsRwGetInpCallback)();
+extern CpsRwGetInpCallback CpsRwGetInpCallbackFunction;
 
 // cps_draw.cpp
+typedef INT32 (*CpsDrawPaletteCallback)();
+// Return nonzero when the palette is already current for this draw.
+extern CpsDrawPaletteCallback CpsDrawPaletteCallbackFunction;
 extern UINT8 CpsRecalcPal;				// Flag - If it is 1, recalc the whole palette
 extern INT32 nCpsLcReg;							// Address of layer controller register
 extern INT32 CpsLayEn[6];							// bits for layer enable
@@ -341,9 +370,15 @@ void QsndReset();
 void QsndNewFrame();
 void QsndEndFrame();
 void QsndSyncZ80();
-INT32 QsndScan(INT32 nAction);
+INT32 QsndScan(INT32 nAction, INT32 bScanHistory = 0);
 
 // qs_z.cpp
+extern INT32 nQsndZ80Clock, nQsndZBankOffset;
+void QsndZReset();
+void QsndZSetBank(INT32 nBank);
+INT32 QsndZGetBank();
+UINT8 __fastcall QsndZRead(UINT16 a);
+void __fastcall QsndZWrite(UINT16 a, UINT8 d);
 INT32 QsndZInit();
 INT32 QsndZExit();
 INT32 QsndZScan(INT32 nAction);
@@ -353,7 +388,7 @@ INT32 QscInit(INT32 nRate);
 void QscSetRoute(INT32 nIndex, double nVolume, INT32 nRouteDir);
 void QscReset();
 void QscExit();
-INT32 QscScan(INT32 nAction);
+INT32 QscScan(INT32 nAction, INT32 bScanHistory = 0);
 void QscNewFrame();
 void QscWrite(INT32 a, INT32 d);
 UINT8 QscRead();
@@ -403,6 +438,7 @@ INT32 CtvReady();
 
 // cps_obj.cpp
 extern INT32 nCpsObjectBank;
+extern INT32 nCpsObjExtraLen;		// Optional extra data bytes per buffered sprite frame
 extern UINT8 *CpsBootlegSpriteRam;
 extern INT32 Cps1LockSpriteList910000;
 extern INT32 Cps1DetectEndSpriteList8000;
@@ -411,7 +447,17 @@ typedef INT32 (*Cps1ObjGetCallback)();
 extern Cps1ObjGetCallback Cps1ObjGetCallbackFunction;
 typedef INT32 (*Cps1ObjDrawCallback)(INT32, INT32);
 extern Cps1ObjDrawCallback Cps1ObjDrawCallbackFunction;
+extern INT32 bCpsUseParentBlend;
+typedef void (*Cps2ObjGetCallback)(UINT8* pExtra, INT32 nEntry, INT32 nSource);
+extern Cps2ObjGetCallback Cps2ObjGetCallbackFunction;
+typedef INT32 (*Cps2ObjTileCallback)(UINT16* pObject, INT32 nTile, const UINT8* pExtra, INT32 nEntry);
+extern Cps2ObjTileCallback Cps2ObjTileCallbackFunction;
+// Negative skips the object, zero uses its palette, positive supplies 16 colors.
+typedef INT32 (*Cps2ObjPaletteCallback)(INT32, UINT16, UINT16, INT32, UINT32*);
+extern Cps2ObjPaletteCallback Cps2ObjPaletteCallbackFunction;
 
+void CpsObjReset();
+INT32 CpsObjScan(INT32 nAction, char* szName);
 INT32  CpsObjInit();
 INT32  CpsObjExit();
 INT32  CpsObjGet();
@@ -440,6 +486,18 @@ INT32 Cps1Scr1Draw(UINT8 *Base,INT32 sx,INT32 sy);
 INT32 Cps1Scr3Draw(UINT8 *Base,INT32 sx,INT32 sy);
 INT32 Cps2Scr1Draw(UINT8 *Base,INT32 sx,INT32 sy);
 INT32 Cps2Scr3Draw(UINT8 *Base,INT32 sx,INT32 sy);
+
+typedef INT32 (*Cps2ScrollCallback)(INT32, INT32, INT32);
+extern Cps2ScrollCallback Cps2ScrollCallbackFunction;
+typedef const UINT8* (*Cps2Scroll1Callback)();
+extern Cps2Scroll1Callback Cps2Scroll1CallbackFunction;
+
+// Resolve a scroll tile address, including its layer's graphics offset.
+inline static INT32 Cps2ScrollAddress(INT32 nAddress, INT32 nAttributes, INT32 nLayer)
+{
+	if (Cps2ScrollCallbackFunction) return Cps2ScrollCallbackFunction(nAddress, nAttributes, nLayer);
+	return nAddress + nCpsGfxScroll[nLayer];
+}
 
 // cpsr.cpp
 extern UINT8 *CpsrBase;						// Tile data base
@@ -518,6 +576,20 @@ void Sf2mdtSoundFrameStart();
 void Sf2mdtSoundFrameEnd();
 INT32 Sf2mdtScanSound(INT32 nAction, INT32 *pnMin);
 
+// d_cps1.cpp
+#define CPS1_68K_PROGRAM_BYTESWAP			1
+#define CPS1_68K_PROGRAM_NO_BYTESWAP		2
+#define CPS1_Z80_PROGRAM					3
+#define CPS1_TILES							4
+#define CPS1_OKIM6295_SAMPLES				5
+#define CPS1_QSOUND_SAMPLES					6
+#define CPS1_PIC							7
+#define CPS1_EXTRA_TILES_SF2EBBL_400000		8
+#define CPS1_EXTRA_TILES_400000				9
+#define CPS1_EXTRA_TILES_SF2KORYU_400000	10
+#define CPS1_EXTRA_TILES_SF2B_400000		11
+#define CPS1_EXTRA_TILES_SF2MKOT_400000		12
+
 // d_cps2.cpp
 #define CPS2_PRG_68K						1
 #define CPS2_PRG_68K_SIMM					2
@@ -538,4 +610,4 @@ extern UINT16 Cps2VolumeStates[40];
 extern INT32 Cps2DisableDigitalVolume;
 extern UINT8 Cps2VolUp;
 extern UINT8 Cps2VolDwn;
-extern UINT8 AspectDIP;
+#endif

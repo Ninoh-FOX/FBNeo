@@ -72,12 +72,14 @@ static INT32 timer_1_cycles;
 #define SOUND_IRQ_YM3438	0
 #define SOUND_IRQ_V60		1
 
+#define sign_extend(f, frombits) ((INT32)((f) << (32 - (frombits))) >> (32 - (frombits)))
+
 static UINT8 transparent_check[32][256];
 
 struct extents_list
 {
 	UINT8	scan_extent[256];
-	UINT16	extent[32][16];
+	UINT16	extent[256][16];
 };
 
 static UINT16 mixer_control[2][0x40];
@@ -768,7 +770,7 @@ static struct BurnInputInfo RadrInputList[] = {
 	A("P1 Brake",		BIT_ANALOG_REL, &Analog[2],		"p1 z-axis"	),
 
 	{"Reset",			BIT_DIGITAL,	&DrvReset,		"reset"		},
-	{"Service Mode",	BIT_DIGITAL,	DrvJoy5 + 1,	"service"	},
+	{"Service Mode",	BIT_DIGITAL,	DrvJoy5 + 1,	"diag"		},
 	{"Service 1",		BIT_DIGITAL,	DrvJoy5 + 0,	"service"	},
 	{"Service 2",		BIT_DIGITAL,	DrvJoy6 + 4,	"service"	},
 	{"Service 3",		BIT_DIGITAL,	DrvJoy6 + 5,	"service"	},
@@ -1028,6 +1030,23 @@ static struct BurnDIPInfo RadrDIPList[]=
 
 STDDIPINFO(Radr)
 
+static struct BurnDIPInfo SlipstrmDIPList[]=
+{
+	DIP_OFFSET(0x0b)
+	{0x00, 0xff, 0xff, 0x0f, NULL					},
+	{0x01, 0xff, 0xff, 0x00, NULL					},
+
+	{0   , 0xfe, 0   ,    2, "Freeze Frame"			},
+	{0x00, 0x01, 0x04, 0x00, "On"					},
+	{0x00, 0x01, 0x04, 0x04, "Off"					},
+
+	{0   , 0xfe, 0   ,    2, "Steering Response"	},
+	{0x01, 0x01, 0x10, 0x10, "Linear"				},
+	{0x01, 0x01, 0x10, 0x00, "Logarithmic"			},
+};
+
+STDDIPINFO(Slipstrm)
+
 #define DEFAULT_UNUSED_DIPS_MS(setname, offs)			\
 static struct BurnDIPInfo setname##DIPList[]=			\
 {														\
@@ -1042,6 +1061,11 @@ static struct BurnDIPInfo setname##DIPList[]=			\
 	{0   , 0xfe, 0   ,    2, "Multi-Screen Mode"	},	\
 	{0x01, 0x01, 0x01, 0x01, "Disabled"				},	\
 	{0x01, 0x01, 0x01, 0x00, "Enabled"				},	\
+														\
+	{0   , 0xfe, 0   ,    3, "Speaker Mode"			},	\
+	{0x01, 0x01, 0x0c, 0x00, "Stereo"				},	\
+	{0x01, 0x01, 0x0c, 0x04, "Mono"					},	\
+	{0x01, 0x01, 0x0c, 0x08, "Left Side Only"		},	\
 };														\
 														\
 STDDIPINFO(setname)
@@ -1060,6 +1084,11 @@ static struct BurnDIPInfo setname##DIPList[]=			\
 	{0   , 0xfe, 0   ,    2, "Multi-Screen Mode"	},	\
 	{0x01, 0x01, 0x01, 0x01, "Disabled"				},	\
 	{0x01, 0x01, 0x01, 0x00, "Enabled"				},	\
+														\
+	{0   , 0xfe, 0   ,    3, "Speaker Mode"			},	\
+	{0x01, 0x01, 0x0c, 0x00, "Stereo"				},	\
+	{0x01, 0x01, 0x0c, 0x04, "Mono"					},	\
+	{0x01, 0x01, 0x0c, 0x08, "Left Side Only"		},	\
 														\
 	{0   , 0xfe, 0   ,    2, "Steering Response"	},  \
 	{0x01, 0x01, 0x10, 0x10, "Linear"				},  \
@@ -1113,7 +1142,6 @@ DEFAULT_UNUSED_DIPS(Holo, 0x15)
 DEFAULT_UNUSED_DIPS(Dbzvrvs, 0x17)
 DEFAULT_UNUSED_DIPS(Spidmanu, 0x25)
 DEFAULT_UNUSED_DIPS(Sonic, 0x14)
-DEFAULT_UNUSED_DIPS_WHEEL(Slipstrm, 0x0b)
 DEFAULT_UNUSED_DIPS_WHEEL(Radm, 0x0c)
 DEFAULT_UNUSED_DIPS_WHEEL(F1en, 0x0c)
 DEFAULT_UNUSED_DIPS_WHEEL(F1lap, 0x0d)
@@ -2664,6 +2692,15 @@ static INT32 DrvExit()
 #define MIXER_LAYER_MULTISPR    9
 #define MIXER_LAYER_MULTISPR_2  10
 
+static void secty(clip_struct &a, clip_struct &b)
+{
+	if (a.nMinx < b.nMinx) a.nMinx = b.nMinx;
+	if (a.nMiny < b.nMiny) a.nMiny = b.nMiny;
+	if (a.nMaxx > b.nMaxx) a.nMaxx = b.nMaxx;
+	if (a.nMaxy > b.nMaxy) a.nMaxy = b.nMaxy;
+	if (a.nMiny > a.nMaxy) a.nMiny = a.nMaxy;
+	if (a.nMinx > a.nMaxx) a.nMinx = a.nMaxx;
+}
 
 static INT32 compute_clipping_extents(INT32 enable, INT32 clipout, INT32 clipmask, const clip_struct &cliprect, extents_list *list)
 {
@@ -2673,9 +2710,8 @@ static INT32 compute_clipping_extents(INT32 enable, INT32 clipout, INT32 clipmas
 	clip_struct tempclip;
 	clip_struct clips[5];
 	INT32 sorted[5];
-	INT32 i, j, y;
 
-	/* expand our cliprect to exclude the bottom-right */
+	/* expand our cliprect to include the bottom-right */
 	tempclip = cliprect;
 	tempclip.nMaxx++;
 	tempclip.nMaxy++;
@@ -2691,8 +2727,8 @@ static INT32 compute_clipping_extents(INT32 enable, INT32 clipout, INT32 clipmas
 		return 1;
 	}
 
-	/* extract the from videoram into locals, and apply the cliprect */
-	for (i = 0; i < 5; i++)
+	/* extract the clips from videoram into locals, and apply the cliprect */
+	for (int i = 0; i < 5; i++)
 	{
 		if (!flip)
 		{
@@ -2703,16 +2739,10 @@ static INT32 compute_clipping_extents(INT32 enable, INT32 clipout, INT32 clipmas
 		}
 		else
 		{
-			clip_struct visarea;
-			visarea.nMinx = 0;
-			visarea.nMaxx = ((nScreenWidth) - 1);
-			visarea.nMiny = 0;
-			visarea.nMaxy = ((nScreenHeight) - 1);
-
-			clips[i].nMaxx = (visarea.nMaxx + 1) - (BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff60/2 + i * 4]) & 0x1ff);
-			clips[i].nMaxy = (visarea.nMaxy + 1) - (BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff62/2 + i * 4]) & 0x0ff);
-			clips[i].nMinx = (visarea.nMaxx + 1) - ((BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff64/2 + i * 4]) & 0x1ff) + 1);
-			clips[i].nMiny = (visarea.nMaxy + 1) - ((BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff66/2 + i * 4]) & 0x0ff) + 1);
+			clips[i].nMaxx = (tempclip.nMaxx) - (BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff60/2 + i * 4]) & 0x1ff);
+			clips[i].nMaxy = (tempclip.nMaxy) - (BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff62/2 + i * 4]) & 0x0ff);
+			clips[i].nMinx = (tempclip.nMaxx) - ((BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff64/2 + i * 4]) & 0x1ff) + 1);
+			clips[i].nMiny = (tempclip.nMaxy) - ((BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff66/2 + i * 4]) & 0x0ff) + 1);
 		}
 
 		if (clips[i].nMiny < tempclip.nMiny) clips[i].nMiny = tempclip.nMiny;
@@ -2723,12 +2753,12 @@ static INT32 compute_clipping_extents(INT32 enable, INT32 clipout, INT32 clipmas
 	}
 
 	/* bubble sort them by nMinx */
-	for (i = 0; i < 5; i++)
-		for (j = i + 1; j < 5; j++)
+	for (int i = 0; i < 5; i++)
+		for (int j = i + 1; j < 5; j++)
 			if (clips[sorted[i]].nMinx > clips[sorted[j]].nMinx) { INT32 temp = sorted[i]; sorted[i] = sorted[j]; sorted[j] = temp; }
 
 	/* create all valid extent combinations */
-	for (i = 1; i < 32; i++)
+	for (int i = 1; i < 32; i++)
 		if (i & clipmask)
 		{
 			UINT16 *extent = &list->extent[i][0];
@@ -2737,7 +2767,7 @@ static INT32 compute_clipping_extents(INT32 enable, INT32 clipout, INT32 clipmas
 			*extent++ = tempclip.nMinx;
 
 			/* loop in sorted order over extents */
-			for (j = 0; j < 5; j++)
+			for (int j = 0; j < 5; j++)
 				if (i & (1 << sorted[j]))
 				{
 					const clip_struct &cur = clips[sorted[j]];
@@ -2762,15 +2792,144 @@ static INT32 compute_clipping_extents(INT32 enable, INT32 clipout, INT32 clipmas
 		}
 
 	/* loop over scanlines and build extents */
-	for (y = tempclip.nMiny; y < tempclip.nMaxy; y++)
+	for (int y = tempclip.nMiny; y < tempclip.nMaxy; y++)
 	{
 		INT32 sect = 0;
 
 		/* figure out all the clips that intersect this scanline */
-		for (i = 0; i < 5; i++)
+		for (int i = 0; i < 5; i++)
 			if ((clipmask & (1 << i)) && y >= clips[i].nMiny && y < clips[i].nMaxy)
 				sect |= 1 << i;
-		list->scan_extent[y] = sect;
+
+		/*
+		 * $1FF04 bits 4/5 enable per-line clip windows.
+		 *
+		 * clip 2:
+		 *   +000 = min X
+		 *   +200 = max X
+		 *
+		 * clip 3:
+		 *   +100 = min X
+		 *   +300 = max X
+		 */
+		if (BIT(BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff04 / 2]), 4) || BIT(BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff04 / 2]), 5))
+		{
+			clip_struct lineclips[5];
+			int linesorted[5];
+		   // const clip_struct &visarea = screen.visible_area();
+			int line = flip ? cliprect.nMaxy - y : y;
+			UINT16 *table = &m_videoram[(BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff04/2]) >> 10) * 0x400];
+
+			for (int i = 0; i < 5; i++)
+			{
+				lineclips[i] = clips[i];
+				linesorted[i] = i;
+			}
+
+			// clip window 2
+			if (BIT(BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff04 / 2]), 4) && BIT(clipmask, 2))
+			{
+				UINT16 minx = BURN_ENDIAN_SWAP_INT16(table[0x000 + line]);
+				UINT16 maxx = BURN_ENDIAN_SWAP_INT16(table[0x200 + line]);
+
+				if (minx == 0xffff || maxx == 0xffff)
+				{
+					sect &= ~(1 << 2);
+				}
+				else if (!flip)
+				{
+					lineclips[2].nMinx = minx & 0x1ff;
+					lineclips[2].nMaxx = (maxx & 0x1ff) + 1;
+				}
+				else
+				{
+					lineclips[2].nMinx = tempclip.nMaxx - ((maxx & 0x1ff) + 1);
+					lineclips[2].nMaxx = tempclip.nMaxx - (minx & 0x1ff);
+				}
+
+				secty(lineclips[2], tempclip); //lineclips[2] &= tempclip;
+
+				if (lineclips[2].nMinx >= lineclips[2].nMaxx)
+					sect &= ~(1 << 2);
+			}
+
+			// clip window 3
+			if (BIT(BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff04 / 2]), 5) && BIT(clipmask, 3))
+			{
+				UINT16 minx = BURN_ENDIAN_SWAP_INT16(table[0x100 + line]);
+				UINT16 maxx = BURN_ENDIAN_SWAP_INT16(table[0x300 + line]);
+
+				if (minx == 0xffff || maxx == 0xffff)
+				{
+					sect &= ~(1 << 3);
+				}
+				else if (!flip)
+				{
+					lineclips[3].nMinx = minx & 0x1ff;
+					lineclips[3].nMaxx = (maxx & 0x1ff) + 1;
+				}
+				else
+				{
+					lineclips[3].nMinx = tempclip.nMaxx - ((maxx & 0x1ff) + 1);
+					lineclips[3].nMaxx = tempclip.nMaxx - (minx & 0x1ff);
+				}
+
+				secty(lineclips[3], tempclip); //lineclips[3] &= tempclip;
+
+				if (lineclips[3].nMinx >= lineclips[3].nMaxx)
+					sect &= ~(1 << 3);
+			}
+
+			/*
+			 * Build the extent for this individual scanline.
+			 * 0-31 remain the normal combinations.
+			 * 32+y is the per-line extent.
+			 */
+			{
+				UINT16 *extent = &list->extent[32 + y][0];
+
+				for (int i = 0; i < 5; i++)
+					linesorted[i] = i;
+
+				for (int i = 0; i < 5; i++)
+					for (int j = i + 1; j < 5; j++)
+						if (lineclips[linesorted[i]].nMinx > lineclips[linesorted[j]].nMinx)
+						{
+							int temp = linesorted[i];
+							linesorted[i] = linesorted[j];
+							linesorted[j] = temp;
+						}
+
+				*extent++ = tempclip.nMinx;
+
+				for (int j = 0; j < 5; j++)
+				{
+					if (BIT(sect, linesorted[j]))
+					{
+						const clip_struct &cur = lineclips[linesorted[j]];
+
+						if (extent != &list->extent[32 + y][1] && cur.nMinx <= extent[-1])
+						{
+							if (cur.nMaxx > extent[-1])
+								extent[-1] = cur.nMaxx;
+						}
+						else
+						{
+							*extent++ = cur.nMinx;
+							*extent++ = cur.nMaxx;
+						}
+					}
+				}
+
+				*extent++ = tempclip.nMaxx;
+			}
+
+			list->scan_extent[y] = 32 + y;
+		}
+		else
+		{
+			list->scan_extent[y] = sect;
+		}
 	}
 
 	return clipout;
@@ -2818,17 +2977,14 @@ static void compute_tilemap_flips(INT32 bgnum, INT32 &flipx, INT32 &flipy)
 {
 	UINT16 *ram = (UINT16*)DrvVidRAM;
 
-	INT32 global_flip = (BURN_ENDIAN_SWAP_INT16(ram[0x1ff00 / 2]) >> 9)&1;
+	// determine flip bits
+	INT32 global_flip    = (BURN_ENDIAN_SWAP_INT16(ram[0x1ff00 / 2]) >> 9) & 1;
+	INT32 layer_flip     = (BURN_ENDIAN_SWAP_INT16(ram[0x1ff00 / 2]) >> bgnum) & 1;
+	INT32 prohibit_flipy = (BURN_ENDIAN_SWAP_INT16(ram[0x1ff00 / 2]) >> 8) & 1;
 
-	flipx = global_flip;
-	flipy = global_flip;
+	flipx = (layer_flip) ? !global_flip : global_flip;
 
-	INT32 layer_flip = (BURN_ENDIAN_SWAP_INT16(ram[0x1ff00 / 2]) >> bgnum) & 1;
-
-	flipy ^= layer_flip;
-	flipx ^= layer_flip;
-
-	if ((BURN_ENDIAN_SWAP_INT16(ram[0x1ff00 / 2]) >> 8) & 1) flipy = 0;
+	flipy = (layer_flip && !prohibit_flipy) ? !global_flip : global_flip;
 }
 
 static void get_tilemaps(INT32 bgnum, INT32 *tilemaps)
@@ -2905,8 +3061,8 @@ static void update_tilemap_zoom(clip_struct cliprect, UINT16 *ram, INT32 destbmp
 	UINT32 srcy = (BURN_ENDIAN_SWAP_INT16(ram[0x1ff16/2 + 4 * bgnum]) & 0x1ff) << 20;
 	srcy += (BURN_ENDIAN_SWAP_INT16(ram[0x1ff14/2 + 4 * bgnum]) & 0xfe00) << 4;
 
-	srcx_start -= ((INT16)(BURN_ENDIAN_SWAP_INT16(ram[0x1ff30/2 + 2 * bgnum]) << 6) >> 6) * srcxstep;
-	srcy -= ((INT16)(BURN_ENDIAN_SWAP_INT16(ram[0x1ff32/2 + 2 * bgnum]) << 7) >> 7) * srcystep;
+	srcx_start -= sign_extend(BURN_ENDIAN_SWAP_INT16(ram[0x1ff30/2 + 2 * bgnum]), (dstxstep != 0x200) ? 10 : 9) * srcxstep;
+	srcy -= sign_extend(BURN_ENDIAN_SWAP_INT16(ram[0x1ff32/2 + 2 * bgnum]), (dstystep != 0x200) ? 10 : 9) * srcystep;
 
 	srcx_start += cliprect.nMinx * srcxstep;
 	srcy += cliprect.nMiny * srcystep;
@@ -2992,7 +3148,7 @@ static void update_tilemap_rowscroll(clip_struct cliprect, UINT16 *m_videoram, I
 		}
 	}
 
-	INT32 opaque = (opaquey_hack) ? ((m_videoram[0x1ff8e/2] >> (8 + bgnum)) & 1) : 0;
+	INT32 opaque = (opaquey_hack) ? ((BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff8e/2]) >> (8 + bgnum)) & 1) : 0;
 	INT32 flipx, flipy;
 
 	compute_tilemap_flips(bgnum, flipx, flipy);
@@ -3039,20 +3195,23 @@ static void update_tilemap_rowscroll(clip_struct cliprect, UINT16 *m_videoram, I
 			}
 
 			INT32 srcy;
+			INT32 ylookup;
 			if (!flipy)
 			{
 				srcy = yscroll + y;
+				ylookup = y;
 			}
 			else
 			{
 				srcy = yscroll + cliprect.nMaxy /*visarea.nMaxy*/ - y;
+				ylookup = cliprect.nMaxy - y;
 			}
 
 			/* apply row scroll/select */
 			if (rowscroll)
-				srcx += BURN_ENDIAN_SWAP_INT16(table[0x000 + 0x100 * (bgnum - 2) + y]) & 0x3ff;
+				srcx += BURN_ENDIAN_SWAP_INT16(table[0x000 + 0x100 * (bgnum - 2) + ylookup]) & 0x3ff;
 			if (rowselect)
-				srcy = (yscroll + BURN_ENDIAN_SWAP_INT16(table[0x200 + 0x100 * (bgnum - 2) + y])) & 0x1ff;
+				srcy = (yscroll + BURN_ENDIAN_SWAP_INT16(table[0x200 + 0x100 * (bgnum - 2) + ylookup])) & 0x1ff;
 
 			/* look up the pages and get their source pixmaps */
 			UINT16 const *tm0 = BurnBitmapGetBitmap(tmap_cache[tilemaps[((srcy >> 7) & 2) + 0]].tmap + 32 );
@@ -3188,9 +3347,9 @@ static void update_tilemap_text(clip_struct cliprect, UINT16 *ram, INT32 destbmp
 			/* flipped case */
 			else
 			{
-				INT32 effdstx = (width - 1) - x * 8;
-				INT32 effdsty = (height - 1) - y * 8;
-				UINT16 *dst = BurnBitmapGetPosition(destbmp+5, effdstx, effdsty);
+				INT32 effdstx = (cliprect.nMaxx) - x * 8;
+				INT32 effdsty = (cliprect.nMaxy) - y * 8;
+				UINT16 *dst = BurnBitmapGetPosition(destbmp+5, (x > 1) ? ((effdstx) + (wide_offs * fake_wide_screen)) : effdstx, effdsty);
 
 				/* loop over rows */
 				for (INT32 iy = 0; iy < 8; iy++)
@@ -3218,7 +3377,7 @@ static void update_tilemap_text(clip_struct cliprect, UINT16 *ram, INT32 destbmp
 						pix |= color;
 					dst[-3] = BURN_ENDIAN_SWAP_INT16(pix);
 
-					pix = BURN_ENDIAN_SWAP_INT16(*src++);
+					pixels = BURN_ENDIAN_SWAP_INT16(*src++);
 
 					pix = (pixels >> 4) & 0x0f;
 					if (pix)
@@ -3248,9 +3407,14 @@ static void update_tilemap_text(clip_struct cliprect, UINT16 *ram, INT32 destbmp
 
 static void update_background(clip_struct cliprect, UINT16 *ram, INT32 destbmp)
 {
+	UINT16 *m_videoram = (UINT16*)DrvVidRAM;
+
+	// determine if we're flipped
+	bool flip = BIT(BURN_ENDIAN_SWAP_INT16(m_videoram[0x1ff00 / 2]), 9);
+
 	for (INT32 y = cliprect.nMiny; y <= cliprect.nMaxy; y++)
 	{
-		UINT16 *const dst = BurnBitmapGetPosition(destbmp+5, 0, y);
+		UINT16 *const dst = BurnBitmapGetPosition(destbmp+5, 0, flip ? cliprect.nMaxy - y : y);
 		INT32 color;
 
 		/* determine the color */
@@ -3316,7 +3480,7 @@ static void update_bitmap(clip_struct cliprect, UINT16 *ram, INT32 destbmp)
 						for (INT32 x = extents[0]; x < extents[1]; x++)
 						{
 							INT32 effx = (x + xscroll) & 0x1ff;
-							INT32 pix = BURN_ENDIAN_SWAP_INT16(src[(effx)]) + color;
+							INT32 pix = src[effx] + color;
 							if ((pix & 0xff) == 0)
 								pix = 0, transparent++;
 							dst[x] = BURN_ENDIAN_SWAP_INT16(pix);
@@ -4164,7 +4328,7 @@ static void draw_screen(INT32 which)
 
 	BurnTransferClear(0);
 
-	if (!system32_displayenable[0]) {
+	if (!system32_displayenable[which]) {
 		return;
 	}
 
@@ -4189,7 +4353,7 @@ static INT32 SingleScreenModeChangeCheck()
 		BurnTransferSetDimensions(screensize, 224);
 		GenericTilesSetClipRaw(0, screensize, 0, 224);
 		BurnDrvSetVisibleSize(screensize, 224);
-		Reinitialise(); // re-inits video subsystem (pBurnDraw)
+		ReinitialiseVideo(); // re-inits video subsystem (pBurnDraw)
 		BurnTransferRealloc(); // re-inits pTransDraw
 
 		if (is_slipstrm || is_radr) {
@@ -4232,6 +4396,9 @@ static INT32 DrvDraw()
 
 static INT32 MultiScreenCheck()
 {
+	// audio check :)
+	MultiPCMSetMonoMode((DrvDips[1] & 0xc) >> 2);
+
 	INT32 screensize = (DrvDips[1] & 1) ? 320 : 640;
 	if (screensize != nScreenWidth)
 	{
@@ -4240,12 +4407,10 @@ static INT32 MultiScreenCheck()
 		BurnDrvSetVisibleSize(screensize, 224);
 		if (screensize == 320) {
 			BurnDrvSetAspect(4, 3);
-			MultiPCMSetMono(1);
 		} else {
 			BurnDrvSetAspect(8, 3);
-			MultiPCMSetMono(0);
 		}
-		Reinitialise(); // re-inits video subsystem (pBurnDraw)
+		ReinitialiseVideo(); // re-inits video subsystem (pBurnDraw)
 		BurnTransferRealloc(); // re-inits pTransDraw
 
 		return 1; // don't draw this time around
@@ -5967,7 +6132,7 @@ static void brival_protection_write(UINT32 offset, UINT32 data, UINT32 mask)
 	UINT8 *ROM = DrvV60ROM;
 	UINT16 *protram = (UINT16*)DrvV25RAM;
 
-	protram[offset] = (protram[offset] & ~mask) | (data & mask);
+	protram[offset] = BURN_ENDIAN_SWAP_INT16((BURN_ENDIAN_SWAP_INT16(protram[offset]) & ~mask) | (data & mask));
 
 	switch (offset)
 	{
@@ -7734,7 +7899,7 @@ struct BurnDriver BurnDrvScross = {
 };
 
 
-// Stadium Cross (World, alt)
+// Stadium Cross (World, linkable)
 
 static struct BurnRomInfo scrossaRomDesc[] = {
 	{ "ic37",						0x040000, 0x240a7655, 5 | BRF_PRG | BRF_ESS }, //  0 V70 #0 Code
@@ -7767,7 +7932,7 @@ STD_ROM_FN(scrossa)
 
 struct BurnDriver BurnDrvScrossa = {
 	"scrossa", "scross", NULL, NULL, "1992",
-	"Stadium Cross (World, alt)\0", NULL, "Sega", "System 32",
+	"Stadium Cross (World, linkable)\0", NULL, "Sega", "System 32",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HISCORE_SUPPORTED, 2, HARDWARE_SEGA_SYSTEM32, GBF_RACING, 0,
 	NULL, scrossaRomInfo, scrossaRomName, NULL, NULL, NULL, NULL, ScrossInputInfo, ScrossDIPInfo,
@@ -7800,6 +7965,8 @@ static struct BurnRomInfo scrossuRomDesc[] = {
 
 	{ "mpr-15031.ic1",				0x100000, 0x6af139dc, 1 | BRF_SND },           // 15 PCM Samples
 	{ "mpr-15032.ic2",				0x100000, 0x915d6096, 1 | BRF_SND },           // 16
+
+	{ "epr-15033.ic17",				0x020000, 0xdc19ac00, 0 | BRF_PRG | BRF_ESS }, // 17 Comms Board ROM
 };
 
 STD_ROM_PICK(scrossu)
