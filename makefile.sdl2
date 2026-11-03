@@ -88,6 +88,12 @@ ifdef MIYOO
 depobj	:= $(filter-out vid_sdl2opengl.o,$(depobj))
 endif
 
+# 7zCrc.c has an ARMv8 CRC path (picked at run time, never used on the Cortex-A7)
+# that GCC 8.3 can not build inside LTO with profiling: keep that file out of LTO
+ifdef MIYOO_LTO
+7zCrc.o: CFLAGS += -fno-lto
+endif
+
 autobj += $(depobj)
 
 ifdef	BUILD_X86_ASM
@@ -238,8 +244,15 @@ endif
 
 ifdef MIYOO
 	DEF	:= $(DEF) -DMIYOO_MINI
+ifdef MIYOO_LTO
+	# GCC 8.3 (miyoomini toolchain): lto1 segfaults with an explicit -march=armv7ve;
+	# the toolchain default -mcpu=cortex-a7 is the same architecture
+	CFLAGS	 += -marm -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -ftree-vectorize
+	CXXFLAGS += -marm -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -ftree-vectorize
+else
 	CFLAGS	 += -marm -march=armv7ve -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -ftree-vectorize
 	CXXFLAGS += -marm -march=armv7ve -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -ftree-vectorize
+endif
 endif
 
 ifdef WINDOWS
